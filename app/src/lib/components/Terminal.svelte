@@ -141,6 +141,8 @@
     return () => {
       ro.disconnect();
       off?.();
+      // Stop the gateway streaming this PTY to us; it keeps running on the VM for re-attach.
+      if (termId) rpc('term.detach', { id: termId }).catch(() => {});
       term.dispose();
     };
   });

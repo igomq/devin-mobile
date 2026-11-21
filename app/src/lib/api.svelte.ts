@@ -272,6 +272,7 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   },
   'term.input': (p) => request('term.input', { termId: p.id, data: p.data }),
   'term.resize': (p) => request('term.resize', { termId: p.id, cols: p.cols, rows: p.rows }),
+  'term.detach': (p) => request('term.detach', { termId: p.id }),
   'term.close': (p) => request('term.close', { termId: p.id }),
   'agent.status': async () => (await request('agent.status')).agent,
   'projects.list': () => request('projects.list')
