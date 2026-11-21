@@ -343,9 +343,10 @@ export class SessionManager extends EventEmitter {
   async deleteSession(sessionId: string) {
     const acp = await this.ensureAgent();
     await this.closeSession(sessionId).catch(() => undefined);
-    if (acp.initResult?.agentCapabilities?.sessionCapabilities?.delete) {
-      await acp.request('session/delete', { sessionId }, 30000);
+    if (!acp.initResult?.agentCapabilities?.sessionCapabilities?.delete) {
+      throw new Error('This Devin CLI version cannot delete sessions; the session was ended instead.');
     }
+    await acp.request('session/delete', { sessionId }, 30000);
     this.sessions.delete(sessionId);
     this.emit('deleted', sessionId);
   }
