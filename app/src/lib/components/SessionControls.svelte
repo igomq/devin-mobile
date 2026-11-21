@@ -8,6 +8,10 @@
 
   let { open = $bindable(false), sessionId, view }: { open?: boolean; sessionId: string; view: SessionView | undefined } = $props();
   let busy = $state<string | null>(null);
+  let confirmDelete = $state(false);
+  $effect(() => {
+    if (!open) confirmDelete = false;
+  });
 
   let modes = $derived(view?.state.modes ?? []);
   // Every option the agent exposes (model, reasoning level, …). Mode is left out when it has its own picker above.
@@ -62,7 +66,12 @@
   <div class="actions">
     <button class="btn block" onclick={() => ((open = false), go('#/s/' + encodeURIComponent(sessionId) + '/terminal'))}><Icon name="terminal" size={18} /> Open terminal here</button>
     <button class="btn block" disabled={busy !== null} onclick={() => run('close', 'session.close', {}, () => ((open = false), go('#/')))}>End session</button>
-    <button class="btn block danger" disabled={busy !== null} onclick={() => run('delete', 'session.delete', {}, () => ((open = false), go('#/')))}>Delete session</button>
+    {#if confirmDelete}
+      <button class="btn block danger" disabled={busy !== null} onclick={() => run('delete', 'session.delete', {}, () => ((open = false), go('#/')))}>Delete permanently</button>
+      <button class="btn block" disabled={busy !== null} onclick={() => (confirmDelete = false)}>Keep session</button>
+    {:else}
+      <button class="btn block danger" disabled={busy !== null} onclick={() => (confirmDelete = true)}>Delete session</button>
+    {/if}
   </div>
 </Sheet>
 

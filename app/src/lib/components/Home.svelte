@@ -11,6 +11,10 @@
   let creating = $state(false);
   let actionsFor = $state<SessionRow | null>(null);
   let actionsOpen = $state(false);
+  let confirmDelete = $state(false);
+  $effect(() => {
+    if (!actionsOpen) confirmDelete = false;
+  });
   let showEmpty = $state(false);
   let pressTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -136,7 +140,12 @@
   <div class="actions">
     <button class="btn block" onclick={() => ((actionsOpen = false), go('#/s/' + encodeURIComponent(actionsFor?.id ?? '')))}>Resume</button>
     <button class="btn block" onclick={() => act('session.close')}>End session</button>
-    <button class="btn block danger" onclick={() => act('session.delete')}>Delete session</button>
+    {#if confirmDelete}
+      <button class="btn block danger" onclick={() => act('session.delete')}>Delete permanently</button>
+      <button class="btn block" onclick={() => (confirmDelete = false)}>Keep session</button>
+    {:else}
+      <button class="btn block danger" onclick={() => (confirmDelete = true)}>Delete session</button>
+    {/if}
   </div>
 </Sheet>
 
