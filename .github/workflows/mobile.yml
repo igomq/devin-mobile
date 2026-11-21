@@ -29,8 +29,10 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: android-actions/setup-android@v3
-      - name: Install NDK
-        run: sdkmanager --install "ndk;27.0.12077973" "platforms;android-34" "build-tools;34.0.0"
+        with:
+          packages: 'platform-tools ndk;27.0.12077973 platforms;android-34 build-tools;34.0.0'
+      - name: Export NDK_HOME
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
@@ -39,12 +41,8 @@ jobs:
           workspaces: app/src-tauri
       - run: npm ci
       - name: Init Android project
-        env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npx tauri android init --ci
       - name: Build APK
-        env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: npx tauri android build --apk --debug --target aarch64 --target armv7 --target x86_64
       - name: Collect APK
         run: |
