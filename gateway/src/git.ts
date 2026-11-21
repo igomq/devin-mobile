@@ -43,8 +43,16 @@ export async function isRepo(cwd: string): Promise<boolean> {
   }
 }
 
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+/** Status/diff paths are repository-root relative, so all git calls run from the top level. */
+async function repoRoot(cwd: string): Promise<string> {
+  return (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+}
+
 export async function status(cwd: string): Promise<GitStatus> {
   if (!(await isRepo(cwd))) return { isRepo: false, branch: null, upstream: null, ahead: 0, behind: 0, head: null, files: [] };
+  cwd = await repoRoot(cwd);
   const out = await git(cwd, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']);
   const res: GitStatus = { isRepo: true, branch: null, upstream: null, ahead: 0, behind: 0, head: null, files: [] };
   const parts = out.split('\0');
@@ -79,7 +87,7 @@ export async function status(cwd: string): Promise<GitStatus> {
     }
   }
   const hasHead = res.head !== null;
-  const numstat = hasHead ? await git(cwd, ['diff', 'HEAD', '--numstat', '-z', '-M'], true) : await git(cwd, ['diff', '--cached', '--numstat', '-z'], true);
+  const numstat = await git(cwd, ['diff', hasHead ? 'HEAD' : EMPTY_TREE, '--numstat', '-z', '-M'], true);
   const stats = parseNumstat(numstat);
   for (const f of res.files) {
     const st = stats.get(f.path);
@@ -118,12 +126,12 @@ function parseNumstat(out: string) {
 export async function diff(cwd: string, path?: string): Promise<{ diff: string; truncated: boolean }> {
   const st = await status(cwd);
   if (!st.isRepo) throw new Error('Not a git repository');
+  cwd = await repoRoot(cwd);
   const targets = path ? st.files.filter((f) => f.path === path) : st.files;
   let out = '';
-  const tracked = targets.filter((f) => f.status !== 'untracked').map((f) => f.path);
+  const tracked = targets.filter((f) => f.status !== 'untracked').flatMap((f) => (f.oldPath ? [f.oldPath, f.path] : [f.path]));
   if (tracked.length) {
-    const base = st.head ? ['diff', 'HEAD', '-M', '--no-color'] : ['diff', '--cached', '--no-color'];
-    out += await git(cwd, [...base, '--', ...tracked], true);
+    out += await git(cwd, ['diff', st.head ? 'HEAD' : EMPTY_TREE, '-M', '--no-color', '--', ...tracked], true);
   }
   for (const f of targets.filter((f) => f.status === 'untracked')) {
     if (out.length > MAX) break;
