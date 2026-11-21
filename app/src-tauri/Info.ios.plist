@@ -7,8 +7,6 @@
 		<!-- Gateways are reached over the Tailscale tailnet (100.x / *.ts.net), which is already WireGuard-encrypted. -->
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Devin Mobile connects to the gateway running on your VM.</string>
