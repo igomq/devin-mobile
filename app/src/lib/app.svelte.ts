@@ -23,8 +23,9 @@ export function normalizeUrl(input: string): string {
 	if (!u) return u;
 	if (!/^[a-z]+:\/\//i.test(u)) u = `ws://${u}`;
 	u = u.replace(/^http(s?):\/\//i, 'ws$1://');
+	const explicitPort = /^[a-z]+:\/\/(\[[^\]]*\]|[^/:?#]*):\d+/i.test(u);
 	const parsed = new URL(u);
-	if (!parsed.port && parsed.protocol === 'ws:') parsed.port = '8787';
+	if (!explicitPort && parsed.protocol === 'ws:') parsed.port = '8787';
 	if (parsed.pathname === '/' || parsed.pathname === '') parsed.pathname = '/ws';
 	return parsed.toString().replace(/\/$/, '');
 }
