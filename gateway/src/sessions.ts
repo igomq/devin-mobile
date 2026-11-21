@@ -186,7 +186,8 @@ export class SessionManager extends EventEmitter {
       const acp = await this.ensureAgent();
       if (acp.initResult?.agentCapabilities?.sessionCapabilities?.list) {
         let cursor: string | undefined;
-        for (let page = 0; page < 5; page++) {
+        const seen = new Set<string>();
+        for (let page = 0; page < 200; page++) {
           const r = await acp.request('session/list', { ...(cwd ? { cwd } : {}), ...(cursor ? { cursor } : {}) }, 15000);
           for (const info of r?.sessions ?? []) {
             const s = this.getOrCreate(info.sessionId, info.cwd);
@@ -197,7 +198,8 @@ export class SessionManager extends EventEmitter {
             }
           }
           cursor = r?.nextCursor;
-          if (!cursor) break;
+          if (!cursor || seen.has(cursor)) break;
+          seen.add(cursor);
         }
       }
     } catch (e: any) {
