@@ -41,13 +41,25 @@ jobs:
           workspaces: app/src-tauri
       - run: npm ci
       - name: Init Android project
-        run: npx tauri android init --ci
-      - name: Build APK
-        run: npx tauri android build --apk --debug --target aarch64 --target armv7 --target x86_64
-      - name: Collect APK
         run: |
+          npx tauri android init --ci
+          # Gateways are reached as ws:// over the (WireGuard-encrypted) Tailscale tailnet.
+          sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' src-tauri/gen/android/app/build.gradle.kts
+          grep -n usesCleartextTraffic src-tauri/gen/android/app/build.gradle.kts
+      - name: Build release APK (arm64)
+        run: npx tauri android build --apk --target aarch64
+      - name: Sign APK
+        run: |
+          # Throwaway CI key: sideload-only builds. Use a stable keystore secret to allow in-place upgrades.
+          keytool -genkeypair -keystore ci.jks -storepass android -keypass android -alias ci \
+            -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=devin-mobile CI" >/dev/null
+          UNSIGNED=$(find src-tauri/gen/android -name '*release-unsigned.apk' | head -1)
+          echo "unsigned: $UNSIGNED"
           mkdir -p ../dist
-          find src-tauri/gen/android -name '*.apk' -path '*debug*' -exec cp {} ../dist/ \;
+          BT=$ANDROID_HOME/build-tools/34.0.0
+          $BT/zipalign -f 4 "$UNSIGNED" aligned.apk
+          $BT/apksigner sign --ks ci.jks --ks-pass pass:android --out ../dist/devin-mobile-arm64.apk aligned.apk
+          $BT/apksigner verify ../dist/devin-mobile-arm64.apk
           ls -la ../dist
       - uses: actions/upload-artifact@v4
         with:
