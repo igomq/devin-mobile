@@ -68,7 +68,22 @@ export function applyTheme() {
   requestAnimationFrame(() => {
     const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', bg));
+    // Resolve --bg on a probe: the body's own background is mid-transition right after a theme switch.
+    const probe = document.createElement('i');
+    probe.style.cssText = 'display:none;transition:none;background-color:var(--bg)';
+    document.body.append(probe);
+    const rgb = getComputedStyle(probe).backgroundColor.match(/\d+/g)?.slice(0, 3).map(Number);
+    probe.remove();
+    if (!rgb || rgb.length < 3) return;
+    const hex = '#' + rgb.map((n) => n.toString(16).padStart(2, '0')).join('');
+    const dark = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 140;
+    // Android shell only (src-tauri/android/MainActivity.kt).
+    (window as { DevinMobileAndroid?: { setBars(color: string, dark: boolean): void } }).DevinMobileAndroid?.setBars(hex, dark);
   });
+}
+
+if (typeof window !== 'undefined') {
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 }
 
 export const toasts = $state<{ id: number; text: string; kind: 'info' | 'error' }[]>([]);

@@ -46,6 +46,8 @@ jobs:
           # Gateways are reached as ws:// over the (WireGuard-encrypted) Tailscale tailnet.
           sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' src-tauri/gen/android/app/build.gradle.kts
           grep -n usesCleartextTraffic src-tauri/gen/android/app/build.gradle.kts
+          # Keyboard and system-bar handling (see the file's comments).
+          cp src-tauri/android/MainActivity.kt src-tauri/gen/android/app/src/main/java/com/igomq/devinmobile/MainActivity.kt
       - name: Build release APK (arm64)
         run: npx tauri android build --apk --target aarch64
       - name: Sign APK
