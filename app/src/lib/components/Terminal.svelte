@@ -3,7 +3,7 @@
   import { Terminal } from '@xterm/xterm';
   import { FitAddon } from '@xterm/addon-fit';
   import '@xterm/xterm/css/xterm.css';
-  import { conn, rpc, onTerminal, views, app, errorText } from '#lib/api.svelte.ts';
+  import { conn, rpc, onTerminal, views, app, errorText, refreshSessions } from '#lib/api.svelte.ts';
   import { go } from '#lib/ui.svelte.ts';
   import { basename } from '#lib/format.ts';
   import Icon from './Icon.svelte';
@@ -66,6 +66,8 @@
     term.reset();
     fit.fit();
     try {
+      // After a gateway restart only the session list knows this session's project.
+      if (sessionId && !cwd) await refreshSessions();
       const t = await rpc('term.open', { cwd: cwd ?? '~', devin, cols: term.cols, rows: term.rows });
       termId = t.id;
       sessionStorage.setItem(storeKey, t.id);
