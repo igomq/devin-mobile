@@ -336,9 +336,10 @@ function onMessage(msg: Json) {
       app.sessions = app.sessions.filter((s) => s.id !== msg.sessionId);
       return;
     case 'permission_request': {
-      notify('Approval needed', msg.toolCall?.title ?? 'Devin is waiting for your permission');
       const v = views[msg.sessionId];
-      if (v && !v.state.permissions.some((x) => x.reqId === msg.requestId)) v.state.permissions.push(permissionView(msg, v));
+      const p = v && permissionView(msg, v);
+      notify('Approval needed', p?.rawInput?.command ?? p?.title ?? msg.toolCall?.title ?? 'Devin is waiting for your permission');
+      if (v && p && !v.state.permissions.some((x) => x.reqId === msg.requestId)) v.state.permissions.push(p);
       return;
     }
     case 'permission_resolved': {

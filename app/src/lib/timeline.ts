@@ -41,14 +41,16 @@ export function stateFromSummary(s: SessionSummary): Partial<SessionState> {
 
 export function permissionView(p: Pick<PendingPermission, 'requestId' | 'toolCall' | 'options'>, view: SessionView): PermissionView {
   const tc = p.toolCall ?? {};
+  // Devin CLI's request names only the tool call; what it will run or change is on the tool call it sent just before.
   const known = view.items[view.tools[tc.toolCallId]] as ToolItem | undefined;
+  const editable = tc._meta?.['cognition.ai/editableCommand'];
   return {
     reqId: p.requestId,
     toolCallId: tc.toolCallId ?? null,
     title: tc.title ?? known?.title ?? 'Permission requested',
     toolKind: tc.kind ?? known?.toolKind ?? 'other',
-    content: toolContent(tc.content) ?? [],
-    rawInput: tc.rawInput ?? null,
+    content: toolContent(tc.content) ?? known?.content ?? [],
+    rawInput: tc.rawInput ?? known?.rawInput ?? (editable ? { command: editable } : null),
     options: (p.options ?? []).map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind }))
   };
 }

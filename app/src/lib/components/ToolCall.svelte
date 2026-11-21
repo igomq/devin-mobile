@@ -21,7 +21,7 @@
   });
   let diffs = $derived((item.content ?? []).filter((c) => c.type === 'diff'));
   let inputText = $derived.by(() => {
-    if (command || item.rawInput == null) return '';
+    if (command || diffs.length || item.rawInput == null) return '';
     const keys = Object.keys(item.rawInput);
     return keys.length ? JSON.stringify(item.rawInput, null, 2) : '';
   });
