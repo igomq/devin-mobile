@@ -28,7 +28,7 @@ export function parseUnified(diff: string): FileDiff[] {
 			a = Number(m?.[1] ?? 0);
 			b = Number(m?.[2] ?? 0);
 			cur.lines.push({ t: '@', text: line });
-		} else if (line.startsWith('+++ ') || line.startsWith('--- ')) {
+		} else if (cur.lines.length === 0 && (line.startsWith('+++ ') || line.startsWith('--- '))) {
 			const p = line.slice(4).replace(/^[ab]\//, '');
 			if (line.startsWith('+++ ') && p !== '/dev/null') cur.path = p;
 		} else if (line.startsWith('Binary files')) {
