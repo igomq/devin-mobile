@@ -1,54 +1,35 @@
 <script lang="ts">
-	let { name, size = 20, stroke = 1.8 }: { name: string; size?: number; stroke?: number } = $props();
-
-	const paths: Record<string, string> = {
-		back: 'M15 18l-6-6 6-6',
-		chevron: 'M9 6l6 6-6 6',
-		down: 'M6 9l6 6 6-6',
-		plus: 'M12 5v14M5 12h14',
-		send: 'M12 19V5M5 12l7-7 7 7',
-		stop: 'M7 7h10v10H7z',
-		folder: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z',
-		git: 'M6 3v12M18 9a3 3 0 100-6 3 3 0 000 6zM6 21a3 3 0 100-6 3 3 0 000 6zM18 9a9 9 0 01-9 9',
-		terminal: 'M4 17l6-6-6-6M12 19h8',
-		settings:
-			'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z',
-		more: 'M12 13a1 1 0 100-2 1 1 0 000 2zM19 13a1 1 0 100-2 1 1 0 000 2zM5 13a1 1 0 100-2 1 1 0 000 2z',
-		check: 'M5 12l5 5L20 7',
-		x: 'M18 6L6 18M6 6l12 12',
-		file: 'M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9zM14 3v6h6',
-		edit: 'M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z',
-		search: 'M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35',
-		read: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z',
-		run: 'M4 17l6-6-6-6M12 19h8',
-		trash: 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6',
-		globe: 'M12 22a10 10 0 100-20 10 10 0 000 20zM2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20',
-		brain: 'M12 5a3 3 0 00-5.8 1A3 3 0 004 9a3 3 0 00.5 5.5A3 3 0 007 19a3 3 0 005 0V5zM12 5a3 3 0 015.8 1A3 3 0 0120 9a3 3 0 01-.5 5.5A3 3 0 0117 19a3 3 0 01-5 0',
-		tool: 'M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z',
-		list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
-		shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
-		refresh: 'M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5',
-		flask: 'M9 3h6M10 3v6L4.5 18.5A2 2 0 006.2 21h11.6a2 2 0 001.7-2.5L14 9V3',
-		bolt: 'M13 2L4 14h7l-1 8 9-12h-7z',
-		copy: 'M8 8h12v12H8zM4 16V4h12',
-		sparkle: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z',
-		link: 'M10 14a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 10a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1',
-		image: 'M4 5h16v14H4zM4 15l4-4 5 5M14 14l2-2 4 4M15 9h.01',
-		power: 'M12 2v10M18.4 6.6a9 9 0 11-12.8 0',
-		key: 'M21 2l-2 2m-7.6 7.6a5.5 5.5 0 11-7.8 7.8 5.5 5.5 0 017.8-7.8zM15.5 7.5l3 3L22 7l-3-3'
-	};
+  const paths = {
+    back: 'M15 5l-7 7 7 7',
+    plus: 'M12 5v14M5 12h14',
+    send: 'M12 19V5M6 11l6-6 6 6',
+    stop: 'M7 7h10v10H7z',
+    diff: 'M8 4v10M3 9h10M15 19h6M6 20a2 2 0 100-4 2 2 0 000 4zM18 8a2 2 0 100-4 2 2 0 000 4zM18 8v3a3 3 0 01-3 3H6',
+    terminal: 'M5 8l4 4-4 4M12 16h7',
+    settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+    chevron: 'M9 6l6 6-6 6',
+    down: 'M6 9l6 6 6-6',
+    folder: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z',
+    check: 'M5 12.5l4.5 4.5L19 7.5',
+    x: 'M6 6l12 12M18 6L6 18',
+    more: 'M5 12h.01M12 12h.01M19 12h.01',
+    refresh: 'M20 11a8 8 0 10-2.3 5.7M20 5v6h-6',
+    brain: 'M12 3a4 4 0 00-4 4 4 4 0 00-2 7.5A4 4 0 0012 21a4 4 0 006-6.5A4 4 0 0016 7a4 4 0 00-4-4zM12 3v18',
+    edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
+    file: 'M7 3h7l5 5v13H7zM14 3v5h5',
+    search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4',
+    shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+    trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13',
+    git: 'M6 8a2 2 0 100-4 2 2 0 000 4zM6 20a2 2 0 100-4 2 2 0 000 4zM18 12a2 2 0 100-4 2 2 0 000 4zM6 8v8M18 12c0 3-6 1-6 4',
+    list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
+    globe: 'M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
+    play: 'M7 5l12 7-12 7z',
+    home: 'M4 11l8-7 8 7v9h-5v-6H9v6H4z',
+    keyboard: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8'
+  };
+  let { name, size = 22 }: { name: keyof typeof paths; size?: number } = $props();
 </script>
 
-<svg
-	width={size}
-	height={size}
-	viewBox="0 0 24 24"
-	fill="none"
-	stroke="currentColor"
-	stroke-width={stroke}
-	stroke-linecap="round"
-	stroke-linejoin="round"
-	aria-hidden="true"
->
-	<path d={paths[name] ?? paths.tool} />
+<svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d={paths[name] ?? ''} />
 </svg>

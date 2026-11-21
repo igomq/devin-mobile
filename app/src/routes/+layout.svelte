@@ -1,88 +1,62 @@
 <script lang="ts">
-	import '../app.css';
-	import favicon from '#lib/assets/favicon.svg';
-	import { onMount } from 'svelte';
-	import { app } from '#lib/app.svelte.ts';
-	import type { LayoutProps } from './$types';
+  import '../app.css';
+  import { onMount } from 'svelte';
+  import { applyTheme, toasts } from '#lib/ui.svelte.ts';
+  import { connect, configured } from '#lib/api.svelte.ts';
 
-	let { children }: LayoutProps = $props();
-	let ready = $state(false);
+  let { children } = $props();
 
-	onMount(() => {
-		app.init();
-		ready = true;
-		const vv = window.visualViewport;
-		const sync = () => document.documentElement.style.setProperty('--vvh', `${vv?.height ?? window.innerHeight}px`);
-		sync();
-		vv?.addEventListener('resize', sync);
-		return () => vv?.removeEventListener('resize', sync);
-	});
-
-	const offline = $derived(app.configured && app.everConnected && app.conn !== 'open');
+  onMount(() => {
+    applyTheme();
+    if (configured()) connect();
+    // Keep the layout above the on-screen keyboard (iOS does not resize the layout viewport).
+    const vv = window.visualViewport;
+    const fitViewport = () => {
+      document.documentElement.style.setProperty('--vvh', (vv ? vv.height : window.innerHeight) + 'px');
+      window.scrollTo(0, 0);
+    };
+    fitViewport();
+    vv?.addEventListener('resize', fitViewport);
+    vv?.addEventListener('scroll', fitViewport);
+    window.addEventListener('resize', fitViewport);
+    return () => {
+      vv?.removeEventListener('resize', fitViewport);
+      vv?.removeEventListener('scroll', fitViewport);
+      window.removeEventListener('resize', fitViewport);
+    };
+  });
 </script>
 
-<svelte:head>
-	<link rel="icon" href={favicon} />
-</svelte:head>
+{@render children()}
 
-{#if ready}
-	{@render children()}
-{/if}
-
-{#if offline}
-	<div class="conn-banner" role="status">
-		<span class="spinner"></span>
-		{app.conn === 'auth_failed' ? 'Token rejected — re-pair in Settings' : 'Reconnecting to VM…'}
-	</div>
-{/if}
-
-{#if app.toast}
-	<div class="toast {app.toast.kind}" role="alert">{app.toast.text}</div>
-{/if}
+<div class="toasts" aria-live="polite">
+  {#each toasts as t (t.id)}<div class="toast {t.kind}">{t.text}</div>{/each}
+</div>
 
 <style>
-	.conn-banner {
-		position: fixed;
-		top: calc(var(--safe-top) + var(--header-h) + 6px);
-		left: 50%;
-		transform: translateX(-50%);
-		z-index: 60;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 7px 14px;
-		border-radius: 999px;
-		font-size: 13px;
-		background: var(--bg-elev-2);
-		border: 1px solid var(--border);
-		color: var(--text-2);
-		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-		white-space: nowrap;
-	}
-	.toast {
-		position: fixed;
-		left: 16px;
-		right: 16px;
-		bottom: calc(var(--safe-bottom) + 96px);
-		z-index: 100;
-		margin: 0 auto;
-		max-width: 520px;
-		padding: 12px 16px;
-		border-radius: 14px;
-		background: var(--bg-elev-2);
-		border: 1px solid var(--border);
-		font-size: 14px;
-		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-		animation: rise 0.18s ease-out;
-	}
-	.toast.error {
-		border-color: color-mix(in srgb, var(--red) 50%, var(--border));
-		color: #fecaca;
-	}
-	@keyframes rise {
-		from {
-			transform: translateY(8px);
-			opacity: 0;
-		}
-	}
+  .toasts {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: calc(var(--safe-top) + 58px);
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+    padding: 0 16px;
+  }
+  .toast {
+    max-width: 420px;
+    padding: 9px 14px;
+    border-radius: 12px;
+    background: var(--bg-elev2);
+    border: 1px solid var(--line-strong);
+    font-size: 14px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+  }
+  .toast.error {
+    color: var(--red);
+  }
 </style>

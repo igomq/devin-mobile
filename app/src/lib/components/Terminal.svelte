@@ -1,0 +1,245 @@
+<script lang="ts">
+  import { onMount, untrack } from 'svelte';
+  import { Terminal } from '@xterm/xterm';
+  import { FitAddon } from '@xterm/addon-fit';
+  import '@xterm/xterm/css/xterm.css';
+  import { conn, rpc, onTerminal, views, app, errorText } from '#lib/api.svelte.ts';
+  import { go } from '#lib/ui.svelte.ts';
+  import { basename } from '#lib/format.ts';
+  import Icon from './Icon.svelte';
+
+  let { sessionId = null, login = false }: { sessionId?: string | null; login?: boolean } = $props();
+  let cwd = $derived(sessionId ? (views[sessionId]?.cwd ?? app.sessions.find((s) => s.id === sessionId)?.cwd) : null);
+  // svelte-ignore state_referenced_locally
+  const storeKey = 'devin-mobile.term.' + (login ? 'login' : (sessionId ?? 'home'));
+
+  let host = $state<HTMLElement>();
+  let termId = $state<string | null>(null);
+  let exited = $state<number | null>(null);
+  let ctrl = $state(false);
+  let error = $state<string | null>(null);
+  let term: Terminal;
+  let fit: FitAddon;
+  let off: (() => void) | null = null;
+  let attachedGen = -1;
+
+  const keys = [
+    { label: 'esc', seq: '\x1b' },
+    { label: 'tab', seq: '\t' },
+    { label: '↑', seq: '\x1b[A' },
+    { label: '↓', seq: '\x1b[B' },
+    { label: '←', seq: '\x1b[D' },
+    { label: '→', seq: '\x1b[C' },
+    { label: '^C', seq: '\x03' },
+    { label: '^D', seq: '\x04' },
+    { label: '/', seq: '/' },
+    { label: '|', seq: '|' },
+    { label: '~', seq: '~' },
+    { label: '-', seq: '-' }
+  ];
+
+  function sendInput(data: string) {
+    if (!termId || exited !== null) return;
+    if (ctrl && data.length === 1) {
+      const c = data.toUpperCase().charCodeAt(0);
+      if (c >= 64 && c <= 95) data = String.fromCharCode(c - 64);
+      ctrl = false;
+    }
+    rpc('term.input', { id: termId, data }).catch(() => {});
+  }
+
+  function listen(id: string) {
+    off?.();
+    off = onTerminal(id, (msg) => {
+      if (msg.ev === 'term') term.write(msg.data);
+      else {
+        exited = msg.code ?? 0;
+        term.write(`\r\n\x1b[2m[process exited with code ${msg.code}]\x1b[0m\r\n`);
+      }
+    });
+  }
+
+  /** @param {string[]} [devin] arguments for an interactive `devin`; a login shell when omitted */
+  async function start(devin?: string[]) {
+    error = null;
+    exited = null;
+    term.reset();
+    fit.fit();
+    try {
+      const t = await rpc('term.open', { cwd: cwd ?? '~', devin, cols: term.cols, rows: term.rows });
+      termId = t.id;
+      sessionStorage.setItem(storeKey, t.id);
+      listen(t.id);
+    } catch (e) {
+      error = errorText(e);
+    }
+  }
+
+  // Re-attach to the PTY that is still running on the VM, replaying its scrollback.
+  async function attachOrStart() {
+    const saved = termId ?? sessionStorage.getItem(storeKey);
+    if (saved) {
+      try {
+        const t = await rpc('term.attach', { id: saved });
+        // A login that finished on an earlier visit is stale; one that finished while this screen was offline is shown.
+        if (login && !termId && t.exited !== null) throw new Error('finished');
+        termId = t.id;
+        exited = t.exited;
+        term.reset();
+        term.write(t.buffer);
+        listen(t.id);
+        resize();
+        return;
+      } catch {
+        sessionStorage.removeItem(storeKey);
+        termId = null;
+      }
+    }
+    await start(login ? ['auth', 'login'] : undefined);
+  }
+
+  function resize() {
+    if (!fit || !host?.clientHeight) return;
+    fit.fit();
+    if (termId && exited === null) rpc('term.resize', { id: termId, cols: term.cols, rows: term.rows }).catch(() => {});
+  }
+
+  // Set while asking whether to close a shell that is still running.
+  let replacing = $state<{ devin?: string[] } | null>(null);
+
+  function askRestart(devin?: string[]) {
+    if (termId && exited === null) replacing = { devin };
+    else restart(devin);
+  }
+
+  async function restart(devin?: string[]) {
+    replacing = null;
+    if (termId) await rpc('term.close', { id: termId }).catch(() => {});
+    sessionStorage.removeItem(storeKey);
+    termId = null;
+    await start(devin);
+    term.focus();
+  }
+
+  onMount(() => {
+    const css = getComputedStyle(document.documentElement);
+    const v = (n: string) => css.getPropertyValue(n).trim();
+    term = new Terminal({
+      fontFamily: v('--mono'),
+      fontSize: 13,
+      cursorBlink: true,
+      scrollback: 5000,
+      allowProposedApi: false,
+      theme: { background: v('--bg'), foreground: v('--text'), cursor: v('--text'), selectionBackground: v('--line-strong') }
+    });
+    fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(host!);
+    term.onData(sendInput);
+    const ro = new ResizeObserver(() => resize());
+    ro.observe(host!);
+    return () => {
+      ro.disconnect();
+      off?.();
+      term.dispose();
+    };
+  });
+
+  $effect(() => {
+    if (conn.status === 'online' && term && attachedGen !== conn.generation) {
+      attachedGen = conn.generation;
+      untrack(attachOrStart);
+    }
+  });
+</script>
+
+<div class="screen">
+  <header class="topbar">
+    <button class="iconbtn" onclick={() => go(sessionId ? '#/s/' + encodeURIComponent(sessionId) : '#/')} aria-label="Back"><Icon name="back" /></button>
+    <div class="title">
+      <b>Terminal</b>
+      <small><span class="dot" class:running={conn.status === 'online' && exited === null} class:error={conn.status !== 'online'}></span>{conn.status !== 'online' ? 'Reconnecting…' : exited !== null ? `Exited (${exited})` : (basename(cwd) || conn.info?.host || '')}</small>
+    </div>
+    <button class="chip" onclick={() => askRestart([])}>devin</button>
+    <button class="chip" onclick={() => askRestart()}>New shell</button>
+  </header>
+  {#if error}<div class="banner warn">{error}</div>{/if}
+  {#if replacing}
+    <div class="banner warn replace">
+      <span>This closes the current shell and stops anything running in it.</span>
+      <button class="btn danger" onclick={() => restart(replacing?.devin)}>Close it</button>
+      <button class="btn" onclick={() => (replacing = null)}>Keep</button>
+    </div>
+  {/if}
+  <div class="term" bind:this={host}></div>
+  <div class="keys">
+    <button class:on={ctrl} onclick={() => (ctrl = !ctrl)}>ctrl</button>
+    {#each keys as k}
+      <button onclick={() => (sendInput(k.seq), term.focus())}>{k.label}</button>
+    {/each}
+  </div>
+</div>
+
+<style>
+  .term {
+    flex: 1;
+    min-height: 0;
+    padding: 6px 4px 0 8px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .term :global(.xterm) {
+    height: 100%;
+  }
+  .term :global(.xterm-viewport) {
+    background: transparent !important;
+  }
+  .keys {
+    flex: none;
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px calc(var(--safe-bottom) + 8px);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-top: 1px solid var(--line);
+    scrollbar-width: none;
+  }
+  .keys::-webkit-scrollbar {
+    display: none;
+  }
+  .keys button {
+    flex: none;
+    min-width: 42px;
+    height: 38px;
+    padding: 0 10px;
+    border-radius: 9px;
+    background: var(--bg-elev2);
+    border: 1px solid var(--line);
+    font: 13px var(--mono);
+  }
+  .keys button.on {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .chip {
+    flex: none;
+  }
+  .replace {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .replace span {
+    flex: 1;
+  }
+  .replace .btn {
+    flex: none;
+    color: var(--text);
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+  .replace .btn.danger {
+    color: var(--red);
+  }
+</style>
