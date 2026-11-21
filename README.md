@@ -31,7 +31,7 @@ No port is exposed on public interfaces by default. The token lives in `~/.local
 
 ## Mobile builds
 
-[`.github/workflows/mobile.yml`](.github/workflows/mobile.yml) builds on every PR:
+[`.github/workflows/mobile.yml`](.github/workflows/mobile.yml) builds when run by hand (Actions → Mobile builds → Run workflow) or when a `v*` tag is pushed:
 
 - **Android** — debug-signed APK (`devin-mobile-android-apk` artifact), sideload directly.
 - **iOS** — unsigned IPA (`devin-mobile-ios-unsigned-ipa` artifact); sign/sideload with AltStore, Sideloadly or your own certificate.

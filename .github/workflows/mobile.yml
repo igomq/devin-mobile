@@ -1,10 +1,10 @@
 name: Mobile builds
 
+# The macOS and Android builds are slow and billed, so they run on request or for a version tag only.
 on:
-  push:
-    branches: [master]
-  pull_request:
   workflow_dispatch:
+  push:
+    tags: ['v*']
 
 concurrency:
   group: mobile-${{ github.ref }}

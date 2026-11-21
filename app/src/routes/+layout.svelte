@@ -1,4 +1,5 @@
 <script lang="ts">
+  import '../fonts.css';
   import '../app.css';
   import { onMount } from 'svelte';
   import { applyTheme, toasts } from '#lib/ui.svelte.ts';

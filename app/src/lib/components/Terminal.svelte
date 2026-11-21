@@ -110,6 +110,7 @@
   let replacing = $state<{ devin?: string[] } | null>(null);
 
   function askRestart(devin?: string[]) {
+    if (!ready) return;
     if (termId && exited === null) replacing = { devin };
     else restart(devin);
   }
@@ -126,34 +127,45 @@
     term.focus();
   }
 
+  let ready = $state(false);
+
   onMount(() => {
     const css = getComputedStyle(document.documentElement);
     const v = (n: string) => css.getPropertyValue(n).trim();
-    term = new Terminal({
-      fontFamily: v('--mono'),
-      fontSize: 13,
-      cursorBlink: true,
-      scrollback: 5000,
-      allowProposedApi: false,
-      theme: { background: v('--bg'), foreground: v('--text'), cursor: v('--text'), selectionBackground: v('--line-strong') }
+    let ro: ResizeObserver | null = null;
+    let gone = false;
+    // xterm measures its cell size once, so the bundled font has to be loaded before it opens.
+    const fonts = Promise.all(['', 'bold '].map((w) => document.fonts.load(`${w}13px 'JetBrains Mono'`))).catch(() => {});
+    fonts.then(() => {
+      if (gone) return;
+      term = new Terminal({
+        fontFamily: v('--mono'),
+        fontSize: 13,
+        cursorBlink: true,
+        scrollback: 5000,
+        allowProposedApi: false,
+        theme: { background: v('--bg'), foreground: v('--text'), cursor: v('--text'), selectionBackground: v('--line-strong') }
+      });
+      fit = new FitAddon();
+      term.loadAddon(fit);
+      term.open(host!);
+      term.onData(sendInput);
+      ro = new ResizeObserver(() => resize());
+      ro.observe(host!);
+      ready = true;
     });
-    fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(host!);
-    term.onData(sendInput);
-    const ro = new ResizeObserver(() => resize());
-    ro.observe(host!);
     return () => {
-      ro.disconnect();
+      gone = true;
+      ro?.disconnect();
       off?.();
       // Stop the gateway streaming this PTY to us; it keeps running on the VM for re-attach.
       if (termId) rpc('term.detach', { id: termId }).catch(() => {});
-      term.dispose();
+      term?.dispose();
     };
   });
 
   $effect(() => {
-    if (conn.status === 'online' && term && attachedGen !== conn.generation) {
+    if (conn.status === 'online' && ready && attachedGen !== conn.generation) {
       attachedGen = conn.generation;
       untrack(attachOrStart);
     }
@@ -182,7 +194,7 @@
   <div class="keys">
     <button class:on={ctrl} onclick={() => (ctrl = !ctrl)}>ctrl</button>
     {#each keys as k}
-      <button onclick={() => (sendInput(k.seq), term.focus())}>{k.label}</button>
+      <button onclick={() => (sendInput(k.seq), term?.focus())}>{k.label}</button>
     {/each}
   </div>
 </div>
