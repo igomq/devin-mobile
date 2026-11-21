@@ -112,11 +112,15 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       const id = requireString(p.sessionId, 'sessionId');
       c.subs.add(id);
       const s = await manager.ensureLoaded(id, p.cwd ? absCwd(p.cwd) : undefined);
-      const since = p.epoch === s.epoch && typeof p.sinceSeq === 'number' ? p.sinceSeq : 0;
+      const firstSeq = s.events[0]?.seq ?? s.seq + 1;
+      let since = p.epoch === s.epoch && typeof p.sinceSeq === 'number' ? p.sinceSeq : 0;
+      // A cursor older than retained history cannot be replayed incrementally; send a full (truncated) snapshot.
+      if (since > 0 && since < firstSeq - 1) since = 0;
       return {
         session: s.summary(),
         epoch: s.epoch,
         full: since === 0,
+        truncated: since === 0 && firstSeq > 1,
         events: s.events.filter((e) => e.seq > since),
         permissions: [...s.permissions.values()].map(({ rpcId: _r, ...rest }) => rest),
       };
