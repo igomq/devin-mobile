@@ -142,6 +142,7 @@ export class SessionManager extends EventEmitter {
         for (const s of this.sessions.values()) {
           s.loaded = false;
           s.running = 0;
+          for (const p of s.permissions.values()) this.emit('permission_resolved', s, p.requestId, null);
           s.permissions.clear();
           this.emit('state', s.summary());
         }
