@@ -40,7 +40,7 @@ Local dev: `cd app && npx tauri android dev` / `npx tauri ios dev` (needs Androi
 
 ## What you can do from the phone
 
-- **Projects and sessions** — pick a working directory under the gateway's `--roots`, start, resume, switch between and delete sessions, with a live status per session.
+- **Projects and sessions** — pick a working directory under the gateway's `--roots`, start, resume, switch between, end and delete sessions, with a live status per session.
 - **Chat** — streamed replies with Markdown and code, collapsible thinking and tool calls, image attachments.
 - **Control** — send more instructions while Devin works, stop a turn, allow or reject permission requests, change mode, model, thinking level and speed.
 - **Review** — changed files, per-file Git diff, and the output of test and other commands run from the Changes screen.
