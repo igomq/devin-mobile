@@ -104,8 +104,17 @@ export function applyUpdate(view: SessionView, u: Json, ts = Date.now()) {
       break;
     }
     case 'plan': {
-      const last = view.items[view.items.length - 1];
       const entries = (u.entries ?? []).map((e: Json) => ({ content: e.content, status: e.status ?? 'pending', priority: e.priority ?? 'medium' }));
+      // ACP sends the whole plan each time: update this turn's plan card instead of stacking copies.
+      let last: Item | undefined;
+      for (let j = view.items.length - 1; j >= 0; j--) {
+        const it = view.items[j];
+        if (it.kind === 'plan') {
+          last = it;
+          break;
+        }
+        if (it.kind === 'user') break;
+      }
       if (last && last.kind === 'plan') last.entries = entries;
       else add(view, { kind: 'plan', entries }, ts);
       break;
