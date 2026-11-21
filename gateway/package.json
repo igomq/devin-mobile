@@ -1,0 +1,31 @@
+{
+  "name": "devin-mobile-gateway",
+  "version": "0.1.0",
+  "description": "VM-side gateway that bridges Devin CLI (ACP) to the Devin Mobile app",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "node-pty": "^1.1.0",
+    "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "bin": {
+    "devin-mobile-gateway": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
