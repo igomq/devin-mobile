@@ -114,6 +114,9 @@
 
   async function restart(devin?: string[]) {
     replacing = null;
+    // Stop listening first: the old shell's exit would otherwise mark the new one as exited.
+    off?.();
+    off = null;
     if (termId) await rpc('term.close', { id: termId }).catch(() => {});
     sessionStorage.removeItem(storeKey);
     termId = null;
