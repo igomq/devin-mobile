@@ -10,7 +10,7 @@
   let busy = $state(false);
   let command = $derived(request.rawInput?.command ?? request.rawInput?.cmd ?? null);
   let diffs = $derived((request.content ?? []).filter((c) => c.type === 'diff'));
-  let text = $derived((request.content ?? []).flatMap((c) => (c.type === 'text' && c.text ? [c.text] : [])).join('\n'));
+  let text = $derived((request.content ?? []).flatMap((c) => (c.type === 'text' && c.text && c.text !== command ? [c.text] : [])).join('\n'));
   const order: Record<string, number> = { allow_once: 0, allow_always: 1, reject_once: 2, reject_always: 3 };
   let options = $derived([...request.options].sort((a, b) => (order[a.kind] ?? 9) - (order[b.kind] ?? 9)));
 

@@ -41,14 +41,16 @@ export function stateFromSummary(s: SessionSummary): Partial<SessionState> {
 
 export function permissionView(p: Pick<PendingPermission, 'requestId' | 'toolCall' | 'options'>, view: SessionView): PermissionView {
   const tc = p.toolCall ?? {};
+  // Devin CLI's request names only the tool call; what it will run or change is on the tool call it sent just before.
   const known = view.items[view.tools[tc.toolCallId]] as ToolItem | undefined;
+  const editable = tc._meta?.['cognition.ai/editableCommand'];
   return {
     reqId: p.requestId,
     toolCallId: tc.toolCallId ?? null,
     title: tc.title ?? known?.title ?? 'Permission requested',
     toolKind: tc.kind ?? known?.toolKind ?? 'other',
-    content: toolContent(tc.content) ?? [],
-    rawInput: tc.rawInput ?? null,
+    content: toolContent(tc.content) ?? known?.content ?? [],
+    rawInput: tc.rawInput ?? known?.rawInput ?? (editable ? { command: editable } : null),
     options: (p.options ?? []).map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind }))
   };
 }
@@ -77,7 +79,11 @@ export function applyUpdate(view: SessionView, u: Json, ts = Date.now()) {
         add(view, { kind: 'user', text: textOf(parts.filter((c) => c?.type !== 'image')), ...(images.length ? { images } : {}) }, ts);
         break;
       }
-      appendText(view, 'user', textOf(u.content), ts);
+      // Devin CLI tags each replayed message; without the tag, prompts sent back to back would merge into one bubble.
+      const messageId = u._meta?.['cognition.ai/clientMessageId'] ?? u._meta?.['cognition.ai/eventId'];
+      const last = view.items[view.items.length - 1];
+      if (messageId && !(last?.kind === 'user' && last.messageId === messageId)) add(view, { kind: 'user', text: textOf(u.content), messageId }, ts);
+      else appendText(view, 'user', textOf(u.content), ts);
       break;
     }
     case 'agent_message_chunk':
