@@ -124,7 +124,7 @@ export function connect(force = false) {
     try {
       const hello = await request('hello', { token: conn.token }, true, 10000);
       conn.info = { host: hello.hostname, home: hello.home, version: hello.version, agent: hello.agent };
-      app.sessions = (hello.sessions ?? []).map(row);
+      app.sessions = (hello.sessions ?? []).map(rowKeepingActivity);
       conn.status = 'online';
       conn.error = null;
       conn.generation += 1;
@@ -211,6 +211,13 @@ const row = (s: SessionSummary): SessionRow => ({
   status: s.status === 'unloaded' ? 'idle' : s.status,
   hasMessages: Boolean(s.title) || s.status === 'running' || s.status === 'awaiting_permission'
 });
+
+/** A session keeps counting as non-empty once it has shown activity or has a cached transcript. */
+function rowKeepingActivity(s: SessionSummary): SessionRow {
+  const x = row(s);
+  x.hasMessages ||= Boolean(app.sessions.find((p) => p.id === x.id)?.hasMessages) || (views[x.id]?.items.length ?? 0) > 0;
+  return x;
+}
 
 const sid = (p: Json) => ({ sessionId: p.id });
 
@@ -355,12 +362,7 @@ let listInFlight: Promise<void> | null = null;
 export function refreshSessions() {
   listInFlight ??= request('sessions.list')
     .then((r) => {
-      const seen = new Map(app.sessions.map((s) => [s.id, s]));
-      app.sessions = r.sessions.map((s: SessionSummary) => {
-        const x = row(s);
-        x.hasMessages ||= seen.get(x.id)?.hasMessages ?? false;
-        return x;
-      });
+      app.sessions = r.sessions.map(rowKeepingActivity);
       app.sessionsLoaded = true;
     })
     .catch(() => {})
