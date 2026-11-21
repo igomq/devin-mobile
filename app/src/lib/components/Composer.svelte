@@ -54,15 +54,18 @@
 		const t = text.trim();
 		if ((!t && !images.length) || sending) return;
 		sending = true;
-		const imgs = images.map(({ mimeType, data, name }) => ({ mimeType, data, name }));
+		const prevImages = images;
+		const imgs = prevImages.map(({ mimeType, data, name }) => ({ mimeType, data, name }));
 		const prev = text;
 		text = '';
 		images = [];
 		queueMicrotask(autosize);
 		try {
 			await onsend(t, imgs);
+			prevImages.forEach((i) => URL.revokeObjectURL(i.url));
 		} catch {
 			text = prev;
+			images = prevImages;
 			queueMicrotask(autosize);
 		} finally {
 			sending = false;
