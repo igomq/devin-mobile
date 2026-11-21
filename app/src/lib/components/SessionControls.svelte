@@ -10,8 +10,8 @@
   let busy = $state<string | null>(null);
 
   let modes = $derived(view?.state.modes ?? []);
-  // Every option the agent exposes (model, reasoning level, …) except mode, which has its own picker.
-  let options = $derived((view?.state.configOptions ?? []).filter((o) => o.category !== 'mode' && o.id !== 'mode'));
+  // Every option the agent exposes (model, reasoning level, …). Mode is left out when it has its own picker above.
+  let options = $derived((view?.state.configOptions ?? []).filter((o) => !modes.length || (o.category !== 'mode' && o.id !== 'mode')));
   const flat = (o: ConfigOption): ConfigOptionValue[] => (o.options ?? []).flatMap((x) => ('options' in x ? x.options : [x]));
 
   async function run(key: string, m: string, p: Json, done?: () => void) {
@@ -28,6 +28,7 @@
 </script>
 
 <Sheet bind:open title="Session">
+  {#if modes.length}
   <div class="label">Mode</div>
   <div class="seg">
     {#each modes as m}
@@ -38,6 +39,7 @@
       </button>
     {/each}
   </div>
+  {/if}
 
   {#each options as o}
     <div class="label">{o.name}</div>
