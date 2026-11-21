@@ -103,7 +103,16 @@
     if (termId && exited === null) rpc('term.resize', { id: termId, cols: term.cols, rows: term.rows }).catch(() => {});
   }
 
+  // Set while asking whether to close a shell that is still running.
+  let replacing = $state<{ devin?: string[] } | null>(null);
+
+  function askRestart(devin?: string[]) {
+    if (termId && exited === null) replacing = { devin };
+    else restart(devin);
+  }
+
   async function restart(devin?: string[]) {
+    replacing = null;
     if (termId) await rpc('term.close', { id: termId }).catch(() => {});
     sessionStorage.removeItem(storeKey);
     termId = null;
@@ -150,10 +159,17 @@
       <b>Terminal</b>
       <small><span class="dot" class:running={conn.status === 'online' && exited === null} class:error={conn.status !== 'online'}></span>{conn.status !== 'online' ? 'Reconnecting…' : exited !== null ? `Exited (${exited})` : (basename(cwd) || conn.info?.host || '')}</small>
     </div>
-    <button class="chip" onclick={() => restart([])}>devin</button>
-    <button class="chip" onclick={() => restart()}>New shell</button>
+    <button class="chip" onclick={() => askRestart([])}>devin</button>
+    <button class="chip" onclick={() => askRestart()}>New shell</button>
   </header>
   {#if error}<div class="banner warn">{error}</div>{/if}
+  {#if replacing}
+    <div class="banner warn replace">
+      <span>This closes the current shell and stops anything running in it.</span>
+      <button class="btn danger" onclick={() => restart(replacing?.devin)}>Close it</button>
+      <button class="btn" onclick={() => (replacing = null)}>Keep</button>
+    </div>
+  {/if}
   <div class="term" bind:this={host}></div>
   <div class="keys">
     <button class:on={ctrl} onclick={() => (ctrl = !ctrl)}>ctrl</button>
@@ -206,5 +222,23 @@
   }
   .chip {
     flex: none;
+  }
+  .replace {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .replace span {
+    flex: 1;
+  }
+  .replace .btn {
+    flex: none;
+    color: var(--text);
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+  .replace .btn.danger {
+    color: var(--red);
   }
 </style>
