@@ -362,7 +362,11 @@ export function refreshSessions() {
 export async function openSession(id: string, cwd?: string | null) {
   const v = (views[id] ??= { epoch: null, seq: 0, cwd: cwd ?? null, items: [], tools: {}, state: emptyState(), ready: false, error: null, truncated: false });
   try {
-    const r = await request('session.open', { sessionId: id, cwd: cwd ?? v.cwd ?? undefined, epoch: v.ready ? v.epoch : undefined, sinceSeq: v.ready ? v.seq : undefined });
+    // After a gateway restart only the session list knows this session's project; opened without it,
+    // the gateway would load the session in its own working directory.
+    if (!(cwd ?? v.cwd) && !app.sessions.some((s) => s.id === id)) await refreshSessions();
+    const dir = cwd ?? v.cwd ?? app.sessions.find((s) => s.id === id)?.cwd;
+    const r = await request('session.open', { sessionId: id, cwd: dir ?? undefined, epoch: v.ready ? v.epoch : undefined, sinceSeq: v.ready ? v.seq : undefined });
     const view = views[id];
     if (!view) return;
     if (r.full) Object.assign(view, { items: [], tools: {}, seq: 0, truncated: r.truncated });
