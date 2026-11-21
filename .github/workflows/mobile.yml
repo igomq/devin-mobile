@@ -1,0 +1,100 @@
+name: Mobile builds
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK
+        run: sdkmanager --install "ndk;27.0.12077973" "platforms;android-34" "build-tools;34.0.0"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: npm ci
+      - name: Init Android project
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npx tauri android init --ci
+      - name: Build APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npx tauri android build --apk --debug --target aarch64 --target armv7 --target x86_64
+      - name: Collect APK
+        run: |
+          mkdir -p ../dist
+          find src-tauri/gen/android -name '*.apk' -path '*debug*' -exec cp {} ../dist/ \;
+          ls -la ../dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devin-mobile-android-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS unsigned IPA
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: npm ci
+      - name: Init iOS project
+        run: npx tauri ios init --ci
+      - name: Build (no code signing)
+        run: |
+          npm run build
+          cd src-tauri/gen/apple
+          SCHEME=$(xcodebuild -list -json | python3 -c 'import json,sys; print([s for s in json.load(sys.stdin)["project"]["schemes"] if s.endswith("_iOS")][0])')
+          xcodebuild -scheme "$SCHEME" -configuration release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Package IPA
+        run: |
+          APP=$(find src-tauri/gen/apple/build/dd/Build/Products -maxdepth 2 -name '*.app' -type d | head -1)
+          echo "$APP"
+          mkdir -p ../dist/Payload
+          cp -R "$APP" ../dist/Payload/
+          cd ../dist && zip -qry devin-mobile-unsigned.ipa Payload && ls -la
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devin-mobile-ios-unsigned-ipa
+          path: dist/*.ipa
+          if-no-files-found: error
