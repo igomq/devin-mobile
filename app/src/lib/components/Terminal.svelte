@@ -11,7 +11,7 @@
   let { sessionId = null, login = false }: { sessionId?: string | null; login?: boolean } = $props();
   let cwd = $derived(sessionId ? (views[sessionId]?.cwd ?? app.sessions.find((s) => s.id === sessionId)?.cwd) : null);
   // svelte-ignore state_referenced_locally
-  const storeKey = 'devin-mobile.term.' + (sessionId ?? 'home');
+  const storeKey = 'devin-mobile.term.' + (login ? 'login' : (sessionId ?? 'home'));
 
   let host = $state<HTMLElement>();
   let termId = $state<string | null>(null);
@@ -81,6 +81,7 @@
     if (saved) {
       try {
         const t = await rpc('term.attach', { id: saved });
+        if (login && t.exited !== null) throw new Error('finished');
         termId = t.id;
         exited = t.exited;
         term.reset();
