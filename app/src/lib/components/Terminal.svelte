@@ -81,7 +81,8 @@
     if (saved) {
       try {
         const t = await rpc('term.attach', { id: saved });
-        if (login && t.exited !== null) throw new Error('finished');
+        // A login that finished on an earlier visit is stale; one that finished while this screen was offline is shown.
+        if (login && !termId && t.exited !== null) throw new Error('finished');
         termId = t.id;
         exited = t.exited;
         term.reset();
