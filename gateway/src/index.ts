@@ -199,15 +199,22 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
 }
 
 const server = createServer((req, res) => {
-  if (req.url === '/healthz') {
-    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, version: VERSION }));
-    return;
+  try {
+    if (req.url === '/healthz') {
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, version: VERSION }));
+      return;
+    }
+    if (config.staticDir) serveStatic(config.staticDir, req, res);
+    else res.writeHead(404).end('Devin Mobile gateway. Connect with the app at ws(s)://<host>/ws');
+  } catch (e: any) {
+    console.error(`[devin-mobile] http error: ${e?.message ?? e}`);
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
   }
-  if (config.staticDir) serveStatic(config.staticDir, req, res);
-  else res.writeHead(404).end('Devin Mobile gateway. Connect with the app at ws(s)://<host>/ws');
 });
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024 * 1024 });
+wss.on('error', (e) => console.error(`[devin-mobile] websocket server error: ${e.message}`));
 server.on('upgrade', (req: IncomingMessage, socket, head) => {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname !== '/ws') {
@@ -224,6 +231,7 @@ wss.on('connection', (ws: WebSocket) => {
     if (!c.authed) ws.close(4001, 'auth timeout');
   }, 10000);
   ws.on('pong', () => (c.alive = true));
+  ws.on('error', () => ws.terminate());
   ws.on('close', () => {
     clearTimeout(authTimer);
     clients.delete(c);
@@ -284,6 +292,7 @@ manager.ensureAgent().catch((e) => console.error(`[devin-mobile] could not start
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     for (const t of terminals.list()) terminals.close(t.termId);
+    tasks.stopAll();
     process.exit(0);
   });
 }
