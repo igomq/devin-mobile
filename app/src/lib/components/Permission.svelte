@@ -27,15 +27,17 @@
 
 <div class="perm" role="alertdialog" aria-label="Permission request">
   <div class="head"><Icon name="shield" size={16} /> <b>Devin needs approval</b></div>
-  <div class="what mono">{request.title}</div>
-  {#if command && command !== request.title}<pre class="cmd"><span class="ps">$</span> {command}</pre>{/if}
-  {#if text}<pre class="cmd">{text}</pre>{/if}
-  {#each diffs as d}
-    <div class="prev">
-      <div class="fname mono">{basename(d.path)}</div>
-      <DiffRows rows={lineDiff(d.oldText ?? '', d.newText ?? '')} />
-    </div>
-  {/each}
+  <div class="details">
+    <div class="what mono">{request.title}</div>
+    {#if command && command !== request.title}<pre class="cmd"><span class="ps">$</span> {command}</pre>{/if}
+    {#if text}<pre class="cmd">{text}</pre>{/if}
+    {#each diffs as d}
+      <div class="prev">
+        <div class="fname mono">{basename(d.path)}</div>
+        <DiffRows rows={lineDiff(d.oldText ?? '', d.newText ?? '')} />
+      </div>
+    {/each}
+  </div>
   <div class="opts">
     {#each options as o}
       <button class="btn" class:primary={o.kind === 'allow_once'} class:danger={o.kind?.startsWith('reject')} disabled={busy} onclick={() => answer(o.optionId)}>{o.name}</button>
@@ -45,6 +47,7 @@
 
 <style>
   .perm {
+    flex: none;
     margin: 0 12px 8px;
     padding: 12px;
     border: 1px solid var(--amber);
@@ -58,6 +61,11 @@
     color: var(--amber);
     font-size: 13px;
     margin-bottom: 6px;
+  }
+  .details {
+    max-height: 38vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .what {
     font-size: 13px;
