@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { views, conn, rpc, app, onTask, errorText } from '#lib/api.svelte.ts';
+  import { views, conn, rpc, app, onTask, openSession, errorText } from '#lib/api.svelte.ts';
   import type { ChangedFileView, DiffRow, TaskRun, ToolItem } from '#lib/types.ts';
   import { go, toast } from '#lib/ui.svelte.ts';
   import { parseDiff, basename } from '#lib/format.ts';
@@ -58,6 +58,16 @@
     openFile = openFile === path ? null : path;
     if (openFile && !diffs[path]) loadDiff(path);
   }
+
+  // Opened directly (reload, deep link) the session has no timeline yet; load it for the command history.
+  $effect(() => {
+    const sid = id;
+    conn.generation;
+    if (conn.status !== 'online') return;
+    untrack(() => {
+      if (!views[sid]?.ready) openSession(sid, app.sessions.find((s) => s.id === sid)?.cwd).catch(() => {});
+    });
+  });
 
   // Refresh when the screen opens, on reconnect, and whenever the agent finishes a step.
   let toolsDone = $derived((view?.items ?? []).filter((i) => i.kind === 'tool' && (i.status === 'completed' || i.status === 'failed')).length);
