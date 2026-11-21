@@ -121,6 +121,8 @@ interface ItemBase {
 export interface TextItem extends ItemBase {
 	kind: 'user' | 'assistant' | 'thought';
 	text: string;
+	/** The agent's id for this message, when it gives one. */
+	messageId?: string;
 	images?: { mimeType: string; data: string }[];
 }
 export interface ToolItem extends ItemBase {

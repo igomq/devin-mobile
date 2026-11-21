@@ -79,7 +79,11 @@ export function applyUpdate(view: SessionView, u: Json, ts = Date.now()) {
         add(view, { kind: 'user', text: textOf(parts.filter((c) => c?.type !== 'image')), ...(images.length ? { images } : {}) }, ts);
         break;
       }
-      appendText(view, 'user', textOf(u.content), ts);
+      // Devin CLI tags each replayed message; without the tag, prompts sent back to back would merge into one bubble.
+      const messageId = u._meta?.['cognition.ai/clientMessageId'] ?? u._meta?.['cognition.ai/eventId'];
+      const last = view.items[view.items.length - 1];
+      if (messageId && !(last?.kind === 'user' && last.messageId === messageId)) add(view, { kind: 'user', text: textOf(u.content), messageId }, ts);
+      else appendText(view, 'user', textOf(u.content), ts);
       break;
     }
     case 'agent_message_chunk':
