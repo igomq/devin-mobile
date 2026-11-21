@@ -62,8 +62,17 @@ export function configured() {
   return Boolean(conn.url && conn.token);
 }
 
+// Transcripts belong to the gateway they came from; drop them when it changes.
+function clearSessions() {
+  for (const id of Object.keys(views)) delete views[id];
+  app.sessions = [];
+  app.sessionsLoaded = false;
+}
+
 export function saveConnection(url: string, token: string) {
-  conn.url = url.trim().replace(/\/+$/, '');
+  const next = url.trim().replace(/\/+$/, '');
+  if (next !== conn.url) clearSessions();
+  conn.url = next;
   conn.token = token.trim();
   localStorage.setItem(STORE_KEY, JSON.stringify({ url: conn.url, token: conn.token }));
   connect(true);
@@ -76,6 +85,7 @@ export function forgetConnection() {
   conn.token = '';
   conn.status = 'offline';
   conn.info = null;
+  clearSessions();
 }
 
 // Accepts what people actually type: `100.x.y.z`, `host:8787`, `http(s)://…` or `ws(s)://…/ws`.
