@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import Icon from './Icon.svelte';
 	import type { SessionSummary } from '#lib/types.ts';
 
@@ -21,6 +22,17 @@
 	let ta: HTMLTextAreaElement;
 	let fileInput: HTMLInputElement;
 	let sending = $state(false);
+
+	// base64 inflates by 4/3; keep the whole prompt well under the gateway's 32 MiB frame limit
+	const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+	const rawSize = (data: string) => Math.floor((data.length * 3) / 4);
+
+	function removeImage(i: number) {
+		const [img] = images.splice(i, 1);
+		if (img) URL.revokeObjectURL(img.url);
+	}
+
+	onDestroy(() => images.forEach((i) => URL.revokeObjectURL(i.url)));
 
 	const slash = $derived.by(() => {
 		if (!text.startsWith('/') || text.includes(' ') || !session?.commands?.length) return [];
@@ -81,8 +93,11 @@
 
 	async function onfiles(e: Event) {
 		const files = [...((e.target as HTMLInputElement).files ?? [])];
-		for (const f of files.slice(0, 4)) {
-			if (!f.type.startsWith('image/') || f.size > 8 * 1024 * 1024) continue;
+		let total = images.reduce((n, i) => n + rawSize(i.data), 0);
+		for (const f of files) {
+			if (images.length >= 4) break;
+			if (!f.type.startsWith('image/') || f.size > 8 * 1024 * 1024 || total + f.size > MAX_TOTAL_BYTES) continue;
+			total += f.size;
 			const buf = await f.arrayBuffer();
 			let bin = '';
 			const bytes = new Uint8Array(buf);
@@ -116,7 +131,7 @@
 				{#each images as img, i (img.url)}
 					<div class="thumb">
 						<img src={img.url} alt={img.name} />
-						<button aria-label="Remove image" onclick={() => images.splice(i, 1)}><Icon name="x" size={12} stroke={2.5} /></button>
+						<button aria-label="Remove image" onclick={() => removeImage(i)}><Icon name="x" size={12} stroke={2.5} /></button>
 					</div>
 				{/each}
 			</div>
