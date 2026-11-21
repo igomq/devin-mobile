@@ -48,7 +48,7 @@ export class TaskRunner extends EventEmitter {
     const run: TaskRun = { taskId, cwd, command, startedAt: Date.now(), endedAt: null, exitCode: null, output: '', truncated: false };
     this.runs.set(taskId, run);
     const shell = process.env.SHELL || '/bin/bash';
-    const proc = spawn(shell, ['-lc', command], { cwd, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
+    const proc = spawn(shell, ['-lc', command], { cwd, detached: true, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
     this.procs.set(taskId, proc);
     const onData = (buf: Buffer) => {
       const chunk = buf.toString();
@@ -69,8 +69,19 @@ export class TaskRunner extends EventEmitter {
     return run;
   }
 
+  /** Signals the whole process group so child processes of the shell stop too. */
   stop(taskId: string) {
-    this.procs.get(taskId)?.kill('SIGTERM');
+    const proc = this.procs.get(taskId);
+    if (!proc?.pid) return;
+    try {
+      process.kill(-proc.pid, 'SIGTERM');
+    } catch {
+      proc.kill('SIGTERM');
+    }
+  }
+
+  stopAll() {
+    for (const id of this.procs.keys()) this.stop(id);
   }
 
   list(cwd?: string): Omit<TaskRun, 'output'>[] {
