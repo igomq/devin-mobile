@@ -18,7 +18,14 @@ const TYPES: Record<string, string> = {
 /** Serves the built SvelteKit SPA so a phone browser on the tailnet can use the gateway directly. */
 export function serveStatic(root: string, req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://x');
-  let rel = normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, '');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(url.pathname);
+  } catch {
+    res.writeHead(400).end();
+    return;
+  }
+  let rel = normalize(decoded).replace(/^([/\\])+/, '');
   let file = resolve(join(root, rel));
   if (!file.startsWith(resolve(root))) {
     res.writeHead(403).end();
