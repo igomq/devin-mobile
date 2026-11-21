@@ -372,7 +372,18 @@ export function refreshSessions() {
   return listInFlight;
 }
 
-export async function openSession(id: string, cwd?: string | null) {
+const opening = new Map<string, Promise<void>>();
+/** Load or catch up a session view; concurrent calls for the same session share one request. */
+export function openSession(id: string, cwd?: string | null): Promise<void> {
+  let p = opening.get(id);
+  if (!p) {
+    p = loadSession(id, cwd).finally(() => opening.delete(id));
+    opening.set(id, p);
+  }
+  return p;
+}
+
+async function loadSession(id: string, cwd?: string | null) {
   const v = (views[id] ??= { epoch: null, seq: 0, cwd: cwd ?? null, items: [], tools: {}, state: emptyState(), ready: false, error: null, truncated: false });
   try {
     // After a gateway restart only the session list knows this session's project; opened without it,
