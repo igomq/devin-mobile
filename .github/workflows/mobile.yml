@@ -78,16 +78,12 @@ jobs:
       - name: Init iOS project
         run: npx tauri ios init --ci
       - name: Build (no code signing)
-        run: |
-          npm run build
-          cd src-tauri/gen/apple
-          SCHEME=$(xcodebuild -list -json | python3 -c 'import json,sys; print([s for s in json.load(sys.stdin)["project"]["schemes"] if s.endswith("_iOS")][0])')
-          xcodebuild -scheme "$SCHEME" -configuration release -sdk iphoneos -destination 'generic/platform=iOS' \
-            -derivedDataPath build/dd ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+        run: npx tauri ios build --no-sign --archive-only --target aarch64
       - name: Package IPA
         run: |
-          APP=$(find src-tauri/gen/apple/build/dd/Build/Products -maxdepth 2 -name '*.app' -type d | head -1)
-          echo "$APP"
+          APP=$(find src-tauri/gen/apple/build -path '*.xcarchive/Products/Applications/*.app' -maxdepth 6 -type d | head -1)
+          echo "app: $APP"
+          test -n "$APP"
           mkdir -p ../dist/Payload
           cp -R "$APP" ../dist/Payload/
           cd ../dist && zip -qry devin-mobile-unsigned.ipa Payload && ls -la
