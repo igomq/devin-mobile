@@ -227,8 +227,16 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'session.permission': (p) => request('session.permission', { ...sid(p), requestId: p.reqId, optionId: p.optionId }),
   'session.setMode': (p) => request('session.setMode', { ...sid(p), modeId: p.modeId }),
   'session.setConfig': (p) => request('session.setConfig', { ...sid(p), configId: p.configId, value: p.value }),
-  'session.close': (p) => request('session.close', sid(p)),
-  'session.delete': (p) => request('session.delete', sid(p)),
+  'session.close': async (p) => {
+    const r = await request('session.close', sid(p));
+    delete views[p.id];
+    return r;
+  },
+  'session.delete': async (p) => {
+    const r = await request('session.delete', sid(p));
+    delete views[p.id];
+    return r;
+  },
   'git.status': async (p) => {
     const r = await request('git.status', { cwd: p.cwd });
     return {
@@ -316,6 +324,7 @@ function onMessage(msg: Json) {
     case 'session_state':
       return upsert(msg.session);
     case 'session_deleted':
+      delete views[msg.sessionId];
       app.sessions = app.sessions.filter((s) => s.id !== msg.sessionId);
       return;
     case 'permission_request': {
