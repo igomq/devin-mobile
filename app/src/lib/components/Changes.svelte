@@ -364,6 +364,7 @@
     border-color: var(--line-strong);
   }
   .result {
+    flex: none;
     margin: 12px 12px 0;
     border: 1px solid var(--line);
     border-radius: 14px;
