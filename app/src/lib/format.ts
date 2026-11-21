@@ -60,19 +60,27 @@ export function parseDiff(text: string | null | undefined) {
   const rows: DiffRow[] = [];
   let a = 0;
   let b = 0;
-  for (const line of (text || '').split('\n')) {
-    if (line.startsWith('@@')) {
-      const m = /@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
+  // Lines left in the current hunk, so a deleted `-- comment` (`--- comment`) is not read as a file header.
+  let leftA = 0;
+  let leftB = 0;
+  const lines = (text || '').split('\n');
+  if (lines[lines.length - 1] === '') lines.pop();
+  for (const line of lines) {
+    const inHunk = leftA > 0 || leftB > 0;
+    if (!inHunk && line.startsWith('@@')) {
+      const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (m) {
         a = Number(m[1]);
-        b = Number(m[2]);
+        b = Number(m[3]);
+        leftA = Number(m[2] ?? 1);
+        leftB = Number(m[4] ?? 1);
       }
       rows.push({ type: 'hunk', text: line });
-    } else if (/^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode)/.test(line)) continue;
-    else if (line.startsWith('+')) rows.push({ type: 'add', b: b++, text: line.slice(1) });
-    else if (line.startsWith('-')) rows.push({ type: 'del', a: a++, text: line.slice(1) });
+    } else if (!inHunk && /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode)/.test(line)) continue;
+    else if (line.startsWith('+')) rows.push({ type: 'add', b: b++, text: line.slice(1) }), leftB--;
+    else if (line.startsWith('-')) rows.push({ type: 'del', a: a++, text: line.slice(1) }), leftA--;
     else if (line.startsWith('\\')) rows.push({ type: 'meta', text: line.slice(2) });
-    else if (line.startsWith(' ')) rows.push({ type: 'ctx', a: a++, b: b++, text: line.slice(1) });
+    else if (line.startsWith(' ') || inHunk) rows.push({ type: 'ctx', a: a++, b: b++, text: line.slice(1) }), leftA--, leftB--;
     else if (line.startsWith('Binary files')) rows.push({ type: 'meta', text: 'Binary file' });
   }
   return rows;
