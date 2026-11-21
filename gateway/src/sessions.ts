@@ -107,6 +107,7 @@ export class Session {
 export class SessionManager extends EventEmitter {
   private acp: AcpConnection | null = null;
   private starting: Promise<AcpConnection> | null = null;
+  private loading = new Map<string, Promise<Session>>();
   sessions = new Map<string, Session>();
   private permCounter = 0;
   agentError: string | null = null;
@@ -141,6 +142,7 @@ export class SessionManager extends EventEmitter {
         for (const s of this.sessions.values()) {
           s.loaded = false;
           s.running = 0;
+          for (const p of s.permissions.values()) this.emit('permission_resolved', s, p.requestId, null);
           s.permissions.clear();
           this.emit('state', s.summary());
         }
@@ -184,7 +186,8 @@ export class SessionManager extends EventEmitter {
       const acp = await this.ensureAgent();
       if (acp.initResult?.agentCapabilities?.sessionCapabilities?.list) {
         let cursor: string | undefined;
-        for (let page = 0; page < 5; page++) {
+        const seen = new Set<string>();
+        for (let page = 0; page < 200; page++) {
           const r = await acp.request('session/list', { ...(cwd ? { cwd } : {}), ...(cursor ? { cursor } : {}) }, 15000);
           for (const info of r?.sessions ?? []) {
             const s = this.getOrCreate(info.sessionId, info.cwd);
@@ -195,7 +198,8 @@ export class SessionManager extends EventEmitter {
             }
           }
           cursor = r?.nextCursor;
-          if (!cursor) break;
+          if (!cursor || seen.has(cursor)) break;
+          seen.add(cursor);
         }
       }
     } catch (e: any) {
@@ -220,15 +224,24 @@ export class SessionManager extends EventEmitter {
 
   /** Make sure the agent has this session in memory (session/load replays history as updates). */
   async ensureLoaded(sessionId: string, cwd?: string): Promise<Session> {
+    // One load per session: a second session/load would replay the whole history into the log again.
+    const pending = this.loading.get(sessionId);
+    if (pending) return pending;
     const known = this.sessions.get(sessionId);
     const s = this.getOrCreate(sessionId, cwd ?? known?.cwd ?? process.cwd());
     if (s.loaded && this.acp?.alive) return s;
+    const load = this.load(s).finally(() => this.loading.delete(sessionId));
+    this.loading.set(sessionId, load);
+    return load;
+  }
+
+  private async load(s: Session): Promise<Session> {
     const acp = await this.ensureAgent();
     s.reset();
     this.emit('reset', s);
     s.loaded = true; // updates during replay must be accepted
     try {
-      const r = await acp.request('session/load', { sessionId, cwd: s.cwd, mcpServers: [] }, 120000);
+      const r = await acp.request('session/load', { sessionId: s.sessionId, cwd: s.cwd, mcpServers: [] }, 120000);
       this.applySessionResult(s, r);
     } catch (e) {
       s.loaded = false;
@@ -333,9 +346,10 @@ export class SessionManager extends EventEmitter {
   async deleteSession(sessionId: string) {
     const acp = await this.ensureAgent();
     await this.closeSession(sessionId).catch(() => undefined);
-    if (acp.initResult?.agentCapabilities?.sessionCapabilities?.delete) {
-      await acp.request('session/delete', { sessionId }, 30000);
+    if (!acp.initResult?.agentCapabilities?.sessionCapabilities?.delete) {
+      throw new Error('This Devin CLI version cannot delete sessions; the session was ended instead.');
     }
+    await acp.request('session/delete', { sessionId }, 30000);
     this.sessions.delete(sessionId);
     this.emit('deleted', sessionId);
   }

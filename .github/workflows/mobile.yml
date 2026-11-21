@@ -1,0 +1,106 @@
+name: Mobile builds
+
+# The macOS and Android builds are slow and billed, so they run on request or for a version tag only.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools ndk;27.0.12077973 platforms;android-34 build-tools;34.0.0'
+      - name: Export NDK_HOME
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: npm ci
+      - name: Init Android project
+        run: |
+          npx tauri android init --ci
+          # Gateways are reached as ws:// over the (WireGuard-encrypted) Tailscale tailnet.
+          sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' src-tauri/gen/android/app/build.gradle.kts
+          grep -n usesCleartextTraffic src-tauri/gen/android/app/build.gradle.kts
+      - name: Build release APK (arm64)
+        run: npx tauri android build --apk --target aarch64
+      - name: Sign APK
+        run: |
+          # Throwaway CI key: sideload-only builds. Use a stable keystore secret to allow in-place upgrades.
+          keytool -genkeypair -keystore ci.jks -storepass android -keypass android -alias ci \
+            -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=devin-mobile CI" >/dev/null
+          UNSIGNED=$(find src-tauri/gen/android -name '*release-unsigned.apk' | head -1)
+          echo "unsigned: $UNSIGNED"
+          mkdir -p ../dist
+          BT=$ANDROID_HOME/build-tools/34.0.0
+          $BT/zipalign -f 4 "$UNSIGNED" aligned.apk
+          $BT/apksigner sign --ks ci.jks --ks-pass pass:android --out ../dist/devin-mobile-arm64.apk aligned.apk
+          $BT/apksigner verify ../dist/devin-mobile-arm64.apk
+          ls -la ../dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devin-mobile-android-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS unsigned IPA
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - run: npm ci
+      - name: Init iOS project
+        run: npx tauri ios init --ci
+      - name: Build (no code signing)
+        run: npx tauri ios build --no-sign --archive-only --target aarch64
+      - name: Package IPA
+        run: |
+          APP=$(find src-tauri/gen/apple/build -path '*.xcarchive/Products/Applications/*.app' -maxdepth 6 -type d | head -1)
+          echo "app: $APP"
+          test -n "$APP"
+          mkdir -p ../dist/Payload
+          cp -R "$APP" ../dist/Payload/
+          cd ../dist && zip -qry devin-mobile-unsigned.ipa Payload && ls -la
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devin-mobile-ios-unsigned-ipa
+          path: dist/*.ipa
+          if-no-files-found: error
