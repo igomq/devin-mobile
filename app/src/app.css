@@ -1,16 +1,16 @@
 :root {
   color-scheme: dark;
-  --bg: #0d0d0d;
-  --bg-elev: #171717;
-  --bg-elev2: #212121;
-  --bg-input: #1c1c1c;
-  --line: #2a2a2a;
-  --line-strong: #3a3a3a;
-  --text: #ececec;
-  --text-2: #a8a8a8;
-  --text-3: #6f6f6f;
-  --accent: #ececec;
-  --on-accent: #0d0d0d;
+  --bg: #1b1c1f;
+  --bg-elev: #242529;
+  --bg-elev2: #2e3035;
+  --bg-input: #26282c;
+  --line: #34363c;
+  --line-strong: #464950;
+  --text: #ededee;
+  --text-2: #b1b3b8;
+  --text-3: #80838a;
+  --accent: #ededee;
+  --on-accent: #1b1c1f;
   --green: #3ecf8e;
   --red: #ff6b6b;
   --amber: #f5b73d;
@@ -65,6 +65,35 @@
     --add-bg: rgba(18, 146, 91, 0.12);
     --del-bg: rgba(214, 59, 59, 0.1);
   }
+}
+
+:root[data-theme='dim'] {
+  color-scheme: dark;
+  --bg: #1c2230;
+  --bg-elev: #242b3b;
+  --bg-elev2: #2d3547;
+  --bg-input: #262e3f;
+  --line: #343d51;
+  --line-strong: #465068;
+  --text: #e8ecf4;
+  --text-2: #aeb6c7;
+  --text-3: #7f889c;
+  --accent: #e8ecf4;
+  --on-accent: #1c2230;
+}
+/* Accent colors; "mono" keeps the theme's own black/white accent. */
+:root[data-accent='blue'] { --accent: #4c8dff; --on-accent: #ffffff; }
+:root[data-accent='violet'] { --accent: #8b6cff; --on-accent: #ffffff; }
+:root[data-accent='green'] { --accent: #2fbf71; --on-accent: #08200f; }
+:root[data-accent='orange'] { --accent: #ff8a3d; --on-accent: #2a1200; }
+:root[data-accent='pink'] { --accent: #ff5c9a; --on-accent: #ffffff; }
+:root[data-accent='teal'] { --accent: #1fb5b0; --on-accent: #ffffff; }
+:root[data-accent]:not([data-accent='mono']) {
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+:root[data-accent]:not([data-accent='mono']) .chip.on,
+:root[data-accent]:not([data-accent='mono']) a {
+  color: var(--accent);
 }
 
 * {
@@ -514,4 +543,61 @@ a {
 :root[data-theme='light'] .hljs-built_in,
 :root[data-theme='light'] .hljs-type {
   color: #8a3fc7;
+}
+
+/* Motion: short, subtle, and off for people who ask for less. */
+.screen {
+  animation: screen-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.msg,
+.perm {
+  animation: item-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.btn,
+.chip,
+.round,
+.iconbtn {
+  transition: transform 0.12s ease, background-color 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+}
+.btn:active:not(:disabled),
+.chip:active:not(:disabled),
+.round:active:not(:disabled),
+.iconbtn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.round.send:not(:disabled) {
+  animation: pop 0.2s ease-out;
+}
+html,
+body,
+.screen,
+.topbar,
+.card {
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+}
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes item-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes pop {
+  from {
+    transform: scale(0.8);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

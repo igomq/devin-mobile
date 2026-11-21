@@ -9,6 +9,7 @@
   import ToolCall from './ToolCall.svelte';
   import Permission from './Permission.svelte';
   import SessionControls from './SessionControls.svelte';
+  import { isModelOption, modelLabel } from '#lib/models.ts';
 
   type Steps = { kind: 'steps'; id: string; items: (TextItem | ToolItem)[] };
 
@@ -17,6 +18,7 @@
   const blank = emptyState();
   let st = $derived(view?.state ?? blank);
   let text = $state('');
+  let model = $derived(modelLabel(st.configOptions?.find(isModelOption)));
   let sending = $state(false);
   let controls = $state(false);
   let scroller = $state<HTMLElement>();
@@ -294,6 +296,7 @@
         <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image"><Icon name="plus" size={18} /></button>
         <input bind:this={fileInput} type="file" accept="image/*" multiple hidden onchange={onfiles} />
         <button class="chip" onclick={() => (controls = true)}><Icon name="settings" size={14} /> {mode?.name ?? 'Mode'}</button>
+        {#if model}<button class="chip model" onclick={() => (controls = true)} title={model}><span>{model}</span></button>{/if}
         <span class="grow"></span>
         {#if busy}
           <button class="round stop" onclick={stop} aria-label="Stop"><Icon name="stop" size={16} /></button>
@@ -572,6 +575,16 @@
   }
   .grow {
     flex: 1;
+  }
+  .chip.model {
+    min-width: 0;
+    max-width: 46%;
+    flex-shrink: 1;
+  }
+  .chip.model span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .round {
     width: 36px;

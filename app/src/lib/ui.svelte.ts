@@ -17,7 +17,18 @@ function parse(): Route {
 }
 
 export const route = $state<Route>(parse());
-export const prefs = $state({ theme: (typeof localStorage !== 'undefined' && localStorage.getItem('devin-mobile.theme')) || 'system' });
+const stored = (k: string) => (typeof localStorage !== 'undefined' && localStorage.getItem(k)) || null;
+export const THEMES = ['system', 'dark', 'dim', 'light'] as const;
+export const ACCENTS = [
+  { id: 'mono', color: 'var(--text)' },
+  { id: 'blue', color: '#4c8dff' },
+  { id: 'violet', color: '#8b6cff' },
+  { id: 'teal', color: '#1fb5b0' },
+  { id: 'green', color: '#2fbf71' },
+  { id: 'orange', color: '#ff8a3d' },
+  { id: 'pink', color: '#ff5c9a' }
+] as const;
+export const prefs = $state({ theme: stored('devin-mobile.theme') || 'system', accent: stored('devin-mobile.accent') || 'mono' });
 
 if (typeof window !== 'undefined') {
   window.addEventListener('hashchange', () => {
@@ -42,10 +53,22 @@ export function setTheme(theme: string) {
   applyTheme();
 }
 
+export function setAccent(accent: string) {
+  prefs.accent = accent;
+  localStorage.setItem('devin-mobile.accent', accent);
+  applyTheme();
+}
+
 export function applyTheme() {
   const root = document.documentElement;
   if (prefs.theme === 'system') root.removeAttribute('data-theme');
   else root.setAttribute('data-theme', prefs.theme);
+  root.setAttribute('data-accent', prefs.accent);
+  // Match the status bar to the page background.
+  requestAnimationFrame(() => {
+    const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', bg));
+  });
 }
 
 export const toasts = $state<{ id: number; text: string; kind: 'info' | 'error' }[]>([]);

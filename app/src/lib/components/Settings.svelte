@@ -1,6 +1,6 @@
 <script lang="ts">
   import { conn, forgetConnection, rpc } from '#lib/api.svelte.ts';
-  import { go, prefs, setTheme, toast } from '#lib/ui.svelte.ts';
+  import { go, prefs, setTheme, setAccent, THEMES, ACCENTS, toast } from '#lib/ui.svelte.ts';
   import Icon from './Icon.svelte';
 
   let checking = $state(false);
@@ -34,8 +34,14 @@
   <main>
     <div class="label">Appearance</div>
     <div class="seg3">
-      {#each ['system', 'dark', 'light'] as t}
+      {#each THEMES as t}
         <button class:on={prefs.theme === t} onclick={() => setTheme(t)}>{t[0].toUpperCase() + t.slice(1)}</button>
+      {/each}
+    </div>
+    <div class="label">Accent</div>
+    <div class="accents">
+      {#each ACCENTS as a}
+        <button class="swatch" class:on={prefs.accent === a.id} style:--sw={a.color} onclick={() => setAccent(a.id)} aria-label={a.id} title={a.id}></button>
       {/each}
     </div>
 
@@ -94,6 +100,27 @@
     letter-spacing: 0.06em;
     color: var(--text-3);
     margin: 16px 2px 6px;
+  }
+  .accents {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+  }
+  .swatch {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--sw);
+    box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 2px transparent;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .swatch.on {
+    box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 4px var(--sw);
+    transform: scale(1.06);
   }
   .seg3 {
     display: flex;
