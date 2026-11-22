@@ -29,7 +29,9 @@
     keyboard: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8',
     sidebar: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM9 4v16M5.5 8h1M5.5 11h1',
     copy: 'M9 9h9a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1v-9a1 1 0 011-1zM5 15H4a1 1 0 01-1-1V5a1 1 0 011-1h9a1 1 0 011 1v1',
-    compose: 'M12 20h8M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z'
+    compose: 'M12 20h8M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+    qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18v2M18 14h2',
+    device: 'M8 3h8a1 1 0 011 1v16a1 1 0 01-1 1H8a1 1 0 01-1-1V4a1 1 0 011-1zM11 18h2'
   };
   let { name, size = 22 }: { name: keyof typeof paths; size?: number } = $props();
 </script>

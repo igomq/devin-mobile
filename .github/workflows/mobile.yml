@@ -57,6 +57,11 @@ jobs:
           grep -n usesCleartextTraffic src-tauri/gen/android/app/build.gradle.kts
           # Keyboard and system-bar handling (see the file's comments).
           cp src-tauri/android/MainActivity.kt src-tauri/gen/android/app/src/main/java/me/gomq/uniharn/MainActivity.kt
+      - name: Allow camera access (pairing QR scanner)
+        run: |
+          MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.CAMERA' "$MANIFEST" || sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA" />\n    <application|' "$MANIFEST"
+          grep -n 'android.permission.CAMERA' "$MANIFEST"
       - name: Build release APK (arm64)
         run: npx tauri android build --apk --target aarch64
       - name: Sign APK
