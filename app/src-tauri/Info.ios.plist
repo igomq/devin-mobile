@@ -9,6 +9,6 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Devin Mobile connects to the gateway running on your VM.</string>
+	<string>uniharn connects to the gateway running on your VM.</string>
 </dict>
 </plist>

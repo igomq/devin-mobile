@@ -4,6 +4,7 @@
   import { emptyState } from '#lib/timeline.ts';
   import type { Item, TextItem, ToolItem } from '#lib/types.ts';
   import { go, toast, copyText } from '#lib/ui.svelte.ts';
+  import { getStorageItem, removeStorageItem, setStorageItem } from '#lib/storage.ts';
   import { markdown, basename, duration } from '#lib/format.ts';
   import Icon from './Icon.svelte';
   import BackButton from './BackButton.svelte';
@@ -20,11 +21,11 @@
   let st = $derived(view?.state ?? blank);
   // The unsent message survives leaving the session and restarting the app.
   // svelte-ignore state_referenced_locally
-  const draftKey = 'devin-mobile.draft.' + id;
-  let text = $state(localStorage.getItem(draftKey) ?? '');
+  const draftSuffix = 'draft.' + id;
+  let text = $state(getStorageItem(draftSuffix) ?? '');
   $effect(() => {
-    if (text) localStorage.setItem(draftKey, text);
-    else localStorage.removeItem(draftKey);
+    if (text) setStorageItem(draftSuffix, text);
+    else removeStorageItem(draftSuffix);
   });
   let model = $derived(modelLabel(st.configOptions?.find(isModelOption)));
   let sending = $state(false);

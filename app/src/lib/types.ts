@@ -19,6 +19,7 @@ export interface ConfigOption {
 
 export interface SessionSummary {
 	sessionId: string;
+	harnessId?: string;
 	cwd: string;
 	title: string | null;
 	status: SessionStatus;
@@ -217,6 +218,7 @@ export interface SessionView {
 /** One row of the home screen's session list. */
 export interface SessionRow {
 	id: string;
+	harnessId?: string;
 	cwd: string | null;
 	title: string | null;
 	updatedAt: number | string | null;
@@ -238,9 +240,66 @@ export interface ChangedFileView {
 	removed: number | null;
 }
 
+export interface HarnessCapabilities {
+	acp: boolean;
+	acpVersion: number | null;
+	streaming: boolean;
+	models: boolean;
+	reasoningLevels: boolean;
+	modes: boolean;
+	permissions: boolean;
+	mcp: boolean;
+	sessionResume: boolean;
+	sessionClose: boolean;
+	sessionDelete: boolean;
+	subagents: boolean;
+	usage: boolean;
+}
+
+export interface HarnessInfo {
+	id: string;
+	name: string;
+	version: string | null;
+	bin: string;
+	installed: boolean;
+	enabled: boolean;
+	custom: boolean;
+	authStatus: 'authenticated' | 'unauthenticated' | 'unknown';
+	authMethod: string | null;
+	acpSupported: boolean;
+	acpVersion: number | null;
+	capabilities: HarnessCapabilities;
+	models: { id: string; name: string; description?: string; reasoningLevels?: string[]; default?: boolean }[];
+	status: 'idle' | 'starting' | 'ready' | 'error' | 'disabled';
+	error: string | null;
+	installHint: string | null;
+}
+
+export interface WorkspaceSessionRef {
+	harnessId: string;
+	sessionId: string;
+	title: string | null;
+	updatedAt: number;
+}
+
+export interface Workspace {
+	workspaceId: string;
+	name: string;
+	cwd: string;
+	repoRoot: string | null;
+	branch: string | null;
+	activeHarnessId: string | null;
+	activeSessionId: string | null;
+	sessions: WorkspaceSessionRef[];
+	createdAt: number;
+	updatedAt: number;
+}
+
 export interface ConnInfo {
 	host: string;
 	home: string;
 	version: string;
 	agent: AgentStatus | null;
+	harnesses?: HarnessInfo[];
+	workspaces?: Workspace[];
 }

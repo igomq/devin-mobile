@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Devin Mobile",
-  "version": "0.2.0",
-  "identifier": "me.gomq.devinmobile",
+  "productName": "uniharn",
+  "version": "0.3.0",
+  "identifier": "me.gomq.uniharn",
   "build": {
     "frontendDist": "../build",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Devin Mobile",
+        "title": "uniharn",
         "width": 420,
         "height": 860,
         "resizable": true
@@ -37,7 +37,7 @@
       "minSdkVersion": 26
     },
     "category": "DeveloperTool",
-    "shortDescription": "Control Devin CLI on your VM from your phone",
+    "shortDescription": "Open-source multi-harness coding agent platform",
     "iOS": {
       "minimumSystemVersion": "15.0"
     }

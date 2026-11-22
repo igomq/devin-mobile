@@ -1,3 +1,5 @@
+import { getStorageItem, setStorageItem } from './storage.ts';
+
 // Tiny hash router and UI preferences.
 export interface Route {
   name: 'home' | 'session' | 'settings' | 'terminal';
@@ -17,7 +19,6 @@ function parse(): Route {
 }
 
 export const route = $state<Route>(parse());
-const stored = (k: string) => (typeof localStorage !== 'undefined' && localStorage.getItem(k)) || null;
 export const THEMES = ['system', 'dark', 'dim', 'light'] as const;
 export const ACCENTS = [
   { id: 'mono', color: 'var(--text)' },
@@ -28,13 +29,13 @@ export const ACCENTS = [
   { id: 'orange', color: '#ff8a3d' },
   { id: 'pink', color: '#ff5c9a' }
 ] as const;
-export const prefs = $state({ theme: stored('devin-mobile.theme') || 'system', accent: stored('devin-mobile.accent') || 'mono' });
+export const prefs = $state({ theme: getStorageItem('theme') || 'system', accent: getStorageItem('accent') || 'mono' });
 
 // Tablet layout: at this width the session list stays in a sidebar next to the open session.
 const WIDE = '(min-width: 768px)';
 export const layout = $state({
   wide: typeof window !== 'undefined' && matchMedia(WIDE).matches,
-  sidebar: stored('devin-mobile.sidebar') !== 'hidden'
+  sidebar: getStorageItem('sidebar') !== 'hidden'
 });
 if (typeof window !== 'undefined') {
   matchMedia(WIDE).addEventListener('change', (e) => (layout.wide = e.matches));
@@ -42,7 +43,7 @@ if (typeof window !== 'undefined') {
 export const sidebarShown = () => layout.wide && layout.sidebar;
 export function toggleSidebar() {
   layout.sidebar = !layout.sidebar;
-  localStorage.setItem('devin-mobile.sidebar', layout.sidebar ? 'shown' : 'hidden');
+  setStorageItem('sidebar', layout.sidebar ? 'shown' : 'hidden');
 }
 
 // Requests from keyboard shortcuts to the home screen, which may be in the sidebar or not mounted yet.
@@ -69,13 +70,13 @@ export function back(fallback = '#/') {
 
 export function setTheme(theme: string) {
   prefs.theme = theme;
-  localStorage.setItem('devin-mobile.theme', theme);
+  setStorageItem('theme', theme);
   applyTheme();
 }
 
 export function setAccent(accent: string) {
   prefs.accent = accent;
-  localStorage.setItem('devin-mobile.accent', accent);
+  setStorageItem('accent', accent);
   applyTheme();
 }
 
@@ -98,7 +99,11 @@ export function applyTheme() {
     const hex = '#' + rgb.map((n) => n.toString(16).padStart(2, '0')).join('');
     const dark = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 140;
     // Android shell only (src-tauri/android/MainActivity.kt).
-    (window as { DevinMobileAndroid?: { setBars(color: string, dark: boolean): void } }).DevinMobileAndroid?.setBars(hex, dark);
+    const androidWin = window as {
+      UniharnAndroid?: { setBars(color: string, dark: boolean): void };
+      DevinMobileAndroid?: { setBars(color: string, dark: boolean): void };
+    };
+    (androidWin.UniharnAndroid ?? androidWin.DevinMobileAndroid)?.setBars(hex, dark);
   });
 }
 
