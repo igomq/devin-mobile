@@ -59,6 +59,8 @@ export class Session {
   lastStopReason: string | null = null;
   lastError: string | null = null;
   configOptions: Json[] = [];
+  /** The model list came from the agent's `models` field, so changes go through `session/set_model`. */
+  modelsFromSetModel = false;
   modes: Json | null = null;
   commands: Json[] = [];
   usage: Json | null = null;
@@ -220,6 +222,11 @@ export class SessionManager extends EventEmitter {
     if (!r) return;
     if (Array.isArray(r.configOptions)) s.configOptions = r.configOptions;
     if (r.modes) s.modes = r.modes;
+    const models = r.models;
+    if (Array.isArray(models?.availableModels) && !s.configOptions.some((o) => o?.category === 'model')) {
+      s.modelsFromSetModel = true;
+      s.configOptions = [...s.configOptions, modelsToConfigOption(models)];
+    }
   }
 
   async listSessions(cwd?: string): Promise<SessionSummary[]> {
@@ -364,6 +371,12 @@ export class SessionManager extends EventEmitter {
   async setConfigOption(sessionId: string, configId: string, value: Json) {
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
+    if (configId === 'model' && s.modelsFromSetModel) {
+      await acp.request('session/set_model', { sessionId, modelId: value }, 30000);
+      s.configOptions = s.configOptions.map((o) => (o?.id === 'model' ? { ...o, currentValue: value } : o));
+      this.emit('state', s.summary());
+      return s.summary();
+    }
     const params: Json = { sessionId, configId, value };
     if (typeof value === 'boolean') params.type = 'boolean';
     const r = await acp.request('session/set_config_option', params, 30000);
@@ -479,4 +492,16 @@ export class SessionManager extends EventEmitter {
     }
     conn.respondError(id, -32601, `Method not supported by uniharn gateway: ${method}`);
   }
+}
+
+/** Turns an ACP `models` result (`availableModels`, `currentModelId`) into a select config option. */
+export function modelsToConfigOption(models: Json): Json {
+  return {
+    id: 'model',
+    name: 'Model',
+    category: 'model',
+    type: 'select',
+    currentValue: models.currentModelId ?? models.availableModels[0]?.modelId ?? null,
+    options: models.availableModels.map((m: Json) => ({ value: m.modelId, name: m.name ?? m.modelId, ...(m.description ? { description: m.description } : {}) })),
+  };
 }
