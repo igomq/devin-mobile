@@ -21,6 +21,7 @@ export interface PendingPermission {
 
 export interface SessionSummary {
   sessionId: string;
+  harnessId: string;
   cwd: string;
   title: string | null;
   status: SessionStatus;
@@ -67,7 +68,7 @@ export class Session {
   turnStats: Json[] | null = null;
   permissions = new Map<string, PendingPermission>();
 
-  constructor(public sessionId: string, public cwd: string) {}
+  constructor(public sessionId: string, public cwd: string, public harnessId = 'devin') {}
 
   get status(): SessionStatus {
     if (this.permissions.size > 0) return 'awaiting_permission';
@@ -80,6 +81,7 @@ export class Session {
   summary(): SessionSummary {
     return {
       sessionId: this.sessionId,
+      harnessId: this.harnessId,
       cwd: this.cwd,
       title: this.title,
       status: this.status,
@@ -148,7 +150,7 @@ export class SessionManager extends EventEmitter {
     if (this.acp?.alive) return this.acp;
     if (this.starting) return this.starting;
     this.starting = (async () => {
-      const conn = new AcpConnection(this.bin, ['acp', ...this.extraArgs], process.env);
+      const conn = new AcpConnection(this.bin, ['acp', ...this.extraArgs], process.env, { label: 'devin acp' });
       conn.on('notification', (m, p) => this.onNotification(m, p));
       conn.on('request', (id, m, p) => this.onRequest(conn, id, m, p));
       conn.on('exit', (code) => {
@@ -383,6 +385,11 @@ export class SessionManager extends EventEmitter {
     return acp.request('authenticate', { methodId }, 300000);
   }
 
+  stop() {
+    this.acp?.stop();
+    this.acp = null;
+  }
+
   private onTurnStats(params: Json) {
     const s = this.sessions.get(params?.sessionId);
     if (!s || !Array.isArray(params.responseDimensions)) return;
@@ -445,6 +452,6 @@ export class SessionManager extends EventEmitter {
       this.emit('state', s.summary());
       return;
     }
-    conn.respondError(id, -32601, `Method not supported by Devin Mobile gateway: ${method}`);
+    conn.respondError(id, -32601, `Method not supported by uniharn gateway: ${method}`);
   }
 }
