@@ -137,3 +137,72 @@ test('listAllSessions does not wait for a stalled harness and reports its rows l
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('ACP `models` results become a model option switched with session/set_model', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uniharn-models-'));
+  const bin = join(dir, 'claude-agent-acp');
+  writeFileSync(
+    bin,
+    `#!/usr/bin/env node
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
+let model = 'default';
+rl.on('line', (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } });
+  else if (msg.method === 'session/new') out({ id: msg.id, result: { sessionId: 's1', models: { currentModelId: model, availableModels: [{ modelId: 'default', name: 'Default' }, { modelId: 'haiku', name: 'Haiku', description: 'Fast' }] } } });
+  else if (msg.method === 'session/set_model') { model = msg.params.modelId; out({ id: msg.id, result: {} }); }
+  else if (msg.method === 'session/set_config_option') out({ id: msg.id, result: { configOptions: [{ id: 'effort', category: 'thought_level', type: 'select', currentValue: msg.params.value, options: [] }] } });
+  else if (msg.id !== undefined) out({ id: msg.id, result: {} });
+});
+`,
+    { mode: 0o755 },
+  );
+  const adapter = new AcpHarnessAdapter({ id: 'claude', name: 'Claude Code', bin: join(dir, 'missing-acp'), altBins: [bin], acpArgs: [] });
+  try {
+    const info = await adapter.probe();
+    assert.equal(info.bin, bin);
+    adapter.configure({ envAllowlist: ['ANTHROPIC_API_KEY'] });
+    assert.equal(adapter.info().bin, bin);
+    const s = await adapter.createSession(dir);
+    const opt = s.configOptions.find((o) => o.id === 'model');
+    assert.equal(opt?.category, 'model');
+    assert.equal(opt?.currentValue, 'default');
+    assert.deepEqual(opt?.options.map((o: { value: string }) => o.value), ['default', 'haiku']);
+    const sum = await adapter.setConfigOption(s.sessionId, 'model', 'haiku');
+    assert.equal(sum.configOptions.find((o: { id: string }) => o.id === 'model')?.currentValue, 'haiku');
+    const after = await adapter.setConfigOption(s.sessionId, 'effort', 'high');
+    assert.deepEqual(after.configOptions.map((o: { id: string }) => o.id), ['effort', 'model']);
+    assert.equal(after.configOptions.find((o: { id: string }) => o.id === 'model')?.currentValue, 'haiku');
+  } finally {
+    adapter.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Authentication errors from session/new name the sign-in command and env vars', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uniharn-auth-'));
+  const bin = join(dir, 'codex-acp');
+  writeFileSync(
+    bin,
+    `#!/usr/bin/env node
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
+rl.on('line', (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [{ id: 'chatgpt' }, { type: 'env_var', id: 'k', vars: [{ name: 'CODEX_API_KEY' }] }] } });
+  else if (msg.method === 'session/new') out({ id: msg.id, error: { code: -32000, message: 'Authentication required' } });
+  else if (msg.id !== undefined) out({ id: msg.id, result: {} });
+});
+`,
+    { mode: 0o755 },
+  );
+  const adapter = new AcpHarnessAdapter({ id: 'codex', name: 'Codex', bin, acpArgs: [], authMethod: 'codex login' });
+  try {
+    await adapter.probe();
+    await assert.rejects(adapter.createSession(dir), /Authentication required: run `codex login`, or set CODEX_API_KEY/);
+  } finally {
+    adapter.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

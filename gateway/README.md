@@ -54,15 +54,15 @@ Every harness is driven over ACP (JSON-RPC on stdio). Capabilities (session resu
 | Harness | id | Command started | Status |
 | --- | --- | --- | --- |
 | Devin CLI | `devin` | `devin acp` | Verified |
-| OpenAI Codex CLI | `codex` | `codex-acp` (`@zed-industries/codex-acp`) | ACP adapter, needs `codex login` |
-| Claude Code | `claude` | `claude-code-acp` (`@zed-industries/claude-code-acp`) | ACP adapter, needs Claude login |
-| OpenCode | `opencode` | `opencode acp` | Native ACP |
-| Kiro CLI | `kiro` | `kiro-cli acp` | Native ACP |
+| OpenAI Codex CLI | `codex` | `codex-acp` (`@zed-industries/codex-acp`) | ACP handshake verified; needs `codex login` or `CODEX_API_KEY`/`OPENAI_API_KEY` |
+| Claude Code | `claude` | `claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`), falls back to `claude-code-acp` | Sessions and model switching verified |
+| OpenCode | `opencode` | `opencode acp` | Prompts, worktree subagents and the `uniharn` MCP server verified |
+| Kiro CLI | `kiro` | `kiro-cli acp` | Native ACP, not tested |
 | Command Code | `command-code` | none documented | Disabled until `bin`/`args` point at an ACP command |
 | Google Antigravity | `antigravity` | none documented | Disabled until `bin`/`args` point at an ACP command |
 | Custom | any | `harnesses.registerCustom` | Any ACP agent |
 
-`harnesses.configure` can override `bin`, `args` and `envAllowlist` for each. With a non-empty `envAllowlist`, the harness process only receives `PATH`, `HOME`, `USER`, `SHELL`, locale and XDG variables plus the listed keys. Missing binaries show `installed: false` and an `installHint`.
+`harnesses.configure` can override `bin`, `args` and `envAllowlist` for each. With a non-empty `envAllowlist`, the harness process only receives `PATH`, `HOME`, `USER`, `SHELL`, locale and XDG variables plus the listed keys. Missing binaries show `installed: false` and an `installHint`. An agent that returns `models` (`availableModels`) instead of a model config option gets a `model` select option, switched with `session/set_model`. An "Authentication required" error names the sign-in command and the agent's API key variables. See [docs/HARNESSES.md](../docs/HARNESSES.md) for the tested versions.
 
 ### Requests and responses
 

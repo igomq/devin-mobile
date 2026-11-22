@@ -17,6 +17,8 @@ export interface AcpHarnessSpec {
   name: string;
   /** Executable name (resolved on PATH) or absolute path. */
   bin: string;
+  /** Older or alternative executable names tried when `bin` is not found. */
+  altBins?: string[];
   /** Arguments that start the ACP server, e.g. `['acp']`. */
   acpArgs: string[];
   versionArgs?: string[];
@@ -103,14 +105,25 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     if (patch.bin) this.bin = patch.bin;
     if (patch.args) this.args = [...patch.args];
     if (patch.envAllowlist) this.envAllowlist = [...patch.envAllowlist];
-    this.manager.updateLaunchConfig(this.bin, this.args);
+    this.resolveLaunchBin();
+  }
+
+  /** Resolves `bin` (or, while it is not overridden, the spec's `altBins`) and launches with the result. */
+  private resolveLaunchBin() {
+    this.resolvedBin = resolveBin(this.bin);
+    if (!this.resolvedBin && this.bin === this.spec.bin) {
+      for (const alt of this.spec.altBins ?? []) {
+        this.resolvedBin = resolveBin(alt);
+        if (this.resolvedBin) break;
+      }
+    }
+    this.manager.updateLaunchConfig(this.resolvedBin ?? this.bin, this.args);
   }
 
   async probe(): Promise<HarnessInfo> {
-    this.resolvedBin = resolveBin(this.bin);
+    this.resolveLaunchBin();
     this.installed = !!this.resolvedBin;
     this.version = null;
-    this.manager.updateLaunchConfig(this.resolvedBin ?? this.bin, this.args);
     if (this.resolvedBin) {
       try {
         const { stdout } = await execFileAsync(this.resolvedBin, this.spec.versionArgs ?? ['--version'], { timeout: 5000, env: filterEnv(this.envAllowlist) });
@@ -178,8 +191,25 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     if (!this.enabled || (!this.installed && !this.manager.agentStatus().running)) return Promise.resolve([]);
     return this.manager.listSessions(cwd);
   }
-  createSession(cwd: string, _opts?: CreateSessionOptions): Promise<Session> {
-    return this.manager.createSession(cwd);
+  async createSession(cwd: string, _opts?: CreateSessionOptions): Promise<Session> {
+    try {
+      return await this.manager.createSession(cwd);
+    } catch (e) {
+      throw this.withAuthHint(e);
+    }
+  }
+
+  /** Adds how to sign in to an agent's "Authentication required" error. */
+  private withAuthHint(e: unknown): unknown {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/auth/i.test(msg)) return e;
+    const hints: string[] = [];
+    if (this.spec.authMethod) hints.push(`run \`${this.spec.authMethod}\``);
+    const vars = (this.manager.initResult?.authMethods ?? [])
+      .flatMap((m: Json) => (Array.isArray(m?.vars) ? m.vars.map((v: Json) => v?.name) : []))
+      .filter((v: unknown): v is string => typeof v === 'string');
+    if (vars.length) hints.push(`set ${vars.join(' or ')} (add it to envAllowlist if one is set)`);
+    return hints.length ? new Error(`${msg}: ${hints.join(', or ')}`) : e;
   }
   ensureLoaded(sessionId: string, cwd?: string): Promise<Session> {
     return this.manager.ensureLoaded(sessionId, cwd);

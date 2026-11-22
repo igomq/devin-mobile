@@ -18,9 +18,10 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
   {
     id: 'claude',
     name: 'Claude Code',
-    bin: 'claude-code-acp',
+    bin: 'claude-agent-acp',
+    altBins: ['claude-code-acp'],
     acpArgs: [],
-    installHint: 'npm i -g @anthropic-ai/claude-code @zed-industries/claude-code-acp',
+    installHint: 'npm i -g @agentclientprotocol/claude-agent-acp',
     authMethod: 'claude /login',
   },
   {

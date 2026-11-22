@@ -59,6 +59,10 @@ export class Session {
   lastStopReason: string | null = null;
   lastError: string | null = null;
   configOptions: Json[] = [];
+  /** The agent's own config options; `configOptions` adds `modelOption` when these have no model. */
+  agentConfigOptions: Json[] = [];
+  /** Model picker built from the agent's `models` field; changes go through `session/set_model`. */
+  modelOption: Json | null = null;
   modes: Json | null = null;
   commands: Json[] = [];
   usage: Json | null = null;
@@ -76,6 +80,15 @@ export class Session {
     if (!this.loaded) return 'unloaded';
     if (this.lastError) return 'error';
     return 'idle';
+  }
+
+  get modelsFromSetModel(): boolean {
+    return !!this.modelOption && !this.agentConfigOptions.some((o) => o?.category === 'model');
+  }
+
+  setConfigOptions(opts?: Json[]) {
+    if (opts) this.agentConfigOptions = opts;
+    this.configOptions = this.modelsFromSetModel ? [...this.agentConfigOptions, this.modelOption] : this.agentConfigOptions;
   }
 
   summary(): SessionSummary {
@@ -218,8 +231,9 @@ export class SessionManager extends EventEmitter {
 
   private applySessionResult(s: Session, r: Json) {
     if (!r) return;
-    if (Array.isArray(r.configOptions)) s.configOptions = r.configOptions;
     if (r.modes) s.modes = r.modes;
+    if (Array.isArray(r.models?.availableModels)) s.modelOption = modelsToConfigOption(r.models);
+    s.setConfigOptions(Array.isArray(r.configOptions) ? r.configOptions : undefined);
   }
 
   async listSessions(cwd?: string): Promise<SessionSummary[]> {
@@ -364,6 +378,13 @@ export class SessionManager extends EventEmitter {
   async setConfigOption(sessionId: string, configId: string, value: Json) {
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
+    if (configId === 'model' && s.modelsFromSetModel) {
+      await acp.request('session/set_model', { sessionId, modelId: value }, 30000);
+      s.modelOption = { ...s.modelOption, currentValue: value };
+      s.setConfigOptions();
+      this.emit('state', s.summary());
+      return s.summary();
+    }
     const params: Json = { sessionId, configId, value };
     if (typeof value === 'boolean') params.type = 'boolean';
     const r = await acp.request('session/set_config_option', params, 30000);
@@ -432,7 +453,7 @@ export class SessionManager extends EventEmitter {
     const u = params.update ?? {};
     switch (u.sessionUpdate) {
       case 'config_option_update':
-        if (Array.isArray(u.configOptions)) s.configOptions = u.configOptions;
+        if (Array.isArray(u.configOptions)) s.setConfigOptions(u.configOptions);
         this.emit('state', s.summary());
         break;
       case 'current_mode_update':
@@ -479,4 +500,16 @@ export class SessionManager extends EventEmitter {
     }
     conn.respondError(id, -32601, `Method not supported by uniharn gateway: ${method}`);
   }
+}
+
+/** Turns an ACP `models` result (`availableModels`, `currentModelId`) into a select config option. */
+export function modelsToConfigOption(models: Json): Json {
+  return {
+    id: 'model',
+    name: 'Model',
+    category: 'model',
+    type: 'select',
+    currentValue: models.currentModelId ?? models.availableModels[0]?.modelId ?? null,
+    options: models.availableModels.map((m: Json) => ({ value: m.modelId, name: m.name ?? m.modelId, ...(m.description ? { description: m.description } : {}) })),
+  };
 }
