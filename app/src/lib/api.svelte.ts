@@ -1,9 +1,8 @@
 // Connection to the uniharn gateway: one WebSocket, requests plus pushed events, with
 // automatic reconnect and per-session resume from the last seen sequence number.
-import { basename } from './format.ts';
 import { getStorageItem, removeStorageItem, setStorageItem } from './storage.ts';
 import { applyUpdate, emptyState, permissionView, stateFromSummary } from './timeline.ts';
-import type { ChangedFile, ChangedFileView, ConnInfo, HarnessInfo, Json, PendingPermission, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
+import type { AppNotification, ChangedFile, ChangedFileView, ConnInfo, HarnessInfo, Json, PendingPermission, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
 
 const STORE_SUFFIX = 'connection';
 
@@ -135,7 +134,8 @@ export function connect(force = false) {
         version: hello.version,
         agent: hello.agent,
         harnesses: hello.harnesses ?? [],
-        workspaces: hello.workspaces ?? []
+        workspaces: hello.workspaces ?? [],
+        notifications: hello.notifications ?? null
       };
       app.sessions = (hello.sessions ?? []).map(rowKeepingActivity);
       app.harnesses = hello.harnesses ?? [];
@@ -297,7 +297,18 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'harnesses.configure': (p) => request('harnesses.configure', p),
   'workspaces.list': async () => (await request('workspaces.list')).workspaces,
   'workspaces.create': async (p) => (await request('workspaces.create', p)).workspace,
-  'projects.list': () => request('projects.list')
+  'projects.list': () => request('projects.list'),
+  'notifications.list': (p) => request('notifications.list', p),
+  'notifications.read': (p) => request('notifications.read', p),
+  'notifications.clear': () => request('notifications.clear'),
+  'notifications.prefs.get': () => request('notifications.prefs.get'),
+  'notifications.prefs.set': (p) => request('notifications.prefs.set', p),
+  'notifications.capabilities': () => request('notifications.capabilities'),
+  'notifications.push.publicKey': () => request('notifications.push.publicKey'),
+  'notifications.push.subscribe': (p) => request('notifications.push.subscribe', p),
+  'notifications.push.unsubscribe': (p) => request('notifications.push.unsubscribe', p),
+  'notifications.push.list': (p) => request('notifications.push.list', p),
+  'notifications.test': () => request('notifications.test')
 };
 
 export function rpc(m: string, p: Json = {}): Promise<Json> {
@@ -305,23 +316,10 @@ export function rpc(m: string, p: Json = {}): Promise<Json> {
   return fn ? fn(p) : Promise.reject(new Error(`Unknown call: ${m}`));
 }
 
-/** Shown only while the app is in the background and the user allowed notifications in Settings. */
-function notify(title: string, body: string) {
-  if (document.visibilityState === 'visible' || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  try {
-    new Notification(title, { body, tag: 'uniharn' });
-  } catch {
-    // not supported in this webview
-  }
-}
-
 function upsert(summary: SessionSummary) {
   const r = row(summary);
   const i = app.sessions.findIndex((s) => s.id === r.id);
   if (i >= 0) {
-    if (app.sessions[i].status === 'running' && (r.status === 'idle' || r.status === 'error')) {
-      notify(r.status === 'idle' ? 'Devin finished' : 'Devin hit an error', r.title || basename(r.cwd));
-    }
     // A session keeps counting as non-empty once it has shown activity.
     r.hasMessages ||= app.sessions[i].hasMessages;
     app.sessions[i] = r;
@@ -360,7 +358,6 @@ function onMessage(msg: Json) {
     case 'permission_request': {
       const v = views[msg.sessionId];
       const p = v && permissionView(msg, v);
-      notify('Approval needed', p?.rawInput?.command ?? p?.title ?? msg.toolCall?.title ?? 'Devin is waiting for your permission');
       if (v && p && !v.state.permissions.some((x) => x.reqId === msg.requestId)) v.state.permissions.push(p);
       return;
     }
@@ -379,6 +376,11 @@ function onMessage(msg: Json) {
     case 'task_output':
     case 'task_done':
       for (const fn of taskListeners) fn(msg);
+      return;
+    case 'notification':
+    case 'notification_read':
+    case 'notifications_cleared':
+      for (const fn of notificationListeners) fn(msg);
   }
 }
 
@@ -449,4 +451,14 @@ const taskListeners = new Set<(msg: TaskMessage) => void>();
 export function onTask(fn: (msg: TaskMessage) => void) {
   taskListeners.add(fn);
   return () => taskListeners.delete(fn);
+}
+
+export type NotificationMessage =
+  | { type: 'notification'; notification: AppNotification }
+  | { type: 'notification_read'; ids: string[]; unreadCount: number }
+  | { type: 'notifications_cleared' };
+const notificationListeners = new Set<(msg: NotificationMessage) => void>();
+export function onNotificationMessage(fn: (msg: NotificationMessage) => void) {
+  notificationListeners.add(fn);
+  return () => notificationListeners.delete(fn);
 }

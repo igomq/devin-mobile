@@ -302,4 +302,50 @@ export interface ConnInfo {
 	agent: AgentStatus | null;
 	harnesses?: HarnessInfo[];
 	workspaces?: Workspace[];
+	notifications?: { unreadCount: number; lastSeq: number } | null;
 }
+
+export type NotificationEventType =
+	| 'approval_requested'
+	| 'task_completed'
+	| 'execution_failed'
+	| 'subagent_completed'
+	| 'git_conflict'
+	| 'gateway_disconnected'
+	| 'attention_needed';
+
+export interface AppNotification {
+	id: string;
+	seq: number;
+	type: NotificationEventType;
+	severity: 'info' | 'success' | 'warning' | 'error';
+	title: string;
+	body: string;
+	safeBody: string;
+	sessionId: string | null;
+	harnessId: string | null;
+	route: string | null;
+	dedupKey: string;
+	at: number;
+	read: boolean;
+	/** Raised by this device (e.g. it lost the gateway), not by the gateway. */
+	local?: boolean;
+}
+
+export interface NotificationPrefs {
+	enabled: boolean;
+	inApp: boolean;
+	webPush: boolean;
+	hideSensitiveDetails: boolean;
+	dedupWindowMs: number;
+	attentionTimeoutMs: number;
+	events: Record<NotificationEventType, boolean>;
+}
+
+export interface PlatformCapability {
+	status: 'available' | 'requires_secure_context' | 'requires_external_setup' | 'blocked_by_signing';
+	background: boolean;
+	detail: string;
+}
+
+export type NotificationCapabilities = Record<'inApp' | 'webPush' | 'androidFcm' | 'iosApns', PlatformCapability>;

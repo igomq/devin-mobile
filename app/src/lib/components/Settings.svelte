@@ -3,16 +3,38 @@
   import { go, prefs, setTheme, setAccent, THEMES, ACCENTS, toast } from '#lib/ui.svelte.ts';
   import BackButton from './BackButton.svelte';
   import { USAGE_URL } from '#lib/usage.ts';
-  import type { Json } from '#lib/types.ts';
+  import type { Json, NotificationEventType, NotificationPrefs } from '#lib/types.ts';
+  import { notif, EVENT_LABELS, savePrefs, sendTest, enablePush, disablePush, enableSystemNotifications, pushUnavailableReason } from '#lib/notifications.svelte.ts';
 
   let checking = $state(false);
-  const canNotify = typeof Notification !== 'undefined';
-  let notifications = $state(canNotify ? Notification.permission : 'denied');
-
-  async function enableNotifications() {
-    notifications = await Notification.requestPermission();
-    toast(notifications === 'granted' ? 'Notifications enabled' : 'Notifications are blocked for this app', notifications === 'granted' ? 'info' : 'error');
+  let testing = $state(false);
+  async function testNotification() {
+    testing = true;
+    try {
+      const r = await sendTest();
+      if (!r.delivered) toast(r.reason, 'error');
+      else toast(r.push?.sent ? `Test sent (also pushed to ${r.push.sent} device${r.push.sent === 1 ? '' : 's'})` : 'Test sent', 'info');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error');
+    } finally {
+      testing = false;
+    }
   }
+  async function toggle(patch: Partial<NotificationPrefs>) {
+    try {
+      await savePrefs(patch);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error');
+    }
+  }
+  const CAP_LABEL: Record<string, string> = { available: 'Available', requires_secure_context: 'Needs HTTPS', requires_external_setup: 'Needs external setup', blocked_by_signing: 'Blocked by signing' };
+  const PLATFORMS = [
+    ['inApp', 'In-app'],
+    ['webPush', 'Web Push (browser / PWA)'],
+    ['androidFcm', 'Android native (FCM)'],
+    ['iosApns', 'iOS native (APNs)']
+  ] as const;
+
   let agent = $derived(conn.info?.agent ?? null);
 
   let account = $state<{ loggedIn: boolean; fields: { label: string; value: string }[] } | null>(null);
@@ -83,14 +105,47 @@
         {/each}
       </div>
 
-      {#if canNotify}
-        <div class="label">Notifications</div>
-        <div class="card">
+      <div class="label">Notifications</div>
+      <div class="card notif">
+        {#if notif.prefs}
+          {@const p = notif.prefs}
+          <label class="kv"><span>Notifications</span><input type="checkbox" checked={p.enabled} onchange={(e) => toggle({ enabled: e.currentTarget.checked })} /></label>
+          <label class="kv"><span>In-app banners</span><input type="checkbox" checked={p.inApp} disabled={!p.enabled} onchange={(e) => toggle({ inApp: e.currentTarget.checked })} /></label>
+          <label class="kv"><span>Hide details on lock screen</span><input type="checkbox" checked={p.hideSensitiveDetails} onchange={(e) => toggle({ hideSensitiveDetails: e.currentTarget.checked })} /></label>
+          <p class="muted detail">When on, push and system notifications only say what kind of event happened. Tokens and passwords are always removed.</p>
           <div class="kv">
-            <span>Approvals and finished work</span>
-            {#if notifications === 'granted'}<b>On</b>{:else}<button class="btn turnon" onclick={enableNotifications}>Turn on</button>{/if}
+            <span>Web Push on this device</span>
+            {#if notif.push.state === 'on'}
+              <button class="btn turnon" disabled={notif.push.busy} onclick={disablePush}>Turn off</button>
+            {:else if notif.push.state === 'off'}
+              <button class="btn turnon" disabled={notif.push.busy || !p.enabled} onclick={enablePush}>Turn on</button>
+            {:else}
+              <b class="bad">Unavailable</b>
+            {/if}
           </div>
-          <p class="muted detail">Sent while the app is in the background and still connected.</p>
+          {#if pushUnavailableReason()}<p class="muted detail">{pushUnavailableReason()}</p>{/if}
+          {#if notif.push.error}<p class="muted detail bad">{notif.push.error}</p>{/if}
+          {#if notif.push.state !== 'on' && notif.permission !== 'granted' && typeof Notification !== 'undefined'}
+            <div class="kv"><span>Background alerts while connected</span><button class="btn turnon" onclick={enableSystemNotifications}>Allow</button></div>
+          {/if}
+          <div class="sublabel">Notify me about</div>
+          {#each Object.keys(EVENT_LABELS) as NotificationEventType[] as e}
+            <label class="kv"><span>{EVENT_LABELS[e]}</span><input type="checkbox" checked={p.events[e]} disabled={!p.enabled} onchange={(ev) => toggle({ events: { ...p.events, [e]: ev.currentTarget.checked } })} /></label>
+          {/each}
+          <div class="row2"><button class="btn" onclick={testNotification} disabled={testing || !p.enabled}>Send test notification</button></div>
+        {:else}
+          <p class="muted detail">Connect to a gateway to manage notifications.</p>
+        {/if}
+      </div>
+
+      {#if notif.capabilities}
+        <div class="label">Notification support</div>
+        <div class="card">
+          {#each PLATFORMS as [key, name]}
+            {@const c = notif.capabilities[key]}
+            <div class="kv"><span>{name}</span><b class:bad={c.status !== 'available'}>{CAP_LABEL[c.status] ?? c.status}</b></div>
+            <p class="muted detail">{c.detail}</p>
+          {/each}
         </div>
       {/if}
 
@@ -143,6 +198,21 @@
 </div>
 
 <style>
+  .notif input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--accent-solid, #4c8dff);
+  }
+  .notif label.kv {
+    cursor: pointer;
+  }
+  .sublabel {
+    margin: 12px 0 4px;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
   .column {
     max-width: 640px;
     margin-inline: auto;
