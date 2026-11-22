@@ -43,7 +43,6 @@ function createFixture(): Fixture {
   runGit(repo, ['init', '--initial-branch=main']);
   runGit(repo, ['config', 'user.name', 'Git Test']);
   runGit(repo, ['config', 'user.email', 'git-test@example.invalid']);
-  runGit(repo, ['config', 'pull.rebase', 'false']);
   write(repo, 'README.md', 'base line\nstable line\n');
   commit(repo, 'initial commit');
   runGit(repo, ['remote', 'add', 'origin', remote]);
@@ -273,10 +272,13 @@ test('fetch and pull use the configured upstream, while push supports normal and
 
     const fetched = await git.fetch(fixture.repo);
     assert.equal(fetched.status.behind, 1);
+    write(fixture.repo, 'local-before-pull.txt', 'local\n');
+    commit(fixture.repo, 'local commit before pull');
     const pulled = await git.pull(fixture.repo);
     assert.equal(pulled.ok, true);
     assert.equal(pulled.conflicts, false);
     assert.equal(existsSync(join(fixture.repo, 'from-peer.txt')), true);
+    assert.equal(pulled.status.ahead, 2);
     assert.equal((await git.status(fixture.repo)).behind, 0);
 
     write(fixture.repo, 'local-push.txt', 'local update\n');

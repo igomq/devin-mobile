@@ -27,7 +27,8 @@ async function gitResult(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
 type GitResult = Awaited<ReturnType<typeof gitResult>>;
 
 function gitError(result: GitResult): Error {
-  return new Error((result.stderr || result.stdout).trim() || `git exited with status ${result.code}`);
+  const text = (result.stderr || result.stdout).split('\n').filter((line) => !/^hint:/.test(line)).join('\n').trim();
+  return new Error(text || `git exited with status ${result.code}`);
 }
 
 async function git(cwd: string, args: string[], acceptedExitCode = 0, env?: NodeJS.ProcessEnv): Promise<string> {
@@ -504,6 +505,8 @@ export async function pull(cwd: string, opts: RemoteOptions & { rebase?: boolean
   const args = ['pull', '--no-edit'];
   if (opts.rebase === true) args.push('--rebase');
   else if (opts.rebase === false) args.push('--no-rebase');
+  // Without pull.rebase, Git refuses to reconcile divergent branches; default to a merge like older Git did.
+  else if (!(await git(cwd, ['config', '--get', 'pull.rebase'], 1)).trim()) args.push('--no-rebase');
   const result = await gitResult(cwd, [...args, ...await remoteArgs(cwd, opts, false)]);
   const st = await status(cwd);
   if (result.code !== 0 && !st.hasConflicts) throw gitError(result);
