@@ -241,7 +241,7 @@ const sid = (p: Json) => ({ sessionId: p.id });
 // request types and reshapes the answer.
 const calls: Record<string, (p: Json) => Promise<Json>> = {
   'sessions.create': async (p) => {
-    const r = await request('session.create', { cwd: p.cwd });
+    const r = await request('session.create', { cwd: p.cwd, ...(p.harnessId && p.harnessId !== 'devin' ? { harnessId: p.harnessId } : {}) });
     upsert(r.session);
     return { id: r.session.sessionId, cwd: r.session.cwd };
   },
