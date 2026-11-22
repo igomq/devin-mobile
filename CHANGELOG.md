@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Updated the built-in Codex harness install hint to recommend `@agentclientprotocol/codex-acp` instead of the deprecated `@zed-industries/codex-acp`.
+- Chat composer placeholder now shows the active session's harness name instead of always saying "Message Devin".
 
 ### Security
 
