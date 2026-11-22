@@ -59,8 +59,10 @@ export class Session {
   lastStopReason: string | null = null;
   lastError: string | null = null;
   configOptions: Json[] = [];
-  /** The model list came from the agent's `models` field, so changes go through `session/set_model`. */
-  modelsFromSetModel = false;
+  /** The agent's own config options; `configOptions` adds `modelOption` when these have no model. */
+  agentConfigOptions: Json[] = [];
+  /** Model picker built from the agent's `models` field; changes go through `session/set_model`. */
+  modelOption: Json | null = null;
   modes: Json | null = null;
   commands: Json[] = [];
   usage: Json | null = null;
@@ -78,6 +80,15 @@ export class Session {
     if (!this.loaded) return 'unloaded';
     if (this.lastError) return 'error';
     return 'idle';
+  }
+
+  get modelsFromSetModel(): boolean {
+    return !!this.modelOption && !this.agentConfigOptions.some((o) => o?.category === 'model');
+  }
+
+  setConfigOptions(opts?: Json[]) {
+    if (opts) this.agentConfigOptions = opts;
+    this.configOptions = this.modelsFromSetModel ? [...this.agentConfigOptions, this.modelOption] : this.agentConfigOptions;
   }
 
   summary(): SessionSummary {
@@ -220,13 +231,9 @@ export class SessionManager extends EventEmitter {
 
   private applySessionResult(s: Session, r: Json) {
     if (!r) return;
-    if (Array.isArray(r.configOptions)) s.configOptions = r.configOptions;
     if (r.modes) s.modes = r.modes;
-    const models = r.models;
-    if (Array.isArray(models?.availableModels) && !s.configOptions.some((o) => o?.category === 'model')) {
-      s.modelsFromSetModel = true;
-      s.configOptions = [...s.configOptions, modelsToConfigOption(models)];
-    }
+    if (Array.isArray(r.models?.availableModels)) s.modelOption = modelsToConfigOption(r.models);
+    s.setConfigOptions(Array.isArray(r.configOptions) ? r.configOptions : undefined);
   }
 
   async listSessions(cwd?: string): Promise<SessionSummary[]> {
@@ -373,7 +380,8 @@ export class SessionManager extends EventEmitter {
     const acp = await this.ensureAgent();
     if (configId === 'model' && s.modelsFromSetModel) {
       await acp.request('session/set_model', { sessionId, modelId: value }, 30000);
-      s.configOptions = s.configOptions.map((o) => (o?.id === 'model' ? { ...o, currentValue: value } : o));
+      s.modelOption = { ...s.modelOption, currentValue: value };
+      s.setConfigOptions();
       this.emit('state', s.summary());
       return s.summary();
     }
@@ -445,7 +453,7 @@ export class SessionManager extends EventEmitter {
     const u = params.update ?? {};
     switch (u.sessionUpdate) {
       case 'config_option_update':
-        if (Array.isArray(u.configOptions)) s.configOptions = u.configOptions;
+        if (Array.isArray(u.configOptions)) s.setConfigOptions(u.configOptions);
         this.emit('state', s.summary());
         break;
       case 'current_mode_update':

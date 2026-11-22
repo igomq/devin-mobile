@@ -152,7 +152,7 @@ rl.on('line', (line) => {
   if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } });
   else if (msg.method === 'session/new') out({ id: msg.id, result: { sessionId: 's1', models: { currentModelId: model, availableModels: [{ modelId: 'default', name: 'Default' }, { modelId: 'haiku', name: 'Haiku', description: 'Fast' }] } } });
   else if (msg.method === 'session/set_model') { model = msg.params.modelId; out({ id: msg.id, result: {} }); }
-  else if (msg.method === 'session/set_config_option') out({ id: msg.id, error: { code: -32601, message: 'Method not found' } });
+  else if (msg.method === 'session/set_config_option') out({ id: msg.id, result: { configOptions: [{ id: 'effort', category: 'thought_level', type: 'select', currentValue: msg.params.value, options: [] }] } });
   else if (msg.id !== undefined) out({ id: msg.id, result: {} });
 });
 `,
@@ -171,6 +171,9 @@ rl.on('line', (line) => {
     assert.deepEqual(opt?.options.map((o: { value: string }) => o.value), ['default', 'haiku']);
     const sum = await adapter.setConfigOption(s.sessionId, 'model', 'haiku');
     assert.equal(sum.configOptions.find((o: { id: string }) => o.id === 'model')?.currentValue, 'haiku');
+    const after = await adapter.setConfigOption(s.sessionId, 'effort', 'high');
+    assert.deepEqual(after.configOptions.map((o: { id: string }) => o.id), ['effort', 'model']);
+    assert.equal(after.configOptions.find((o: { id: string }) => o.id === 'model')?.currentValue, 'haiku');
   } finally {
     adapter.stop();
     rmSync(dir, { recursive: true, force: true });
