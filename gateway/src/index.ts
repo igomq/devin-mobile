@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { dirname, resolve } from 'node:path';
+import { chmodSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AuthStore } from './auth.js';
 import { type Config, getArg, loadConfig } from './config.js';
@@ -62,8 +63,16 @@ function manageService(action: string | undefined, config: Config, argv: string[
       if (getArg(argv, 'host') ?? process.env.UNIHARN_HOST ?? process.env.DEVIN_MOBILE_HOST) args.push('--host', config.hosts.join(','));
       if (getArg(argv, 'static') ?? process.env.UNIHARN_STATIC ?? process.env.DEVIN_MOBILE_STATIC) args.push('--static', config.staticDir ?? 'none');
       args.push(...config.devinArgs);
+      // A master token from the environment isn't persisted by loadConfig; hand it to the service via a private env file.
+      const envToken = process.env.UNIHARN_TOKEN || process.env.DEVIN_MOBILE_TOKEN;
+      let environmentFile: string | undefined;
+      if (envToken) {
+        environmentFile = join(config.dataDir, 'service.env');
+        writeFileSync(environmentFile, `UNIHARN_TOKEN=${envToken}\n`, { mode: 0o600 });
+        chmodSync(environmentFile, 0o600);
+      }
       const file = installSystemdService({
-        nodePath: process.execPath, entryPath, workingDirectory: dirname(entryPath), args, path: process.env.PATH,
+        nodePath: process.execPath, entryPath, workingDirectory: dirname(entryPath), args, path: process.env.PATH, environmentFile,
       });
       console.log(`Installed and started ${file}`);
       break;

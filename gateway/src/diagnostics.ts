@@ -136,6 +136,7 @@ interface SystemdOptions {
   workingDirectory: string;
   args?: string[];
   path?: string;
+  environmentFile?: string;
 }
 
 const SERVICE_NAME = 'uniharn-gateway.service';
@@ -158,6 +159,7 @@ export function renderSystemdUnit(opts: SystemdOptions): string {
     `WorkingDirectory=${unitValue(opts.workingDirectory)}`,
     `ExecStart=${command}`,
     ...(opts.path ? [`Environment="PATH=${unitValue(opts.path)}"`] : []),
+    ...(opts.environmentFile ? [`EnvironmentFile=${unitValue(opts.environmentFile)}`] : []),
     'Restart=on-failure',
     'RestartSec=3',
     'UMask=0077',

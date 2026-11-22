@@ -83,3 +83,9 @@ test('renderSystemdUnit quotes arguments and preserves a literal percent and dol
   assert.match(unit, /\nUMask=0077\n/);
   assert.throws(() => renderSystemdUnit({ nodePath: '/usr/bin/node', entryPath: 'a\nb', workingDirectory: '/home/me' }), /control characters/);
 });
+
+test('renderSystemdUnit loads an optional environment file', () => {
+  const base = { nodePath: '/usr/bin/node', entryPath: '/opt/g/index.js', workingDirectory: '/opt/g' };
+  assert.ok(renderSystemdUnit({ ...base, environmentFile: '/home/me/.uniharn/service.env' }).includes('EnvironmentFile=/home/me/.uniharn/service.env\n'));
+  assert.ok(!renderSystemdUnit(base).includes('EnvironmentFile='));
+});
