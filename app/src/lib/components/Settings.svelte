@@ -232,6 +232,14 @@
   .row2 .btn {
     flex: 1;
     font-size: 14px;
+    white-space: nowrap;
+  }
+  a.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    color: inherit;
   }
   .btn.block {
     margin-top: 18px;
