@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -10,16 +10,27 @@ export interface Config {
   devinBin: string;
   devinArgs: string[];
   dataDir: string;
+  legacyMigrated: boolean;
   roots: string[];
   staticDir: string | null;
   token: string;
 }
 
-function arg(name: string): string | undefined {
-  const i = process.argv.indexOf(`--${name}`);
-  if (i >= 0) return process.argv[i + 1];
-  const pref = process.argv.find((a) => a.startsWith(`--${name}=`));
+function normalizeArgv(argv: string[]): string[] {
+  // Support `uniharn gateway [flags...]` as well as direct `uniharn-gateway [flags...]`.
+  if (argv[2] === 'gateway') return [argv[0], argv[1], ...argv.slice(3)];
+  return argv;
+}
+
+function getArg(argv: string[], name: string): string | undefined {
+  const i = argv.indexOf(`--${name}`);
+  if (i >= 0) return argv[i + 1];
+  const pref = argv.find((a) => a.startsWith(`--${name}=`));
   return pref ? pref.slice(name.length + 3) : undefined;
+}
+
+function getEnv(env: NodeJS.ProcessEnv, suffix: string): string | undefined {
+  return env[`UNIHARN_${suffix}`] ?? env[`DEVIN_MOBILE_${suffix}`];
 }
 
 export function tailscaleIPv4(): string | null {
@@ -31,17 +42,45 @@ export function tailscaleIPv4(): string | null {
   }
 }
 
-function findDevin(): string {
-  const candidates = [process.env.DEVIN_BIN, join(homedir(), '.local/bin/devin'), '/usr/local/bin/devin', '/opt/homebrew/bin/devin'];
+function findDevin(env: NodeJS.ProcessEnv, home: string): string {
+  const candidates = [env.UNIHARN_DEVIN_BIN, env.DEVIN_BIN, join(home, '.local/bin/devin'), '/usr/local/bin/devin', '/opt/homebrew/bin/devin'];
   for (const c of candidates) if (c && existsSync(c)) return c;
   return 'devin';
 }
 
-export function loadConfig(): Config {
-  const dataDir = resolve(arg('data-dir') ?? process.env.DEVIN_MOBILE_DATA_DIR ?? join(homedir(), '.local/share/devin-mobile'));
+export interface LoadConfigOptions {
+  argv?: string[];
+  env?: NodeJS.ProcessEnv;
+  home?: string;
+  detectTailscale?: () => string | null;
+}
+
+export function loadConfig(opts: LoadConfigOptions = {}): Config {
+  const argv = normalizeArgv(opts.argv ?? process.argv);
+  const env = opts.env ?? process.env;
+  const home = opts.home ?? homedir();
+  const detectTs = opts.detectTailscale ?? tailscaleIPv4;
+
+  const explicitDataDir = getArg(argv, 'data-dir') ?? getEnv(env, 'DATA_DIR');
+  const defaultDataDir = join(home, '.local/share/uniharn');
+  const legacyDataDir = join(home, '.local/share/devin-mobile');
+  const dataDir = resolve(explicitDataDir ?? defaultDataDir);
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+
   const tokenFile = join(dataDir, 'token');
-  let token = process.env.DEVIN_MOBILE_TOKEN ?? '';
+  let legacyMigrated = false;
+
+  // Automatically migrate legacy token when using default uniharn data dir and no token exists yet.
+  if (!explicitDataDir && !existsSync(tokenFile)) {
+    const legacyTokenFile = join(legacyDataDir, 'token');
+    if (existsSync(legacyTokenFile)) {
+      copyFileSync(legacyTokenFile, tokenFile);
+      chmodSync(tokenFile, 0o600);
+      legacyMigrated = true;
+    }
+  }
+
+  let token = getEnv(env, 'TOKEN') ?? '';
   if (!token) {
     if (!existsSync(tokenFile)) writeFileSync(tokenFile, randomBytes(32).toString('base64url') + '\n', { mode: 0o600 });
     chmodSync(tokenFile, 0o600);
@@ -49,32 +88,33 @@ export function loadConfig(): Config {
   }
 
   // Never bind to all interfaces by default: loopback (for `tailscale serve`) plus the Tailscale IP if present.
-  const hostArg = arg('host') ?? process.env.DEVIN_MOBILE_HOST;
+  const hostArg = getArg(argv, 'host') ?? getEnv(env, 'HOST');
   let hosts: string[];
   if (hostArg) hosts = hostArg.split(',').map((h) => h.trim()).filter(Boolean);
   else {
     hosts = ['127.0.0.1'];
-    const ts = tailscaleIPv4();
+    const ts = detectTs();
     if (ts) hosts.push(ts);
   }
 
-  const rootsArg = arg('roots') ?? process.env.DEVIN_MOBILE_ROOTS;
-  const roots = rootsArg ? rootsArg.split(',').map((r) => resolve(r.trim())) : [homedir(), join(homedir(), 'repos'), join(homedir(), 'projects'), join(homedir(), 'code')];
+  const rootsArg = getArg(argv, 'roots') ?? getEnv(env, 'ROOTS');
+  const roots = rootsArg ? rootsArg.split(',').map((r) => resolve(r.trim())) : [home, join(home, 'repos'), join(home, 'projects'), join(home, 'code')];
 
   const defaultStatic = resolve(new URL('.', import.meta.url).pathname, '../../app/build');
-  const staticArg = arg('static') ?? process.env.DEVIN_MOBILE_STATIC;
+  const staticArg = getArg(argv, 'static') ?? getEnv(env, 'STATIC');
   const staticDir = staticArg === 'none' ? null : resolve(staticArg ?? defaultStatic);
 
   const devinArgs: string[] = [];
-  const model = arg('model') ?? process.env.DEVIN_MOBILE_MODEL;
+  const model = getArg(argv, 'model') ?? getEnv(env, 'MODEL');
   if (model) devinArgs.push('--model', model);
 
   return {
     hosts,
-    port: Number(arg('port') ?? process.env.DEVIN_MOBILE_PORT ?? 8787),
-    devinBin: arg('devin') ?? findDevin(),
+    port: Number(getArg(argv, 'port') ?? getEnv(env, 'PORT') ?? 8787),
+    devinBin: getArg(argv, 'devin') ?? findDevin(env, home),
     devinArgs,
     dataDir,
+    legacyMigrated,
     roots,
     staticDir: staticDir && existsSync(staticDir) ? staticDir : null,
     token,

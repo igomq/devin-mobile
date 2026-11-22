@@ -17,6 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - run: npm test
   app:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: app } }

@@ -6,15 +6,22 @@ import { resolve } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { loadConfig } from './config.js';
 import * as git from './git.js';
+import { DevinHarnessAdapter } from './harnesses/devin.js';
+import { formatScopedSessionId, HarnessRegistry } from './harnesses/registry.js';
 import { listDirectory, listProjects } from './projects.js';
-import { SessionManager, type Session } from './sessions.js';
+import type { Session } from './sessions.js';
 import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
+import { WorkspaceStore } from './workspaces.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const config = loadConfig();
-const manager = new SessionManager(config.devinBin, config.devinArgs);
+const registry = new HarnessRegistry(config.dataDir);
+const devinHarness = new DevinHarnessAdapter(config.devinBin, config.devinArgs);
+registry.register(devinHarness);
+const manager = devinHarness.manager;
+const workspaces = new WorkspaceStore(config.dataDir);
 const tasks = new TaskRunner();
 const terminals = new TerminalManager(config.devinBin);
 
@@ -44,15 +51,44 @@ function tokenOk(given: unknown): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-manager.on('event', (s: Session, ev) => broadcast({ type: 'event', sessionId: s.sessionId, epoch: s.epoch, ...ev }, (c) => c.subs.has(s.sessionId)));
-manager.on('state', (summary) => broadcast({ type: 'session_state', session: summary }));
-manager.on('reset', (s: Session) => broadcast({ type: 'session_reset', sessionId: s.sessionId, epoch: s.epoch }, (c) => c.subs.has(s.sessionId)));
-manager.on('deleted', (sessionId) => broadcast({ type: 'session_deleted', sessionId }));
+registry.on('event', (s: Session, ev) => {
+  const sid = formatScopedSessionId(s.harnessId, s.sessionId);
+  broadcast({ type: 'event', sessionId: sid, harnessId: s.harnessId, epoch: s.epoch, ...ev }, (c) => c.subs.has(sid));
+});
+registry.on('state', (summary) => {
+  const sid = formatScopedSessionId(summary.harnessId, summary.sessionId);
+  broadcast({ type: 'session_state', session: { ...summary, sessionId: sid } });
+});
+registry.on('reset', (s: Session) => {
+  const sid = formatScopedSessionId(s.harnessId, s.sessionId);
+  broadcast({ type: 'session_reset', sessionId: sid, harnessId: s.harnessId, epoch: s.epoch }, (c) => c.subs.has(sid));
+});
+registry.on('deleted', (sessionId) => {
+  broadcast({ type: 'session_deleted', sessionId });
+  try {
+    workspaces.removeSession(sessionId);
+  } catch (err) {
+    console.warn(`[uniharn] failed to update workspace after session deletion (${sessionId}):`, err instanceof Error ? err.message : err);
+  }
+});
+registry.on('harness_status', (harness) => broadcast({ type: 'harness_status', harness }));
 manager.on('agent', (status) => broadcast({ type: 'agent_status', agent: status }));
-manager.on('permission', (s: Session, p) =>
-  broadcast({ type: 'permission_request', sessionId: s.sessionId, title: s.title, requestId: p.requestId, toolCall: p.toolCall, options: p.options }),
-);
-manager.on('permission_resolved', (s: Session, requestId, optionId) => broadcast({ type: 'permission_resolved', sessionId: s.sessionId, requestId, optionId }));
+registry.on('permission', (s: Session, p) => {
+  const sid = formatScopedSessionId(s.harnessId, s.sessionId);
+  broadcast({
+    type: 'permission_request',
+    sessionId: sid,
+    harnessId: s.harnessId,
+    title: s.title,
+    requestId: p.requestId,
+    toolCall: p.toolCall,
+    options: p.options,
+  });
+});
+registry.on('permission_resolved', (s: Session, requestId, optionId) => {
+  const sid = formatScopedSessionId(s.harnessId, s.sessionId);
+  broadcast({ type: 'permission_resolved', sessionId: sid, harnessId: s.harnessId, requestId, optionId });
+});
 tasks.on('output', (run, chunk) => broadcast({ type: 'task_output', taskId: run.taskId, cwd: run.cwd, chunk }));
 tasks.on('done', (run) => {
   const { output: _o, ...rest } = run;
@@ -102,6 +138,8 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
         hostname: (await import('node:os')).hostname(),
         home: homedir(),
         agent: manager.agentStatus(),
+        harnesses: registry.list(),
+        workspaces: workspaces.list(),
         sessions: [...manager.sessions.values()].map((s) => s.summary()),
         terminals: terminals.list(),
         tasks: tasks.list(),
@@ -109,6 +147,51 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
     }
     case 'ping':
       return { now: Date.now() };
+    case 'harnesses.list':
+      return { harnesses: registry.list(), custom: registry.listCustomSpecs() };
+    case 'harnesses.probe': {
+      if (typeof p.harnessId === 'string' && p.harnessId) {
+        const adapter = registry.get(p.harnessId);
+        if (!adapter) throw new Error(`Unknown harness: ${p.harnessId}`);
+        return { harnesses: [await adapter.probe()] };
+      }
+      return { harnesses: await registry.probeAll() };
+    }
+    case 'harnesses.configure': {
+      const harnessId = requireString(p.harnessId, 'harnessId');
+      const patch: Record<string, unknown> = { ...(typeof p.config === 'object' && p.config ? p.config : {}) };
+      for (const k of ['enabled', 'bin', 'args', 'defaultModel', 'envAllowlist'] as const) {
+        if (p[k] !== undefined) patch[k] = p[k];
+      }
+      return { harness: registry.configure(harnessId, patch) };
+    }
+    case 'harnesses.registerCustom': {
+      const src = typeof p.spec === 'object' && p.spec ? p.spec : p;
+      return {
+        custom: registry.saveCustomSpec({
+          id: requireString(src.id, 'id'),
+          name: requireString(src.name, 'name'),
+          command: requireString(src.command, 'command'),
+          args: src.args,
+          cwd: src.cwd,
+          envAllowlist: src.envAllowlist,
+          enabled: src.enabled,
+        }),
+      };
+    }
+    case 'harnesses.removeCustom':
+      return { removed: registry.removeCustomSpec(requireString(p.id ?? p.harnessId, 'id')) };
+    case 'workspaces.list':
+      return { workspaces: workspaces.list() };
+    case 'workspaces.create': {
+      const ws = workspaces.createOrGet(absCwd(p.cwd), { name: p.name, harnessId: p.harnessId });
+      return { workspace: ws };
+    }
+    case 'workspaces.get': {
+      const ws = workspaces.get(requireString(p.workspaceId, 'workspaceId'));
+      if (!ws) throw new Error('Workspace not found');
+      return { workspace: ws };
+    }
     case 'agent.account':
       return accountInfo(!!p.refresh);
     case 'agent.status':
@@ -125,22 +208,35 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
     case 'fs.listDirs':
       return listDirectory(absCwd(p.path ?? homedir()));
     case 'sessions.list':
-      return { sessions: await manager.listSessions(p.cwd ? absCwd(p.cwd) : undefined) };
+      return { sessions: await registry.listAllSessions(p.cwd ? absCwd(p.cwd) : undefined) };
     case 'session.create': {
-      const s = await manager.createSession(absCwd(p.cwd));
-      c.subs.add(s.sessionId);
-      return { session: s.summary(), epoch: s.epoch };
+      const cwd = absCwd(p.cwd);
+      const harnessId = typeof p.harnessId === 'string' && p.harnessId ? p.harnessId : 'devin';
+      const s = await registry.createSession(harnessId, cwd, { model: p.model, mode: p.mode });
+      const scopedId = formatScopedSessionId(harnessId, s.sessionId);
+      c.subs.add(scopedId);
+      let workspaceId: string | null = null;
+      try {
+        const ws = p.workspaceId ? workspaces.get(p.workspaceId) : workspaces.createOrGet(cwd, { harnessId });
+        if (ws) {
+          workspaces.attachSession(ws.workspaceId, { harnessId, sessionId: scopedId, title: s.title, updatedAt: s.updatedAt });
+          workspaceId = ws.workspaceId;
+        }
+      } catch (err) {
+        console.warn(`[uniharn] failed to persist workspace for session ${scopedId}:`, err instanceof Error ? err.message : err);
+      }
+      return { session: { ...s.summary(), sessionId: scopedId, harnessId }, epoch: s.epoch, workspaceId };
     }
     case 'session.open': {
       const id = requireString(p.sessionId, 'sessionId');
+      const { adapter, harnessId, nativeId } = registry.resolveSession(id);
       c.subs.add(id);
-      const s = await manager.ensureLoaded(id, p.cwd ? absCwd(p.cwd) : undefined);
+      const s = await adapter.ensureLoaded(nativeId, p.cwd ? absCwd(p.cwd) : undefined);
       const firstSeq = s.events[0]?.seq ?? s.seq + 1;
       let since = p.epoch === s.epoch && typeof p.sinceSeq === 'number' ? p.sinceSeq : 0;
-      // A cursor older than retained history cannot be replayed incrementally; send a full (truncated) snapshot.
       if (since > 0 && since < firstSeq - 1) since = 0;
       return {
-        session: s.summary(),
+        session: { ...s.summary(), sessionId: id, harnessId },
         epoch: s.epoch,
         full: since === 0,
         truncated: since === 0 && firstSeq > 1,
@@ -151,25 +247,43 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
     case 'session.unsubscribe':
       c.subs.delete(requireString(p.sessionId, 'sessionId'));
       return {};
-    case 'session.prompt':
-      await manager.prompt(requireString(p.sessionId, 'sessionId'), String(p.text ?? ''), Array.isArray(p.images) ? p.images : []);
+    case 'session.prompt': {
+      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
+      await adapter.prompt(nativeId, String(p.text ?? ''), Array.isArray(p.images) ? p.images : []);
       return {};
-    case 'session.cancel':
-      await manager.cancel(requireString(p.sessionId, 'sessionId'));
+    }
+    case 'session.cancel': {
+      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
+      await adapter.cancel(nativeId);
       return {};
-    case 'session.permission':
-      manager.resolvePermission(requireString(p.sessionId, 'sessionId'), requireString(p.requestId, 'requestId'), p.optionId ?? null);
+    }
+    case 'session.permission': {
+      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
+      adapter.resolvePermission(nativeId, requireString(p.requestId, 'requestId'), p.optionId ?? null);
       return {};
-    case 'session.setConfig':
-      return { session: await manager.setConfigOption(requireString(p.sessionId, 'sessionId'), requireString(p.configId, 'configId'), p.value) };
-    case 'session.setMode':
-      return { session: await manager.setMode(requireString(p.sessionId, 'sessionId'), requireString(p.modeId, 'modeId')) };
-    case 'session.close':
-      await manager.closeSession(requireString(p.sessionId, 'sessionId'));
+    }
+    case 'session.setConfig': {
+      const id = requireString(p.sessionId, 'sessionId');
+      const { adapter, harnessId, nativeId } = registry.resolveSession(id);
+      const summary = await adapter.setConfigOption(nativeId, requireString(p.configId, 'configId'), p.value);
+      return { session: { ...summary, sessionId: id, harnessId } };
+    }
+    case 'session.setMode': {
+      const id = requireString(p.sessionId, 'sessionId');
+      const { adapter, harnessId, nativeId } = registry.resolveSession(id);
+      const summary = await adapter.setMode(nativeId, requireString(p.modeId, 'modeId'));
+      return { session: { ...summary, sessionId: id, harnessId } };
+    }
+    case 'session.close': {
+      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
+      await adapter.closeSession(nativeId);
       return {};
-    case 'session.delete':
-      await manager.deleteSession(requireString(p.sessionId, 'sessionId'));
+    }
+    case 'session.delete': {
+      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
+      await adapter.deleteSession(nativeId);
       return {};
+    }
     case 'git.status':
       return git.status(absCwd(p.cwd));
     case 'git.diff':
@@ -228,20 +342,20 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
 const server = createServer((req, res) => {
   try {
     if (req.url === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, version: VERSION }));
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, name: 'uniharn', version: VERSION }));
       return;
     }
     if (config.staticDir) serveStatic(config.staticDir, req, res);
-    else res.writeHead(404).end('Devin Mobile gateway. Connect with the app at ws(s)://<host>/ws');
+    else res.writeHead(404).end('uniharn gateway. Connect with the app at ws(s)://<host>/ws');
   } catch (e: any) {
-    console.error(`[devin-mobile] http error: ${e?.message ?? e}`);
+    console.error(`[uniharn] http error: ${e?.message ?? e}`);
     if (!res.headersSent) res.writeHead(500);
     res.end();
   }
 });
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024 * 1024 });
-wss.on('error', (e) => console.error(`[devin-mobile] websocket server error: ${e.message}`));
+wss.on('error', (e) => console.error(`[uniharn] websocket server error: ${e.message}`));
 server.on('upgrade', (req: IncomingMessage, socket, head) => {
   const url = new URL(req.url ?? '/', 'http://x');
   if (url.pathname !== '/ws') {
@@ -302,19 +416,21 @@ for (const host of config.hosts) {
   if (srv !== server) srv.on('upgrade', (...a) => server.emit('upgrade', ...a));
   srv.listen(config.port, host, () => {
     listening++;
-    console.log(`[devin-mobile] listening on http://${host}:${config.port}  (ws path /ws)`);
+    console.log(`[uniharn] listening on http://${host}:${config.port}  (ws path /ws)`);
     if (listening === config.hosts.length) {
-      console.log(`[devin-mobile] devin binary: ${config.devinBin}`);
-      console.log(`[devin-mobile] static UI: ${config.staticDir ?? '(none)'}`);
-      console.log(`[devin-mobile] token file: ${config.dataDir}/token  (pair with: devin-mobile-gateway --print-token)`);
+      if (config.legacyMigrated) console.log(`[uniharn] migrated legacy token from ~/.local/share/devin-mobile/token`);
+      console.log(`[uniharn] devin binary: ${config.devinBin}`);
+      console.log(`[uniharn] static UI: ${config.staticDir ?? '(none)'}`);
+      console.log(`[uniharn] token file: ${config.dataDir}/token  (pair with: uniharn gateway --print-token)`);
     }
   });
-  srv.on('error', (e) => console.error(`[devin-mobile] failed to listen on ${host}:${config.port}: ${e.message}`));
+  srv.on('error', (e) => console.error(`[uniharn] failed to listen on ${host}:${config.port}: ${e.message}`));
 }
 
-if (process.argv.includes('--print-token')) console.log(`[devin-mobile] token: ${config.token}`);
+if (process.argv.includes('--print-token')) console.log(`[uniharn] token: ${config.token}`);
 
-manager.ensureAgent().catch((e) => console.error(`[devin-mobile] could not start devin acp: ${e.message}`));
+registry.probeAll().catch(() => undefined);
+manager.ensureAgent().catch((e) => console.error(`[uniharn] could not start devin acp: ${e.message}`));
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {

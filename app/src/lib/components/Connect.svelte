@@ -25,8 +25,8 @@
       <div class="logo" aria-hidden="true">
         <svg viewBox="0 0 512 512" width="64" height="64"><rect width="512" height="512" rx="112" fill="var(--text)" /><path d="M150 190l90 66-90 66" fill="none" stroke="var(--bg)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round" /><path d="M276 330h90" stroke="#3ecf8e" stroke-width="40" stroke-linecap="round" /></svg>
       </div>
-      <h1>Devin Mobile</h1>
-      <p class="intro">Connect to the gateway running next to Devin CLI on your VM. Get its token with <code>node dist/index.js --print-token</code>.</p>
+      <h1>uniharn</h1>
+      <p class="intro">Connect to the uniharn gateway running on your VM. Get its token with <code>uniharn gateway --print-token</code>.</p>
 
       <label class="field">
         <span>Gateway address</span>
@@ -46,7 +46,7 @@
       <button class="btn primary block connect" type="submit" disabled={conn.status === 'connecting' && !conn.error}>
         {#if conn.status === 'connecting'}<span class="spinner"></span> Connecting…{:else}Connect{/if}
       </button>
-      <p class="fine">The token stays on this device. Devin credentials never leave the VM{isTauri ? '' : '; this page is served by the gateway itself'}.</p>
+      <p class="fine">The token stays on this device. Agent credentials never leave the VM{isTauri ? '' : '; this page is served by the gateway itself'}.</p>
     </form>
   </div>
 </div>

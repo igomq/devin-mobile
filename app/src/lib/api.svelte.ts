@@ -1,16 +1,17 @@
-// Connection to the devin-mobile gateway: one WebSocket, requests plus pushed events, with
+// Connection to the uniharn gateway: one WebSocket, requests plus pushed events, with
 // automatic reconnect and per-session resume from the last seen sequence number.
 import { basename } from './format.ts';
+import { getStorageItem, removeStorageItem, setStorageItem } from './storage.ts';
 import { applyUpdate, emptyState, permissionView, stateFromSummary } from './timeline.ts';
-import type { ChangedFile, ChangedFileView, ConnInfo, Json, PendingPermission, SessionRow, SessionSummary, SessionView, TaskRun } from './types.ts';
+import type { ChangedFile, ChangedFileView, ConnInfo, HarnessInfo, Json, PendingPermission, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
 
-const STORE_KEY = 'devin-mobile.connection';
+const STORE_SUFFIX = 'connection';
 
 export const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || location.hostname === 'tauri.localhost' || location.protocol === 'tauri:');
 
 function loadSaved(): { url?: string; token?: string } {
   try {
-    return JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+    return JSON.parse(getStorageItem(STORE_SUFFIX) || '{}');
   } catch {
     return {};
   }
@@ -43,7 +44,12 @@ export const conn = $state({
   generation: 0
 });
 
-export const app = $state({ sessions: [] as SessionRow[], sessionsLoaded: false });
+export const app = $state({
+  sessions: [] as SessionRow[],
+  sessionsLoaded: false,
+  harnesses: [] as HarnessInfo[],
+  workspaces: [] as Workspace[]
+});
 
 export const views = $state<Record<string, SessionView>>({});
 
@@ -74,12 +80,12 @@ export function saveConnection(url: string, token: string) {
   if (next !== conn.url) clearSessions();
   conn.url = next;
   conn.token = token.trim();
-  localStorage.setItem(STORE_KEY, JSON.stringify({ url: conn.url, token: conn.token }));
+  setStorageItem(STORE_SUFFIX, JSON.stringify({ url: conn.url, token: conn.token }));
   connect(true);
 }
 
 export function forgetConnection() {
-  localStorage.removeItem(STORE_KEY);
+  removeStorageItem(STORE_SUFFIX);
   wanted = false;
   ws?.close();
   conn.token = '';
@@ -123,15 +129,24 @@ export function connect(force = false) {
   sock.onopen = async () => {
     try {
       const hello = await request('hello', { token: conn.token }, true, 10000);
-      conn.info = { host: hello.hostname, home: hello.home, version: hello.version, agent: hello.agent };
+      conn.info = {
+        host: hello.hostname,
+        home: hello.home,
+        version: hello.version,
+        agent: hello.agent,
+        harnesses: hello.harnesses ?? [],
+        workspaces: hello.workspaces ?? []
+      };
       app.sessions = (hello.sessions ?? []).map(rowKeepingActivity);
+      app.harnesses = hello.harnesses ?? [];
+      app.workspaces = hello.workspaces ?? [];
       conn.status = 'online';
       conn.error = null;
       conn.generation += 1;
       retry = 0;
       clearInterval(pingTimer);
       pingTimer = setInterval(() => conn.status === 'online' && probe(10000), 25000);
-      localStorage.setItem(STORE_KEY, JSON.stringify({ url: conn.url, token: conn.token }));
+      setStorageItem(STORE_SUFFIX, JSON.stringify({ url: conn.url, token: conn.token }));
       refreshSessions();
       for (const id of Object.keys(views)) openSession(id).catch(() => {});
     } catch (err) {
@@ -205,6 +220,7 @@ function probe(timeoutMs: number) {
 
 const row = (s: SessionSummary): SessionRow => ({
   id: s.sessionId,
+  harnessId: s.harnessId ?? 'devin',
   cwd: s.cwd ?? null,
   title: s.title ?? null,
   updatedAt: s.updatedAt ?? null,
@@ -276,6 +292,11 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'term.close': (p) => request('term.close', { termId: p.id }),
   'agent.status': async () => (await request('agent.status')).agent,
   'agent.account': (p) => request('agent.account', { refresh: !!p.refresh }),
+  'harnesses.list': async () => (await request('harnesses.list')).harnesses,
+  'harnesses.probe': async (p) => (await request('harnesses.probe', { harnessId: p.harnessId })).harnesses,
+  'harnesses.configure': (p) => request('harnesses.configure', p),
+  'workspaces.list': async () => (await request('workspaces.list')).workspaces,
+  'workspaces.create': async (p) => (await request('workspaces.create', p)).workspace,
   'projects.list': () => request('projects.list')
 };
 
@@ -288,7 +309,7 @@ export function rpc(m: string, p: Json = {}): Promise<Json> {
 function notify(title: string, body: string) {
   if (document.visibilityState === 'visible' || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   try {
-    new Notification(title, { body, tag: 'devin-mobile' });
+    new Notification(title, { body, tag: 'uniharn' });
   } catch {
     // not supported in this webview
   }

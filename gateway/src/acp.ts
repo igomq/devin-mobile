@@ -16,8 +16,21 @@ export class RpcError extends Error {
   }
 }
 
+export interface AcpClientInfo {
+  name: string;
+  title: string;
+  version: string;
+}
+
+export interface AcpOptions {
+  label?: string;
+  cwd?: string;
+  clientInfo?: AcpClientInfo;
+  protocolVersion?: number;
+}
+
 /**
- * Minimal JSON-RPC 2.0 client for `devin acp` (Agent Client Protocol over stdio).
+ * Harness-agnostic JSON-RPC 2.0 client for Agent Client Protocol (ACP) over stdio.
  * Emits:
  *  - 'notification' (method, params)
  *  - 'request' (id, method, params)  -> caller must call respond()/respondError()
@@ -29,9 +42,17 @@ export class AcpConnection extends EventEmitter {
   private pending = new Map<number, Pending>();
   public initResult: Json = null;
   public stderrTail: string[] = [];
+  private label: string;
+  private cwd?: string;
+  private clientInfo: AcpClientInfo;
+  private protocolVersion: number;
 
-  constructor(private bin: string, private args: string[], private env: NodeJS.ProcessEnv) {
+  constructor(private bin: string, private args: string[], private env: NodeJS.ProcessEnv, opts: AcpOptions = {}) {
     super();
+    this.label = opts.label ?? 'acp';
+    this.cwd = opts.cwd;
+    this.clientInfo = opts.clientInfo ?? { name: 'uniharn', title: 'uniharn', version: '0.3.0' };
+    this.protocolVersion = opts.protocolVersion ?? 1;
   }
 
   get alive() {
@@ -39,7 +60,11 @@ export class AcpConnection extends EventEmitter {
   }
 
   async start(): Promise<Json> {
-    const proc = spawn(this.bin, this.args, { env: this.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(this.bin, this.args, {
+      env: this.env,
+      cwd: this.cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     this.proc = proc;
     const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
     rl.on('line', (line) => this.onLine(line));
@@ -56,15 +81,15 @@ export class AcpConnection extends EventEmitter {
     });
     proc.on('exit', (code, signal) => {
       this.proc = null;
-      for (const p of this.pending.values()) p.reject(new Error(`devin acp exited (${code ?? signal}) during ${p.method}`));
+      for (const p of this.pending.values()) p.reject(new Error(`${this.label} exited (${code ?? signal}) during ${p.method}`));
       this.pending.clear();
       this.emit('exit', code, signal);
     });
     await spawned;
     this.initResult = await this.request('initialize', {
-      protocolVersion: 1,
+      protocolVersion: this.protocolVersion,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: { name: 'devin-mobile', title: 'Devin Mobile', version: '0.1.0' },
+      clientInfo: this.clientInfo,
     });
     return this.initResult;
   }
@@ -74,7 +99,7 @@ export class AcpConnection extends EventEmitter {
   }
 
   request(method: string, params: Json, timeoutMs = 0): Promise<Json> {
-    if (!this.proc) return Promise.reject(new Error('ACP agent is not running'));
+    if (!this.proc) return Promise.reject(new Error(`ACP agent (${this.label}) is not running`));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;

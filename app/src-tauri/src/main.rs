@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  devin_mobile_lib::run();
+  uniharn_lib::run();
 }

@@ -1,4 +1,4 @@
-package me.gomq.devinmobile
+package me.gomq.uniharn
 
 import android.graphics.Color
 import android.os.Bundle
@@ -27,7 +27,10 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onWebViewCreate(webView: WebView) {
-    webView.addJavascriptInterface(Bars(), "DevinMobileAndroid")
+    val bars = Bars()
+    webView.addJavascriptInterface(bars, "UniharnAndroid")
+    // Legacy compatibility alias for older frontend builds.
+    webView.addJavascriptInterface(bars, "DevinMobileAndroid")
   }
 
   inner class Bars {

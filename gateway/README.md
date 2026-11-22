@@ -1,6 +1,6 @@
-# Devin Mobile gateway
+# uniharn gateway
 
-The VM-side service of [Devin Mobile](../README.md). It runs one long-lived `devin acp` process (Devin CLI's [Agent Client Protocol](https://agentclientprotocol.com/) server, JSON-RPC over stdio) and exposes it to the app over a single authenticated WebSocket at `/ws`.
+The VM-side service of [uniharn](../README.md). It provides a harness-agnostic ACP/adapter layer (`HarnessRegistry`, `DevinHarnessAdapter`, `WorkspaceStore`) and exposes connected coding harnesses to clients over a single authenticated WebSocket at `/ws`.
 
 - **Sessions**: `session/new`, `session/load` (history replay), `session/list`, `session/close` and `session/delete`.
 - **Turns**: `session/prompt` with streamed `session/update` notifications, `session/cancel`, and the `session/request_permission` round trip.
@@ -21,17 +21,17 @@ The gateway also serves the built web UI from `../app/build` and answers `GET /h
 
 | Flag | Environment variable | Default | Description |
 | --- | --- | --- | --- |
-| `--port` | `DEVIN_MOBILE_PORT` | `8787` | Port to listen on. |
-| `--host` | `DEVIN_MOBILE_HOST` | `127.0.0.1` and the Tailscale IPv4 address | Comma-separated list of addresses to bind. |
-| `--roots` | `DEVIN_MOBILE_ROOTS` | `~`, `~/repos`, `~/projects`, `~/code` | Comma-separated directories whose subdirectories the app offers as projects. |
+| `--port` | `UNIHARN_PORT` (fallback `DEVIN_MOBILE_PORT`) | `8787` | Port to listen on. |
+| `--host` | `UNIHARN_HOST` (fallback `DEVIN_MOBILE_HOST`) | `127.0.0.1` and the Tailscale IPv4 address | Comma-separated list of addresses to bind. |
+| `--roots` | `UNIHARN_ROOTS` (fallback `DEVIN_MOBILE_ROOTS`) | `~`, `~/repos`, `~/projects`, `~/code` | Comma-separated directories whose subdirectories the app offers as projects. |
 | `--devin` | `DEVIN_BIN` | `~/.local/bin/devin`, `/usr/local/bin/devin`, `/opt/homebrew/bin/devin`, then `devin` on `PATH` | Devin CLI binary. |
-| `--model` | `DEVIN_MOBILE_MODEL` | none | Passed to `devin acp` as `--model`. |
-| `--static` | `DEVIN_MOBILE_STATIC` | `../app/build` | Directory of the web UI. `none` disables serving it. |
-| `--data-dir` | `DEVIN_MOBILE_DATA_DIR` | `~/.local/share/devin-mobile` | Where the token file lives. |
-| | `DEVIN_MOBILE_TOKEN` | generated | Use this token instead of the token file. |
+| `--model` | `UNIHARN_MODEL` (fallback `DEVIN_MOBILE_MODEL`) | none | Passed to `devin acp` as `--model`. |
+| `--static` | `UNIHARN_STATIC` (fallback `DEVIN_MOBILE_STATIC`) | `../app/build` | Directory of the web UI. `none` disables serving it. |
+| `--data-dir` | `UNIHARN_DATA_DIR` (fallback `DEVIN_MOBILE_DATA_DIR`) | `~/.local/share/uniharn` | Where the token, harness configs, and workspace metadata live. |
+| | `UNIHARN_TOKEN` (fallback `DEVIN_MOBILE_TOKEN`) | generated | Use this token instead of the token file. |
 | `--print-token` | | | Print the pairing token at startup. |
 
-The pairing token is generated on first start and stored in `~/.local/share/devin-mobile/token` with mode 0600.
+The pairing token is generated on first start and stored in `~/.local/share/uniharn/token` with mode 0600 (automatically migrating from `~/.local/share/devin-mobile/token` if present).
 
 ## Scripts
 
@@ -41,6 +41,7 @@ The pairing token is generated on first start and stored in `~/.local/share/devi
 | `npm run build` | Compiles TypeScript into `dist/`. |
 | `npm start` | Runs `dist/index.js`. |
 | `npm run typecheck` | Runs `tsc --noEmit`. |
+| `npm test` | Runs the `node:test` test suite. |
 
 ## WebSocket protocol
 
@@ -54,8 +55,16 @@ The first request must be `hello` with the pairing token, sent within 10 seconds
 
 | Request | Parameters | Result |
 | --- | --- | --- |
-| `hello` | `token` | Gateway version, hostname, home directory, agent status, known sessions, terminals and task runs. |
+| `hello` | `token` | Gateway version, hostname, home directory, agent status, `harnesses`, `workspaces`, known sessions, terminals and task runs. |
 | `ping` | | `now` |
+| `harnesses.list` | | Registered harness info list and custom ACP specs. |
+| `harnesses.probe` | `harnessId?` | Probes one or all harnesses for installation, version, auth, and capabilities. |
+| `harnesses.configure` | `harnessId`, `enabled?`, `bin?`, `args?`, `defaultModel?`, `envAllowlist?` | Persists harness configuration in `<dataDir>/harnesses.json`. |
+| `harnesses.registerCustom` | `id`, `name`, `command`, `args?`, `cwd?`, `envAllowlist?` | Saves a custom ACP agent definition. |
+| `harnesses.removeCustom` | `id` | Removes a custom ACP agent definition. |
+| `workspaces.list` | | Persisted workspaces. |
+| `workspaces.create` | `cwd`, `name?`, `harnessId?`, `repoRoot?`, `branch?` | Creates or returns the workspace for `cwd`. |
+| `workspaces.get` | `workspaceId` | Returns a single workspace by ID. |
 | `agent.status` | | Agent status and ACP capabilities. Starts `devin acp` if it is not running. |
 | `agent.account` | `refresh?` | Login state and account fields from `devin auth status`, cached for 60 seconds. |
 | `agent.authenticate` | `methodId` | Result of ACP `authenticate`. |
