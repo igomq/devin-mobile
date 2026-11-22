@@ -94,6 +94,9 @@ function manageService(action: string | undefined, config: Config, argv: string[
 async function main(argv: string[], config: Config): Promise<void> {
   const command = argv[2]?.startsWith('-') ? 'gateway' : argv[2] ?? 'gateway';
   if (command === 'gateway') {
+    // Harnesses, terminals and tasks inherit process.env; keep the master token out of them.
+    delete process.env.UNIHARN_TOKEN;
+    delete process.env.DEVIN_MOBILE_TOKEN;
     const gateway = createGatewayServer(config);
     const addresses = await gateway.start();
     const safeLog = (message: string) => console.log(redactSecrets(message, [config.token]));
