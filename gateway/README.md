@@ -150,7 +150,7 @@ With `worktree`, the gateway runs `git worktree add -b uniharn/sub-<id> <repo>/.
 
 When a subagent finishes, the harness registry emits `subagent_completed` with `taskId`, `harnessId`, `title`, `parentSessionId`, `ok` and `summary`.
 
-Harnesses can delegate too. The gateway offers every ACP session an MCP server named `uniharn` (`node dist/mcp.js`, also installed as `uniharn-mcp`) with the tools `list_harnesses`, `delegate_task` and `list_delegations`. It connects back to the gateway with the pairing token from `UNIHARN_DATA_DIR`. Set `UNIHARN_SUBAGENT_MCP=0` to turn this off.
+Harnesses can delegate too. The gateway offers every ACP session an MCP server named `uniharn` (`node dist/mcp.js`, also installed as `uniharn-mcp`) with the tools `list_harnesses`, `delegate_task` and `list_delegations`. It connects back to the gateway with the pairing token, read from `<dataDir>/mcp-token` (mode 0600; the token itself is never put in the ACP request). Set `UNIHARN_SUBAGENT_MCP=0` to turn this off.
 
 ### Resuming a session
 

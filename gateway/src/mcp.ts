@@ -3,7 +3,7 @@
  * `uniharn-mcp`: a stdio MCP server that lets any agent delegate work to other uniharn harnesses
  * through the local gateway (`orchestration.delegate`, `harnesses.list`, `orchestration.list`).
  */
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
@@ -143,7 +143,9 @@ async function main() {
   const url = process.env.UNIHARN_GATEWAY_URL ?? `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}/ws`;
   let gateway: Promise<GatewayCall> | null = null;
   const call: GatewayCall = async (type, params) => {
-    gateway ??= connectGateway(url, config.token, () => {
+    const tokenFile = process.env.UNIHARN_TOKEN_FILE;
+    const token = tokenFile ? readFileSync(tokenFile, 'utf8').trim() : config.token;
+    gateway ??= connectGateway(url, token, () => {
       gateway = null;
     }).catch((e) => {
       gateway = null;
