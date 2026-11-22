@@ -1,0 +1,66 @@
+name: Bug report
+description: Report something in the app or the gateway that does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Search the existing issues first. Do not report security vulnerabilities here. Follow the security policy instead.
+        Remove pairing tokens and private paths from anything you paste.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a session in ...
+        2. Send ...
+        3. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: How do you run the app?
+      options:
+        - Android APK
+        - iOS or iPadOS IPA
+        - Browser (web UI served by the gateway)
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and OS version
+      placeholder: iPad Air (M2), iPadOS 26.1
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: devin-version
+    attributes:
+      label: Devin CLI version
+      description: Output of `devin --version` on the VM.
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version on the VM
+      description: Output of `node --version`.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Gateway log
+      description: Relevant lines from the gateway output, for example `journalctl --user -u devin-mobile.service`.
+      render: text
