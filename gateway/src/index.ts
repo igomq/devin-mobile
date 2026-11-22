@@ -1,541 +1,179 @@
 #!/usr/bin/env node
-import { timingSafeEqual } from 'node:crypto';
-import { createServer, type IncomingMessage } from 'node:http';
-import { homedir } from 'node:os';
+import { chmodSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { WebSocketServer, WebSocket } from 'ws';
-import { loadConfig } from './config.js';
-import { createGitRpc } from './git-rpc.js';
-import { DevinHarnessAdapter } from './harnesses/devin.js';
-import { createBuiltinAcpAdapters, createCustomAcpAdapter } from './harnesses/builtins.js';
-import { formatScopedSessionId, HarnessRegistry } from './harnesses/registry.js';
-import { NotificationService } from './notifications.js';
-import { listDirectory, listProjects } from './projects.js';
-import type { Session } from './sessions.js';
-import { serveStatic } from './static.js';
-import { detectTestCommand, TaskRunner } from './tasks.js';
-import { TerminalManager } from './terminal.js';
-import { Orchestrator } from './orchestrator.js';
-import { WorkspaceStore } from './workspaces.js';
+import { AuthStore } from './auth.js';
+import { type Config, getArg, loadConfig } from './config.js';
+import {
+  checkGatewayAuth, checkGatewayPorts, collectDiagnostics, gatewayUrl, installSystemdService,
+  suggestedUrls, systemdServiceStatus, uninstallSystemdService,
+} from './diagnostics.js';
+import { redactSecrets } from './security.js';
+import { createGatewayRegistry, createGatewayServer } from './server.js';
 
-const VERSION = '0.3.0';
-const config = loadConfig();
-const registry = new HarnessRegistry(config.dataDir);
-const devinHarness = new DevinHarnessAdapter(config.devinBin, config.devinArgs);
-registry.register(devinHarness);
-for (const a of createBuiltinAcpAdapters()) registry.register(a);
-registry.setCustomFactory(createCustomAcpAdapter);
-void registry.probeAll();
-const manager = devinHarness.manager;
-const workspaces = new WorkspaceStore(config.dataDir);
-const orchestrator = new Orchestrator(registry, config.dataDir);
-const mcpEntry = join(dirname(fileURLToPath(import.meta.url)), 'mcp.js');
-if (process.env.UNIHARN_SUBAGENT_MCP !== '0' && existsSync(mcpEntry)) {
-  // Every harness session gets uniharn's MCP server so its agent can delegate to other harnesses.
-  // The token goes in a 0600 file, not the MCP env, so harnesses never see it in ACP request payloads.
-  const mcpTokenFile = join(config.dataDir, 'mcp-token');
-  writeFileSync(mcpTokenFile, config.token + '\n', { mode: 0o600 });
-  chmodSync(mcpTokenFile, 0o600);
-  const env = [
-    { name: 'UNIHARN_DATA_DIR', value: config.dataDir },
-    { name: 'UNIHARN_TOKEN_FILE', value: mcpTokenFile },
-    { name: 'UNIHARN_GATEWAY_URL', value: `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}/ws` },
-  ];
-  registry.setMcpServers((cwd) => [
-    { name: 'uniharn', command: process.execPath, args: [mcpEntry], env: cwd ? [...env, { name: 'UNIHARN_SESSION_CWD', value: cwd }] : env },
+function printJson(value: object): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
+async function doctor(config: Config, authStore: AuthStore, json: boolean): Promise<void> {
+  const { registry } = createGatewayRegistry(config);
+  const [, ports, { gatewayAuth, activeDeviceCount }] = await Promise.all([
+    registry.probeAll(), checkGatewayPorts(config), checkGatewayAuth(config, authStore.gatewayId),
   ]);
-}
-const gitRpc = createGitRpc(config.dataDir, {
-  onStatus: (cwd, st) => notifications.notifyGitConflict(cwd, st.files.filter((f) => f.status === 'conflict').map((f) => f.path)),
-});
-const tasks = new TaskRunner();
-const terminals = new TerminalManager(config.devinBin);
-const notifications = new NotificationService(config.dataDir);
-
-type Json = any;
-
-interface Client {
-  ws: WebSocket;
-  authed: boolean;
-  subs: Set<string>;
-  terms: Set<string>;
-  alive: boolean;
-}
-const clients = new Set<Client>();
-
-function send(c: Client, msg: Json) {
-  if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
-}
-function broadcast(msg: Json, filter: (c: Client) => boolean = () => true) {
-  const data = JSON.stringify(msg);
-  for (const c of clients) if (c.authed && filter(c) && c.ws.readyState === WebSocket.OPEN) c.ws.send(data);
-}
-
-function tokenOk(given: unknown): boolean {
-  if (typeof given !== 'string') return false;
-  const a = Buffer.from(given);
-  const b = Buffer.from(config.token);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-registry.on('event', (s: Session, ev) => {
-  const sid = formatScopedSessionId(s.harnessId, s.sessionId);
-  broadcast({ type: 'event', sessionId: sid, harnessId: s.harnessId, epoch: s.epoch, ...ev }, (c) => c.subs.has(sid));
-  notifications.onSessionActivity(sid, s.harnessId, s.title);
-});
-registry.on('state', (summary) => {
-  const sid = formatScopedSessionId(summary.harnessId, summary.sessionId);
-  broadcast({ type: 'session_state', session: { ...summary, sessionId: sid } });
-  notifications.onSessionState({ ...summary, sessionId: sid });
-});
-registry.on('reset', (s: Session) => {
-  const sid = formatScopedSessionId(s.harnessId, s.sessionId);
-  broadcast({ type: 'session_reset', sessionId: sid, harnessId: s.harnessId, epoch: s.epoch }, (c) => c.subs.has(sid));
-});
-registry.on('deleted', (sessionId) => {
-  broadcast({ type: 'session_deleted', sessionId });
-  notifications.onSessionForgotten(sessionId);
-  try {
-    workspaces.removeSession(sessionId);
-  } catch (err) {
-    console.warn(`[uniharn] failed to update workspace after session deletion (${sessionId}):`, err instanceof Error ? err.message : err);
-  }
-});
-registry.on('harness_status', (harness) => broadcast({ type: 'harness_status', harness }));
-manager.on('agent', (status) => broadcast({ type: 'agent_status', agent: status }));
-registry.on('permission', (s: Session, p) => {
-  const sid = formatScopedSessionId(s.harnessId, s.sessionId);
-  broadcast({
-    type: 'permission_request',
-    sessionId: sid,
-    harnessId: s.harnessId,
-    title: s.title,
-    requestId: p.requestId,
-    toolCall: p.toolCall,
-    options: p.options,
-  });
-  notifications.onPermissionRequested({
-    sessionId: sid,
-    harnessId: s.harnessId,
-    title: s.title,
-    requestId: p.requestId,
-    toolTitle: p.toolCall?.title ?? null,
-    command: typeof p.toolCall?.rawInput?.command === 'string' ? p.toolCall.rawInput.command : null,
-  });
-});
-registry.on('permission_resolved', (s: Session, requestId, optionId) => {
-  const sid = formatScopedSessionId(s.harnessId, s.sessionId);
-  broadcast({ type: 'permission_resolved', sessionId: sid, harnessId: s.harnessId, requestId, optionId });
-  notifications.onPermissionResolved(sid, requestId);
-});
-orchestrator.on('link', (link) => broadcast({ type: 'orchestration_link', link }));
-// Emitted by the orchestrator when a delegated subagent task ends.
-registry.on('subagent_completed', (t: Json) => notifications.notifySubagentCompleted(t ?? {}));
-notifications.on('notification', (n) => broadcast({ type: 'notification', notification: n }));
-notifications.on('read', (ids: string[], unreadCount: number) => broadcast({ type: 'notification_read', ids, unreadCount }));
-notifications.on('cleared', () => broadcast({ type: 'notifications_cleared' }));
-tasks.on('output', (run, chunk) => broadcast({ type: 'task_output', taskId: run.taskId, cwd: run.cwd, chunk }));
-tasks.on('done', (run) => {
-  const { output: _o, ...rest } = run;
-  broadcast({ type: 'task_done', task: rest });
-  notifications.onTaskDone(run);
-});
-terminals.on('data', (termId, data) => broadcast({ type: 'term_data', termId, data }, (c) => c.terms.has(termId)));
-terminals.on('exit', (info) => broadcast({ type: 'term_exit', term: info }));
-
-function requireString(v: unknown, name: string): string {
-  if (typeof v !== 'string' || !v) throw new Error(`${name} is required`);
-  return v;
-}
-function absCwd(v: unknown): string {
-  const p = requireString(v, 'cwd');
-  return resolve(p.startsWith('~') ? homedir() + p.slice(1) : p);
-}
-
-const ACCOUNT_FIELDS = ['Name', 'Email', 'Plan', 'Tier', 'Team membership', 'Enterprise'];
-let accountCache: { at: number; value: Json } | null = null;
-
-/** Account and plan details as reported by `devin auth status` (the CLI has no credit-balance query). */
-async function accountInfo(refresh: boolean): Promise<Json> {
-  if (!refresh && accountCache && Date.now() - accountCache.at < 60_000) return accountCache.value;
-  const { execFile } = await import('node:child_process');
-  const out = await new Promise<string>((res, rej) =>
-    execFile(config.devinBin, ['auth', 'status'], { timeout: 20_000 }, (e, stdout, stderr) =>
-      e && !stdout.trim() && !stderr.trim() ? rej(new Error(`Could not run devin auth status: ${e.message}`)) : res(`${stdout}\n${stderr}`),
-    ),
-  );
-  const fields: { label: string; value: string }[] = [];
-  for (const m of out.matchAll(/^[ \t]+([A-Za-z][A-Za-z ]*?):[ \t]+(.+?)[ \t]*$/gm)) {
-    if (ACCOUNT_FIELDS.includes(m[1])) fields.push({ label: m[1], value: m[2] });
-  }
-  const value = { loggedIn: /Logged in/i.test(out) && !/Not logged in/i.test(out), fields };
-  accountCache = { at: Date.now(), value };
-  return value;
-}
-
-async function handle(c: Client, type: string, p: Json): Promise<Json> {
-  const gitResult = gitRpc.handle(type, p);
-  if (gitResult) return gitResult;
-  switch (type) {
-    case 'hello': {
-      if (!tokenOk(p.token)) throw new Error('Invalid token');
-      c.authed = true;
-      manager.ensureAgent().catch(() => undefined);
-      return {
-        version: VERSION,
-        hostname: (await import('node:os')).hostname(),
-        home: homedir(),
-        agent: manager.agentStatus(),
-        harnesses: registry.list(),
-        workspaces: workspaces.list(),
-        sessions: [...manager.sessions.values()].map((s) => s.summary()),
-        terminals: terminals.list(),
-        tasks: tasks.list(),
-        notifications: { unreadCount: notifications.unreadCount(), lastSeq: notifications.lastSeq() },
-      };
-    }
-    case 'ping':
-      return { now: Date.now() };
-    case 'harnesses.list':
-      return { harnesses: registry.list(), custom: registry.listCustomSpecs() };
-    case 'harnesses.probe': {
-      if (typeof p.harnessId === 'string' && p.harnessId) {
-        const adapter = registry.get(p.harnessId);
-        if (!adapter) throw new Error(`Unknown harness: ${p.harnessId}`);
-        return { harnesses: [await adapter.probe()] };
-      }
-      return { harnesses: await registry.probeAll() };
-    }
-    case 'harnesses.configure': {
-      const harnessId = requireString(p.harnessId, 'harnessId');
-      const patch: Record<string, unknown> = { ...(typeof p.config === 'object' && p.config ? p.config : {}) };
-      for (const k of ['enabled', 'bin', 'args', 'defaultModel', 'envAllowlist'] as const) {
-        if (p[k] !== undefined) patch[k] = p[k];
-      }
-      return { harness: registry.configure(harnessId, patch) };
-    }
-    case 'harnesses.registerCustom': {
-      const src = typeof p.spec === 'object' && p.spec ? p.spec : p;
-      return {
-        custom: registry.saveCustomSpec({
-          id: requireString(src.id, 'id'),
-          name: requireString(src.name, 'name'),
-          command: requireString(src.command, 'command'),
-          args: src.args,
-          cwd: src.cwd,
-          envAllowlist: src.envAllowlist,
-          enabled: src.enabled,
-        }),
-      };
-    }
-    case 'harnesses.removeCustom':
-      return { removed: registry.removeCustomSpec(requireString(p.id ?? p.harnessId, 'id')) };
-    case 'workspaces.list':
-      return { workspaces: workspaces.list() };
-    case 'workspaces.create': {
-      const ws = workspaces.createOrGet(absCwd(p.cwd), { name: p.name, harnessId: p.harnessId });
-      return { workspace: ws };
-    }
-    case 'workspaces.get': {
-      const ws = workspaces.get(requireString(p.workspaceId, 'workspaceId'));
-      if (!ws) throw new Error('Workspace not found');
-      return { workspace: ws };
-    }
-    case 'agent.account':
-      return accountInfo(!!p.refresh);
-    case 'agent.status':
-      try {
-        await manager.ensureAgent();
-      } catch {
-        /* reported in status */
-      }
-      return { agent: manager.agentStatus(), capabilities: manager.initResult?.agentCapabilities ?? null };
-    case 'agent.authenticate':
-      return manager.authenticate(requireString(p.methodId, 'methodId'));
-    case 'projects.list':
-      return { projects: listProjects(config.roots, [...new Set([...manager.sessions.values()].map((s) => s.cwd))]), roots: config.roots };
-    case 'fs.listDirs':
-      return listDirectory(absCwd(p.path ?? homedir()));
-    case 'sessions.list':
-      return { sessions: await registry.listAllSessions(p.cwd ? absCwd(p.cwd) : undefined) };
-    case 'session.create': {
-      const cwd = absCwd(p.cwd);
-      const harnessId = typeof p.harnessId === 'string' && p.harnessId ? p.harnessId : 'devin';
-      const s = await registry.createSession(harnessId, cwd, { model: p.model, mode: p.mode });
-      const scopedId = formatScopedSessionId(harnessId, s.sessionId);
-      c.subs.add(scopedId);
-      let workspaceId: string | null = null;
-      try {
-        const ws = p.workspaceId ? workspaces.get(p.workspaceId) : workspaces.createOrGet(cwd, { harnessId });
-        if (ws) {
-          workspaces.attachSession(ws.workspaceId, { harnessId, sessionId: scopedId, title: s.title, updatedAt: s.updatedAt });
-          workspaceId = ws.workspaceId;
-        }
-      } catch (err) {
-        console.warn(`[uniharn] failed to persist workspace for session ${scopedId}:`, err instanceof Error ? err.message : err);
-      }
-      return { session: { ...s.summary(), sessionId: scopedId, harnessId }, epoch: s.epoch, workspaceId };
-    }
-    case 'session.handoff': {
-      const id = requireString(p.sessionId, 'sessionId');
-      const target = requireString(p.harnessId, 'harnessId');
-      const { link } = await orchestrator.handoff(id, target, typeof p.instruction === 'string' ? p.instruction : undefined);
-      c.subs.add(link.childSessionId);
-      return { link };
-    }
-    case 'orchestration.delegate': {
-      const id = typeof p.sessionId === 'string' && p.sessionId ? p.sessionId : null;
-      const harnessId = requireString(p.harnessId, 'harnessId');
-      const task = requireString(p.task, 'task');
-      const { link, done } = await orchestrator.delegate(id, harnessId, task, {
-        cwd: id ? undefined : absCwd(p.cwd),
-        worktree: !!p.worktree,
-        includeContext: !!p.includeContext,
-      });
-      c.subs.add(link.childSessionId);
-      if (p.wait) {
-        await done;
-        return { link: orchestrator.get(link.id) };
-      }
-      return { link };
-    }
-    case 'orchestration.list':
-      return { links: orchestrator.list(typeof p.sessionId === 'string' ? p.sessionId : undefined) };
-    case 'session.open': {
-      const id = requireString(p.sessionId, 'sessionId');
-      const { adapter, harnessId, nativeId } = registry.resolveSession(id);
-      c.subs.add(id);
-      const s = await adapter.ensureLoaded(nativeId, p.cwd ? absCwd(p.cwd) : undefined);
-      const firstSeq = s.events[0]?.seq ?? s.seq + 1;
-      let since = p.epoch === s.epoch && typeof p.sinceSeq === 'number' ? p.sinceSeq : 0;
-      if (since > 0 && since < firstSeq - 1) since = 0;
-      return {
-        session: { ...s.summary(), sessionId: id, harnessId },
-        epoch: s.epoch,
-        full: since === 0,
-        truncated: since === 0 && firstSeq > 1,
-        events: s.events.filter((e) => e.seq > since),
-        permissions: [...s.permissions.values()].map(({ rpcId: _r, ...rest }) => rest),
-      };
-    }
-    case 'session.unsubscribe':
-      c.subs.delete(requireString(p.sessionId, 'sessionId'));
-      return {};
-    case 'session.prompt': {
-      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
-      await adapter.prompt(nativeId, String(p.text ?? ''), Array.isArray(p.images) ? p.images : []);
-      return {};
-    }
-    case 'session.cancel': {
-      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
-      await adapter.cancel(nativeId);
-      return {};
-    }
-    case 'session.permission': {
-      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
-      adapter.resolvePermission(nativeId, requireString(p.requestId, 'requestId'), p.optionId ?? null);
-      return {};
-    }
-    case 'session.setConfig': {
-      const id = requireString(p.sessionId, 'sessionId');
-      const { adapter, harnessId, nativeId } = registry.resolveSession(id);
-      const summary = await adapter.setConfigOption(nativeId, requireString(p.configId, 'configId'), p.value);
-      return { session: { ...summary, sessionId: id, harnessId } };
-    }
-    case 'session.setMode': {
-      const id = requireString(p.sessionId, 'sessionId');
-      const { adapter, harnessId, nativeId } = registry.resolveSession(id);
-      const summary = await adapter.setMode(nativeId, requireString(p.modeId, 'modeId'));
-      return { session: { ...summary, sessionId: id, harnessId } };
-    }
-    case 'session.close': {
-      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
-      await adapter.closeSession(nativeId);
-      return {};
-    }
-    case 'session.delete': {
-      const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
-      await adapter.deleteSession(nativeId);
-      return {};
-    }
-    case 'notifications.list':
-      return notifications.list({ sinceSeq: typeof p.sinceSeq === 'number' ? p.sinceSeq : undefined, limit: typeof p.limit === 'number' ? p.limit : undefined, unreadOnly: !!p.unreadOnly });
-    case 'notifications.read':
-      return { ids: notifications.markRead(Array.isArray(p.ids) ? p.ids.map(String) : null), unreadCount: notifications.unreadCount() };
-    case 'notifications.clear':
-      notifications.clear();
-      return {};
-    case 'notifications.prefs.get':
-      return { prefs: notifications.getPrefs() };
-    case 'notifications.prefs.set':
-      return { prefs: notifications.setPrefs(typeof p.prefs === 'object' && p.prefs ? p.prefs : {}) };
-    case 'notifications.capabilities':
-      return { capabilities: notifications.getCapabilities() };
-    case 'notifications.push.publicKey':
-      return { publicKey: notifications.publicKey() };
-    case 'notifications.push.subscribe':
-      return notifications.subscribe(p.subscription, typeof p.label === 'string' ? p.label : null);
-    case 'notifications.push.unsubscribe':
-      return notifications.unsubscribe(requireString(p.endpoint, 'endpoint'));
-    case 'notifications.push.list':
-      return { subscriptions: notifications.listSubscriptions(), subscribed: typeof p.endpoint === 'string' ? notifications.hasSubscription(p.endpoint) : undefined };
-    case 'notifications.test': {
-      const n = notifications.notify({ type: 'task_completed', title: 'Test notification', body: 'Notifications from this gateway are working.', safeBody: 'Notifications from this gateway are working.', route: '#/settings', dedupKey: `test:${Date.now()}` });
-      if (!n) return { delivered: false, reason: 'Notifications or the task-completed event are turned off' };
-      const push = await notifications.waitForPush(n.id);
-      return { delivered: true, notification: n, push };
-    }
-    case 'tasks.detect':
-      return { command: detectTestCommand(absCwd(p.cwd)) };
-    case 'tasks.run': {
-      const cwd = absCwd(p.cwd);
-      const command = typeof p.command === 'string' && p.command.trim() ? p.command : detectTestCommand(cwd);
-      if (!command) throw new Error('No test command detected; enter one manually');
-      const { output: _o, ...rest } = tasks.start(cwd, command);
-      return { task: rest };
-    }
-    case 'tasks.get': {
-      const run = tasks.runs.get(requireString(p.taskId, 'taskId'));
-      if (!run) throw new Error('Task not found');
-      return { task: run };
-    }
-    case 'tasks.list':
-      return { tasks: tasks.list(p.cwd ? absCwd(p.cwd) : undefined) };
-    case 'tasks.stop':
-      tasks.stop(requireString(p.taskId, 'taskId'));
-      return {};
-    case 'term.open': {
-      const info = terminals.open({ cwd: absCwd(p.cwd ?? homedir()), cols: p.cols, rows: p.rows, kind: p.kind, args: p.args });
-      c.terms.add(info.termId);
-      return { term: info, scrollback: '' };
-    }
-    case 'term.attach': {
-      const id = requireString(p.termId, 'termId');
-      const r = terminals.attach(id);
-      c.terms.add(id);
-      return { term: r.info, scrollback: r.scrollback };
-    }
-    case 'term.detach':
-      c.terms.delete(requireString(p.termId, 'termId'));
-      return {};
-    case 'term.input':
-      terminals.write(requireString(p.termId, 'termId'), String(p.data ?? ''));
-      return undefined;
-    case 'term.resize':
-      terminals.resize(requireString(p.termId, 'termId'), p.cols, p.rows);
-      return undefined;
-    case 'term.close':
-      terminals.close(requireString(p.termId, 'termId'));
-      return {};
-    case 'term.list':
-      return { terminals: terminals.list() };
-    default:
-      throw new Error(`Unknown request: ${type}`);
-  }
-}
-
-const server = createServer((req, res) => {
-  try {
-    if (req.url === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok: true, name: 'uniharn', version: VERSION }));
-      return;
-    }
-    if (config.staticDir) serveStatic(config.staticDir, req, res);
-    else res.writeHead(404).end('uniharn gateway. Connect with the app at ws(s)://<host>/ws');
-  } catch (e: any) {
-    console.error(`[uniharn] http error: ${e?.message ?? e}`);
-    if (!res.headersSent) res.writeHead(500);
-    res.end();
-  }
-});
-
-const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024 * 1024 });
-wss.on('error', (e) => console.error(`[uniharn] websocket server error: ${e.message}`));
-server.on('upgrade', (req: IncomingMessage, socket, head) => {
-  const url = new URL(req.url ?? '/', 'http://x');
-  if (url.pathname !== '/ws') {
-    socket.destroy();
+  const report = {
+    gatewayId: authStore.gatewayId,
+    ...collectDiagnostics(config, registry, authStore, activeDeviceCount),
+    masterTokenConfigured: Boolean(config.token),
+    gatewayAuth,
+    portReachability: ports,
+  };
+  if (json) {
+    printJson(report);
     return;
   }
-  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-});
-
-wss.on('connection', (ws: WebSocket) => {
-  const c: Client = { ws, authed: false, subs: new Set(), terms: new Set(), alive: true };
-  clients.add(c);
-  const authTimer = setTimeout(() => {
-    if (!c.authed) ws.close(4001, 'auth timeout');
-  }, 10000);
-  ws.on('pong', () => (c.alive = true));
-  ws.on('error', () => ws.terminate());
-  ws.on('close', () => {
-    clearTimeout(authTimer);
-    clients.delete(c);
-  });
-  ws.on('message', async (raw) => {
-    let msg: Json;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
-    const { id, type, ...params } = msg ?? {};
-    if (!c.authed && type !== 'hello') {
-      send(c, { type: 'response', id, ok: false, error: 'Not authenticated' });
-      return;
-    }
-    try {
-      const result = await handle(c, type, params);
-      if (id !== undefined) send(c, { type: 'response', id, ok: true, result: result ?? {} });
-    } catch (e: any) {
-      if (id !== undefined) send(c, { type: 'response', id, ok: false, error: String(e?.message ?? e) });
-      if (type === 'hello') setTimeout(() => ws.close(4003, 'invalid token'), 50);
-    }
-  });
-});
-
-setInterval(() => {
-  for (const c of clients) {
-    if (!c.alive) {
-      c.ws.terminate();
-      continue;
-    }
-    c.alive = false;
-    c.ws.ping();
+  console.log(`uniharn ${report.version} on ${report.hostname} (protocol ${report.protocolVersion}, app ${report.minAppVersion}+)`);
+  console.log(`Node.js ${report.nodeVersion} · gateway ${report.gatewayId}`);
+  console.log(report.isRoot ? 'User: root (run the gateway as a non-root user)' : 'User: non-root');
+  if (report.publicBindWarning) console.log('Bind warning: configured to listen on all interfaces');
+  console.log(`Gateway authentication: ${report.gatewayAuth} (master token ${report.masterTokenConfigured ? 'configured' : 'missing'})`);
+  console.log(`Tailscale IP: ${report.tailscaleIp ?? 'unavailable'}`);
+  console.log(`MagicDNS: ${report.magicDns ?? 'unavailable'}`);
+  for (const port of ports) console.log(`${gatewayUrl(port.host, report.port)} · ${port.reachable ? 'reachable' : 'unreachable'}`);
+  console.log(`Strict roots: ${report.strictRoots ? 'enabled' : 'disabled (discovery mode)'} · ${report.roots.join(', ')}`);
+  for (const harness of report.harnesses) {
+    console.log(`${harness.name}: ${harness.installed ? harness.version ?? harness.status : 'unavailable'} · auth ${harness.authStatus}`);
   }
-}, 20000).unref();
-
-let listening = 0;
-for (const host of config.hosts) {
-  const srv = host === config.hosts[0] ? server : createServer(server.listeners('request')[0] as any);
-  if (srv !== server) srv.on('upgrade', (...a) => server.emit('upgrade', ...a));
-  srv.listen(config.port, host, () => {
-    listening++;
-    console.log(`[uniharn] listening on http://${host}:${config.port}  (ws path /ws)`);
-    if (listening === config.hosts.length) {
-      if (config.legacyMigrated) console.log(`[uniharn] migrated legacy token from ~/.local/share/devin-mobile/token`);
-      console.log(`[uniharn] devin binary: ${config.devinBin}`);
-      console.log(`[uniharn] static UI: ${config.staticDir ?? '(none)'}`);
-      console.log(`[uniharn] token file: ${config.dataDir}/token  (pair with: uniharn gateway --print-token)`);
-    }
-  });
-  srv.on('error', (e) => console.error(`[uniharn] failed to listen on ${host}:${config.port}: ${e.message}`));
+  console.log(`Devices: ${report.pairedDeviceCount} paired · ${report.activeDeviceCount} connected`);
+  if (report.suggestedUrls.length) console.log(`Gateway URLs: ${report.suggestedUrls.join(', ')}`);
+  console.log(report.updateHint);
 }
 
-if (process.argv.includes('--print-token')) console.log(`[uniharn] token: ${config.token}`);
+function manageService(action: string | undefined, config: Config, argv: string[]): void {
+  switch (action) {
+    case 'install': {
+      const entryPath = fileURLToPath(import.meta.url);
+      const args = [
+        '--data-dir', config.dataDir,
+        '--port', String(config.port),
+        '--roots', config.roots.join(','),
+        '--devin', config.devinBin.includes('/') ? resolve(config.devinBin) : config.devinBin,
+      ];
+      if (config.strictRoots) args.push('--strict-roots');
+      if (config.publicUrl) args.push('--public-url', config.publicUrl);
+      if (getArg(argv, 'host') ?? process.env.UNIHARN_HOST ?? process.env.DEVIN_MOBILE_HOST) args.push('--host', config.hosts.join(','));
+      if (getArg(argv, 'static') ?? process.env.UNIHARN_STATIC ?? process.env.DEVIN_MOBILE_STATIC) args.push('--static', config.staticDir ?? 'none');
+      args.push(...config.devinArgs);
+      // A master token from the environment isn't persisted by loadConfig; hand it to the service via a private env file.
+      // Same precedence as loadConfig, so the service keeps exactly the token this install resolved.
+      const tokenFromEnv = !!(process.env.UNIHARN_TOKEN ?? process.env.DEVIN_MOBILE_TOKEN);
+      let environmentFile: string | undefined;
+      if (tokenFromEnv) {
+        if (/[\r\n]/.test(config.token)) throw new Error('The master token must not contain line breaks.');
+        environmentFile = join(config.dataDir, 'service.env');
+        const quoted = config.token.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+        writeFileSync(environmentFile, `UNIHARN_TOKEN="${quoted}"\n`, { mode: 0o600 });
+        chmodSync(environmentFile, 0o600);
+      }
+      const file = installSystemdService({
+        nodePath: process.execPath, entryPath, workingDirectory: dirname(entryPath), args, path: process.env.PATH, environmentFile,
+      });
+      console.log(`Installed and started ${file}`);
+      break;
+    }
+    case 'uninstall':
+      console.log(uninstallSystemdService() ? 'Uninstalled uniharn-gateway.service' : 'uniharn-gateway.service is not installed');
+      break;
+    case 'status':
+      console.log(systemdServiceStatus());
+      break;
+    default:
+      throw new Error('Usage: uniharn service install | uninstall | status');
+  }
+}
 
-registry.probeAll().catch(() => undefined);
-manager.ensureAgent().catch((e) => console.error(`[uniharn] could not start devin acp: ${e.message}`));
+async function main(argv: string[], config: Config): Promise<void> {
+  const command = argv[2]?.startsWith('-') ? 'gateway' : argv[2] ?? 'gateway';
+  if (command === 'gateway') {
+    const gateway = createGatewayServer(config);
+    const addresses = await gateway.start();
+    const safeLog = (message: string) => console.log(redactSecrets(message, [config.token]));
+    for (const address of addresses) safeLog(`[uniharn] listening on ${gatewayUrl(address.address, address.port)}  (ws path /ws)`);
+    if (config.legacyMigrated) safeLog('[uniharn] migrated legacy token from ~/.local/share/devin-mobile/token');
+    safeLog(`[uniharn] devin binary: ${config.devinBin}`);
+    safeLog(`[uniharn] static UI: ${config.staticDir ?? '(none)'}`);
+    safeLog('[uniharn] pair a device with: uniharn pair');
+    if (argv.includes('--print-token')) console.log(`[uniharn] token: ${config.token}`);
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => {
+        void gateway.notifyShutdown(`Stopped by ${signal}.`).finally(() => gateway.close().finally(() => process.exit(0)));
+      });
+    }
+    return;
+  }
 
-for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(sig, () => {
-    for (const t of terminals.list()) terminals.close(t.termId);
-    tasks.stopAll();
-    const n = notifications.notifyGatewayShutdown(`Stopped by ${sig}.`);
-    const push = n ? notifications.waitForPush(n.id) : Promise.resolve();
-    // Give the in-app broadcast and Web Push a moment to leave before exiting.
-    Promise.race([push, new Promise((r) => setTimeout(r, 1500))]).finally(() => process.exit(0));
-  });
+  if (command === 'service') {
+    manageService(argv[3], config, argv);
+    return;
+  }
+  const authStore = new AuthStore(config.dataDir, config.token);
+  const json = argv.includes('--json');
+  switch (command) {
+    case 'pair': {
+      const ttl = getArg(argv, 'ttl');
+      if ((argv.includes('--ttl') && ttl === undefined) || (ttl !== undefined && (!ttl.trim() || !Number.isFinite(Number(ttl))))) {
+        throw new Error('--ttl requires a number of seconds');
+      }
+      const explicitUrl = getArg(argv, 'url');
+      if (argv.includes('--url') && explicitUrl === undefined) throw new Error('--url requires a gateway URL');
+      const url = explicitUrl ?? config.publicUrl ?? suggestedUrls(config)[0];
+      const pair = await authStore.createPairingCode({ ttlSec: ttl === undefined ? undefined : Number(ttl), url });
+      if (json) printJson(pair);
+      else {
+        console.log(pair.qrTerminal);
+        console.log(`Pairing code: ${pair.code}`);
+        console.log(`Expires at: ${new Date(pair.expiresAt).toISOString()}`);
+        console.log(pair.pairingUri);
+      }
+      break;
+    }
+    case 'doctor':
+    case 'status':
+      await doctor(config, authStore, json);
+      break;
+    case 'devices':
+      switch (argv[3]) {
+        case 'list': {
+          const devices = authStore.listDevices();
+          if (json) printJson({ devices });
+          else if (!devices.length) console.log('No paired devices. Run uniharn pair to add one.');
+          else console.table(devices.map(({ deviceId, name, platform, lastSeenAt, revokedAt }) => ({
+            deviceId, name, platform, lastSeen: new Date(lastSeenAt).toISOString(), status: revokedAt === null ? 'active' : 'revoked',
+          })));
+          break;
+        }
+        case 'revoke':
+          if (!argv[4] || argv[4].startsWith('--')) throw new Error('Usage: uniharn devices revoke <id>');
+          authStore.revokeDevice(argv[4]);
+          console.log(`Revoked ${argv[4]}`);
+          break;
+        case 'revoke-all':
+          console.log(`Revoked ${authStore.revokeAllDevices()} device(s)`);
+          break;
+        default:
+          throw new Error('Usage: uniharn devices list | revoke <id> | revoke-all');
+      }
+      break;
+    default:
+      throw new Error('Usage: uniharn gateway | pair | doctor | status | devices | service');
+  }
+}
+
+let config: Config | undefined;
+try {
+  config = loadConfig();
+  await main(process.argv, config);
+} catch (error) {
+  const secrets = [config?.token, process.env.UNIHARN_TOKEN, process.env.DEVIN_MOBILE_TOKEN].filter((token): token is string => !!token);
+  console.error(`[uniharn] ${redactSecrets(error instanceof Error ? error.message : String(error), secrets)}`);
+  process.exitCode = 1;
 }

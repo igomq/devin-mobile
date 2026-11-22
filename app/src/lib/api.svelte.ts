@@ -1,47 +1,87 @@
 // Connection to the uniharn gateway: one WebSocket, requests plus pushed events, with
 // automatic reconnect and per-session resume from the last seen sequence number.
 import { getStorageItem, removeStorageItem, setStorageItem } from './storage.ts';
+import { defaultDeviceName, detectPlatform, httpBase, pageOrigin, pairDevice } from './pairing.ts';
 import { applyUpdate, emptyState, permissionView, stateFromSummary } from './timeline.ts';
-import type { AppNotification, ChangedFileView, ConnInfo, GitStatus, GitStatusView, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
+import type { AppNotification, ChangedFileView, ConnInfo, DeviceInfo, GitStatus, GitStatusView, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
 
 const STORE_SUFFIX = 'connection';
 
 export const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || location.hostname === 'tauri.localhost' || location.protocol === 'tauri:');
 
-function loadSaved(): { url?: string; token?: string } {
+/** What identifies the saved gateway and how this device signs in to it (besides url and token). */
+interface SavedMeta {
+  deviceId?: string;
+  gatewayId?: string;
+  authKind?: 'device' | 'master';
+}
+// Older versions saved only { url, token }; the extra fields are optional.
+type SavedConnection = { url?: string; token?: string } & SavedMeta;
+
+function loadSaved(): SavedConnection {
   try {
-    return JSON.parse(getStorageItem(STORE_SUFFIX) || '{}');
+    const v = JSON.parse(getStorageItem(STORE_SUFFIX) || '{}');
+    return v && typeof v === 'object' ? v : {};
   } catch {
     return {};
   }
 }
 
+const REVOKED = 'This device was revoked on the gateway. Pair it again.';
+
 function initial() {
   const saved = loadSaved();
   let url = saved.url || '';
   let token = saved.token || '';
-  // A pairing link ends in #token=…; take the token and drop it from the URL.
-  const m = /[#&]token=([^&]+)/.exec(location.hash);
-  if (m) {
-    token = decodeURIComponent(m[1]);
-    if (!isTauri) url = location.origin;
-    history.replaceState(null, '', location.pathname + location.search);
+  let meta: SavedMeta = { deviceId: saved.deviceId, gatewayId: saved.gatewayId, authKind: saved.authKind };
+  let pair: { url: string; code: string } | null = null;
+  // Secrets in the fragment (#pair=CODE from a pairing QR, legacy #token=…) are taken and the fragment is
+  // dropped from the address bar and history right away, before any network request.
+  const hash = location.hash;
+  const p = /[#&]pair=([^&]+)/.exec(hash);
+  const m = /[#&]token=([^&]+)/.exec(hash);
+  if (p || m) history.replaceState(history.state, '', location.pathname + location.search);
+  const servedByGateway = !isTauri && /^https?:$/.test(location.protocol);
+  if (p && servedByGateway) {
+    let code = '';
+    try {
+      code = decodeURIComponent(p[1]);
+    } catch {
+      code = p[1];
+    }
+    pair = { url: pageOrigin(), code };
+  } else if (m) {
+    try {
+      token = decodeURIComponent(m[1]);
+    } catch {
+      token = m[1];
+    }
+    if (!isTauri) url = pageOrigin();
+    meta = { gatewayId: url === saved.url ? saved.gatewayId : undefined };
   }
-  if (!url && !isTauri && /^https?:$/.test(location.protocol) && location.port !== '5173') url = location.origin;
-  return { url, token };
+  if (!url && servedByGateway && location.port !== '5173') url = pageOrigin();
+  return { url, token, meta, pair };
 }
 
-const start = typeof window === 'undefined' ? { url: '', token: '' } : initial();
+const start = typeof window === 'undefined' ? { url: '', token: '', meta: {} as SavedMeta, pair: null } : initial();
+let meta: SavedMeta = start.meta;
 
 export const conn = $state({
   status: 'offline' as 'offline' | 'connecting' | 'online' | 'unauthorized',
-  url: start.url,
-  token: start.token,
+  // While a pairing link is being exchanged the stored token (if any) is held back, so nothing connects with it.
+  url: start.pair ? start.pair.url : start.url,
+  token: start.pair ? '' : start.token,
   info: null as ConnInfo | null,
   error: null as string | null,
+  /** True while a pairing code is being exchanged for a device token. */
+  pairing: false,
   /** Bumped on every successful (re)connect so screens can refetch. */
   generation: 0
 });
+
+function persist() {
+  setStorageItem(STORE_SUFFIX, JSON.stringify({ url: conn.url, token: conn.token, ...meta }));
+}
 
 export const app = $state({
   sessions: [] as SessionRow[],
@@ -75,17 +115,53 @@ function clearSessions() {
   app.sessionsLoaded = false;
 }
 
-export function saveConnection(url: string, token: string) {
+export function saveConnection(url: string, token: string, identity: SavedMeta = {}) {
   const next = url.trim().replace(/\/+$/, '');
-  if (next !== conn.url) clearSessions();
+  const gatewayChanged = Boolean(identity.gatewayId && meta.gatewayId && identity.gatewayId !== meta.gatewayId);
+  if (next !== conn.url || gatewayChanged) clearSessions();
+  // The gateway id stays known for the same address until hello confirms or replaces it.
+  meta = { gatewayId: identity.gatewayId ?? (next === conn.url ? meta.gatewayId : undefined), deviceId: identity.deviceId, authKind: identity.authKind };
   conn.url = next;
   conn.token = token.trim();
-  setStorageItem(STORE_SUFFIX, JSON.stringify({ url: conn.url, token: conn.token }));
+  conn.error = null;
+  persist();
   connect(true);
+}
+
+/** Exchanges a one-time pairing code for a device token, saves it and connects. Sets conn.error on failure. */
+export async function pairWithCode(url: string, code: string): Promise<boolean> {
+  conn.pairing = true;
+  conn.error = null;
+  try {
+    const r = await pairDevice(url, code, defaultDeviceName(), detectPlatform());
+    saveConnection(url, r.token, { deviceId: r.deviceId, gatewayId: r.gatewayId, authKind: 'device' });
+    return true;
+  } catch (err) {
+    conn.error = errorText(err);
+    return false;
+  } finally {
+    conn.pairing = false;
+  }
+}
+
+if (start.pair) {
+  const { url, code } = start.pair;
+  const previous = { url: start.url, token: start.token };
+  queueMicrotask(async () => {
+    if (await pairWithCode(url, code)) return;
+    // Keep using an earlier working connection to this same gateway if the link was stale.
+    if (previous.token && previous.url === url) {
+      const error = conn.error;
+      conn.token = previous.token;
+      connect(true);
+      conn.error = error;
+    }
+  });
 }
 
 export function forgetConnection() {
   removeStorageItem(STORE_SUFFIX);
+  meta = {};
   wanted = false;
   ws?.close();
   conn.token = '';
@@ -129,6 +205,14 @@ export function connect(force = false) {
   sock.onopen = async () => {
     try {
       const hello = await request('hello', { token: conn.token }, true, 10000);
+      const gatewayId: string | null = typeof hello.gatewayId === 'string' ? hello.gatewayId : null;
+      // Same address, different gateway (reinstalled, or another VM behind the name): forget its transcripts.
+      if (gatewayId && meta.gatewayId && gatewayId !== meta.gatewayId) clearSessions();
+      meta = {
+        gatewayId: gatewayId ?? meta.gatewayId,
+        deviceId: hello.deviceId ?? undefined,
+        authKind: hello.authKind ?? meta.authKind
+      };
       conn.info = {
         host: hello.hostname,
         home: hello.home,
@@ -136,7 +220,14 @@ export function connect(force = false) {
         agent: hello.agent,
         harnesses: hello.harnesses ?? [],
         workspaces: hello.workspaces ?? [],
-        notifications: hello.notifications ?? null
+        notifications: hello.notifications ?? null,
+        gatewayId,
+        protocolVersion: hello.protocolVersion ?? null,
+        minAppVersion: hello.minAppVersion ?? null,
+        deviceId: hello.deviceId ?? null,
+        deviceName: hello.deviceName ?? null,
+        authKind: hello.authKind ?? null,
+        security: hello.security ?? null
       };
       app.sessions = (hello.sessions ?? []).map(rowKeepingActivity);
       app.harnesses = hello.harnesses ?? [];
@@ -147,22 +238,32 @@ export function connect(force = false) {
       retry = 0;
       clearInterval(pingTimer);
       pingTimer = setInterval(() => conn.status === 'online' && probe(10000), 25000);
-      setStorageItem(STORE_SUFFIX, JSON.stringify({ url: conn.url, token: conn.token }));
+      persist();
       refreshSessions();
       for (const id of Object.keys(views)) openSession(id).catch(() => {});
     } catch (err) {
       if (ws !== sock) return;
       // Only a rejected token stops the retry loop; anything else reconnects.
       if (!/token/i.test(errorText(err))) return sock.close();
+      if (/revoked/i.test(errorText(err))) return markRevoked();
       wanted = false;
       conn.status = 'unauthorized';
       conn.error = errorText(err);
     }
   };
   sock.onmessage = (e) => onMessage(JSON.parse(e.data));
-  sock.onclose = () => {
+  sock.onclose = (e) => {
     if (ws !== sock) return;
     dropWaiting();
+    // 4003: the gateway refused this token (revoked device or invalid token). Retrying cannot help.
+    if (e.code === 4003) {
+      if (e.reason === 'device revoked') markRevoked();
+      else if (conn.status !== 'unauthorized') {
+        wanted = false;
+        conn.status = 'unauthorized';
+        conn.error ||= 'The gateway rejected this token.';
+      }
+    }
     if (conn.status !== 'unauthorized') conn.status = wanted ? 'connecting' : 'offline';
     if (wanted) {
       retry = Math.min(retry + 1, 6);
@@ -172,6 +273,15 @@ export function connect(force = false) {
   sock.onerror = () => {
     conn.error = 'Cannot reach the server.';
   };
+}
+
+/** This device's token was revoked: stop reconnecting and send the user back to pairing. */
+function markRevoked() {
+  wanted = false;
+  clearTimeout(retryTimer);
+  clearInterval(pingTimer);
+  conn.status = 'unauthorized';
+  conn.error = REVOKED;
 }
 
 if (typeof window !== 'undefined') {
@@ -384,8 +494,42 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'notifications.push.subscribe': (p) => request('notifications.push.subscribe', p),
   'notifications.push.unsubscribe': (p) => request('notifications.push.unsubscribe', p),
   'notifications.push.list': (p) => request('notifications.push.list', p),
-  'notifications.test': () => request('notifications.test')
+  'notifications.test': () => request('notifications.test'),
+  'pairing.create': (p) => {
+    const url = p.url ?? shareableUrl(conn.url);
+    return request('pairing.create', { ...(p.ttlSec ? { ttlSec: p.ttlSec } : {}), ...(url ? { url } : {}) });
+  },
+  'pairing.list': async () => (await request('pairing.list')).codes,
+  'pairing.revoke': (p) => request('pairing.revoke', { codeId: p.codeId }),
+  'devices.list': async () => (await request('devices.list')).devices as DeviceInfo[],
+  'devices.rename': async (p) => {
+    const r = await request('devices.rename', { deviceId: p.deviceId, name: p.name });
+    if (conn.info && r.device?.deviceId === conn.info.deviceId) conn.info.deviceName = r.device.name;
+    return r.device;
+  },
+  'devices.revoke': async (p) => (await request('devices.revoke', { deviceId: p.deviceId })).device,
+  'devices.rotate': async () => {
+    const r = await request('devices.rotate');
+    // The old token stops working at once; keep the new one before anything else can fail.
+    if (typeof r.token === 'string' && r.token) {
+      conn.token = r.token;
+      persist();
+    }
+    return r.device;
+  },
+  'gateway.diagnostics': () => request('gateway.diagnostics')
 };
+
+/** The HTTP form of the gateway address for pairing links; loopback addresses are left for the gateway to choose. */
+function shareableUrl(url: string): string | undefined {
+  try {
+    const base = httpBase(url);
+    const host = new URL(base).hostname;
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' ? undefined : base;
+  } catch {
+    return undefined;
+  }
+}
 
 export function rpc(m: string, p: Json = {}): Promise<Json> {
   const fn = calls[m];
@@ -464,6 +608,10 @@ function onMessage(msg: Json) {
       if (v) v.state.permissions = v.state.permissions.filter((x) => x.reqId !== msg.requestId);
       return;
     }
+    case 'device_revoked':
+      markRevoked();
+      ws?.close();
+      return;
     case 'agent_status':
       if (conn.info) conn.info.agent = msg.agent;
       return;

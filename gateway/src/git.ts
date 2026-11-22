@@ -104,7 +104,7 @@ export async function isRepo(cwd: string): Promise<boolean> {
 }
 
 /** Git status paths are relative to the top level even when cwd is a subdirectory. */
-async function repoRoot(cwd: string): Promise<string> {
+export async function repoRoot(cwd: string): Promise<string> {
   return (await git(cwd, ['rev-parse', '--show-toplevel'])).replace(/\r?\n$/, '');
 }
 
@@ -722,6 +722,8 @@ interface AddWorktreeOptions {
   newBranch?: string;
   baseRef?: string;
   taskSlug?: string;
+  /** Validates the final worktree path (e.g. against allowed roots) before it is created. */
+  checkPath?: (path: string) => string;
 }
 
 export async function addWorktree(cwd: string, opts: AddWorktreeOptions) {
@@ -750,9 +752,10 @@ export async function addWorktree(cwd: string, opts: AddWorktreeOptions) {
   if (opts.path !== undefined && (typeof opts.path !== 'string' || !opts.path || opts.path.includes('\0'))) {
     throw new Error('Invalid worktree path');
   }
-  const path = opts.path === undefined
+  const target = opts.path === undefined
     ? resolve(dirname(main.path), '.uniharn-worktrees', `${repoSlug}-${branchSlug}`)
     : resolve(cwd, opts.path);
+  const path = opts.checkPath ? opts.checkPath(target) : target;
   await git(cwd, [...args, '--', path, start]);
   return enrichWorktree(cwd, await findWorktree(await worktreeEntries(cwd), cwd, path));
 }

@@ -525,6 +525,70 @@ export interface ConnInfo {
 	harnesses?: HarnessInfo[];
 	workspaces?: Workspace[];
 	notifications?: { unreadCount: number; lastSeq: number } | null;
+	/** Stable identity of the gateway; transcripts from different gateways never mix. */
+	gatewayId?: string | null;
+	protocolVersion?: number | null;
+	minAppVersion?: string | null;
+	/** This device's id when signed in with a per-device token; null with the master token. */
+	deviceId?: string | null;
+	deviceName?: string | null;
+	authKind?: 'device' | 'master' | null;
+	security?: GatewaySecurity | null;
+}
+
+export interface GatewaySecurity {
+	isRoot: boolean;
+	strictRoots: boolean;
+	publicBindWarning: boolean;
+	tailscaleIp?: string | null;
+	magicDns?: string | null;
+}
+
+export interface DeviceInfo {
+	deviceId: string;
+	name: string;
+	platform: string | null;
+	tokenPrefix: string;
+	createdAt: number;
+	lastSeenAt: number;
+	lastIp: string | null;
+	revokedAt: number | null;
+	current: boolean;
+}
+
+/** A freshly created one-time pairing code. The code itself is only ever returned once. */
+export interface PairingCode {
+	codeId: string;
+	code: string;
+	pairingUri: string;
+	qrSvg: string;
+	expiresAt: number;
+}
+
+/** A pending pairing code as listed by the gateway (no secret, only its first characters). */
+export interface PairingCodeRow {
+	codeId: string;
+	codeHint: string;
+	createdAt: number;
+	expiresAt: number;
+	usedAt: number | null;
+	revokedAt: number | null;
+}
+
+export interface GatewayDiagnostics extends GatewaySecurity {
+	version: string;
+	protocolVersion: number;
+	minAppVersion: string;
+	nodeVersion: string;
+	hostname: string;
+	hosts: string[];
+	port: number;
+	suggestedUrls: string[];
+	roots: string[];
+	harnesses: { id: string; name: string; version: string | null; installed: boolean; enabled: boolean; authStatus: string; status: string; error: string | null }[];
+	pairedDeviceCount: number;
+	activeDeviceCount: number;
+	updateHint: string;
 }
 
 export type NotificationEventType =

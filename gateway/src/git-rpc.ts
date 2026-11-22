@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import * as git from './git.js';
 import * as github from './github.js';
 
@@ -9,11 +9,9 @@ function requireString(v: unknown, name: string): string {
   if (typeof v !== 'string' || !v) throw new Error(`${name} is required`);
   return v;
 }
-function absCwd(v: unknown): string {
-  const p = requireString(v, 'cwd');
-  return resolve(p.startsWith('~') ? homedir() + p.slice(1) : p);
+function expandHome(p: string): string {
+  return p === '~' || p.startsWith('~/') ? homedir() + p.slice(1) : p;
 }
-const worktreePath = (p: Json) => requireString(p.worktreePath ?? p.path, 'worktreePath');
 
 /**
  * Git, worktree and GitHub PR requests (`git.*`). Returns `undefined` for request types it does not own,
@@ -22,57 +20,77 @@ const worktreePath = (p: Json) => requireString(p.worktreePath ?? p.path, 'workt
 export interface GitRpcOptions {
   /** Called with every successful `git.status` result, keyed by the requested cwd. */
   onStatus?: (cwd: string, status: git.GitStatus) => void;
+  /** Canonicalizes a requested path and throws when it is outside the gateway's allowed roots. */
+  checkPath?: (path: string) => string;
 }
 
 export function createGitRpc(dataDir: string, opts: GitRpcOptions = {}) {
   const sessionPrs = new github.SessionPrStore(dataDir);
+  const checkPath = opts.checkPath ?? ((path: string) => path);
+  /** Resolves the request cwd; with root checks on, the repository it belongs to must be allowed too. */
+  async function cwdOf(v: unknown): Promise<string> {
+    const cwd = checkPath(resolve(expandHome(requireString(v, 'cwd'))));
+    if (opts.checkPath && await git.isRepo(cwd)) checkPath(await git.repoRoot(cwd));
+    return cwd;
+  }
+  function pathIn(cwd: string, v: unknown, name: string): string {
+    const p = expandHome(requireString(v, name));
+    return checkPath(isAbsolute(p) ? resolve(p) : resolve(cwd, p));
+  }
+  const worktreePath = (cwd: string, p: Json) => pathIn(cwd, p.worktreePath ?? p.path, 'worktreePath');
   const handlers: Record<string, (p: Json) => Promise<Json> | Json> = {
     'git.status': async (p) => {
-      const cwd = absCwd(p.cwd);
+      const cwd = await cwdOf(p.cwd);
       const st = await git.status(cwd);
       if (st.isRepo) opts.onStatus?.(cwd, st);
       return st;
     },
-    'git.diff': (p) => git.diff(absCwd(p.cwd), p.path, p.scope),
-    'git.log': async (p) => ({ commits: await git.log(absCwd(p.cwd), p.limit ?? 20) }),
-    'git.commitShow': (p) => git.commitShow(absCwd(p.cwd), requireString(p.hash, 'hash')),
-    'git.stage': (p) => git.stage(absCwd(p.cwd), p.paths, p.all),
-    'git.unstage': (p) => git.unstage(absCwd(p.cwd), p.paths, p.all),
-    'git.discard': (p) => git.discard(absCwd(p.cwd), p.paths, p.confirm),
-    'git.commit': (p) => git.commit(absCwd(p.cwd), requireString(p.message, 'message'), { all: p.all, amend: p.amend }),
-    'git.branches': async (p) => ({ branches: await git.branches(absCwd(p.cwd)) }),
-    'git.checkout': (p) => git.checkout(absCwd(p.cwd), requireString(p.branch, 'branch')),
-    'git.createBranch': (p) => git.createBranch(absCwd(p.cwd), requireString(p.name, 'name'), { from: p.from, checkout: p.checkout }),
-    'git.deleteBranch': (p) => git.deleteBranch(absCwd(p.cwd), requireString(p.name, 'name'), { force: p.force, confirmForce: p.confirmForce }),
-    'git.fetch': (p) => git.fetch(absCwd(p.cwd), p.remote, p.prune),
-    'git.pull': (p) => git.pull(absCwd(p.cwd), { remote: p.remote, branch: p.branch, rebase: p.rebase }),
-    'git.push': (p) =>
-      git.push(absCwd(p.cwd), { remote: p.remote, branch: p.branch, setUpstream: p.setUpstream, force: p.force, confirmForce: p.confirmForce }),
-    'git.conflicts': (p) => git.conflicts(absCwd(p.cwd)),
-    'git.resolveConflict': (p) => git.resolveConflict(absCwd(p.cwd), requireString(p.path, 'path'), p.strategy, p.content),
-    'git.abortConflict': (p) => git.abortConflict(absCwd(p.cwd), p.confirm),
-    'git.worktrees': async (p) => ({ worktrees: await git.listWorktrees(absCwd(p.cwd)) }),
-    'git.worktreeAdd': (p) =>
-      git.addWorktree(absCwd(p.cwd), { path: p.path, branch: p.branch, newBranch: p.newBranch, baseRef: p.baseRef, taskSlug: p.taskSlug }),
+    'git.diff': async (p) => git.diff(await cwdOf(p.cwd), p.path, p.scope),
+    'git.log': async (p) => ({ commits: await git.log(await cwdOf(p.cwd), p.limit ?? 20) }),
+    'git.commitShow': async (p) => git.commitShow(await cwdOf(p.cwd), requireString(p.hash, 'hash')),
+    'git.stage': async (p) => git.stage(await cwdOf(p.cwd), p.paths, p.all),
+    'git.unstage': async (p) => git.unstage(await cwdOf(p.cwd), p.paths, p.all),
+    'git.discard': async (p) => git.discard(await cwdOf(p.cwd), p.paths, p.confirm),
+    'git.commit': async (p) => git.commit(await cwdOf(p.cwd), requireString(p.message, 'message'), { all: p.all, amend: p.amend }),
+    'git.branches': async (p) => ({ branches: await git.branches(await cwdOf(p.cwd)) }),
+    'git.checkout': async (p) => git.checkout(await cwdOf(p.cwd), requireString(p.branch, 'branch')),
+    'git.createBranch': async (p) => git.createBranch(await cwdOf(p.cwd), requireString(p.name, 'name'), { from: p.from, checkout: p.checkout }),
+    'git.deleteBranch': async (p) => git.deleteBranch(await cwdOf(p.cwd), requireString(p.name, 'name'), { force: p.force, confirmForce: p.confirmForce }),
+    'git.fetch': async (p) => git.fetch(await cwdOf(p.cwd), p.remote, p.prune),
+    'git.pull': async (p) => git.pull(await cwdOf(p.cwd), { remote: p.remote, branch: p.branch, rebase: p.rebase }),
+    'git.push': async (p) =>
+      git.push(await cwdOf(p.cwd), { remote: p.remote, branch: p.branch, setUpstream: p.setUpstream, force: p.force, confirmForce: p.confirmForce }),
+    'git.conflicts': async (p) => git.conflicts(await cwdOf(p.cwd)),
+    'git.resolveConflict': async (p) => git.resolveConflict(await cwdOf(p.cwd), requireString(p.path, 'path'), p.strategy, p.content),
+    'git.abortConflict': async (p) => git.abortConflict(await cwdOf(p.cwd), p.confirm),
+    'git.worktrees': async (p) => ({ worktrees: await git.listWorktrees(await cwdOf(p.cwd)) }),
+    'git.worktreeAdd': async (p) =>
+      git.addWorktree(await cwdOf(p.cwd), { path: p.path, checkPath: opts.checkPath, branch: p.branch, newBranch: p.newBranch, baseRef: p.baseRef, taskSlug: p.taskSlug }),
     'git.worktreeRemove': async (p) => {
-      await git.removeWorktree(absCwd(p.cwd), worktreePath(p), { force: p.force, confirmDirty: p.confirmDirty, deleteBranch: p.deleteBranch });
+      const cwd = await cwdOf(p.cwd);
+      await git.removeWorktree(cwd, worktreePath(cwd, p), { force: p.force, confirmDirty: p.confirmDirty, deleteBranch: p.deleteBranch });
       return { removed: true };
     },
-    'git.worktreePrune': async (p) => ({ worktrees: await git.pruneWorktrees(absCwd(p.cwd)) }),
-    'git.worktreeCompare': (p) => git.compareWorktree(absCwd(p.cwd), worktreePath(p), p.baseBranch),
-    'git.worktreeMerge': (p) =>
-      git.mergeWorktree(absCwd(p.cwd), worktreePath(p), { targetBranch: p.targetBranch, squash: p.squash, confirm: p.confirm, removeAfter: p.removeAfter }),
-    'git.prStatus': (p) => github.detectGhStatus(absCwd(p.cwd)),
-    'git.prList': async (p) => ({ prs: await github.listPrs(absCwd(p.cwd), { state: p.state, limit: p.limit }) }),
-    'git.prView': (p) => github.viewPr(absCwd(p.cwd), p.number),
-    'git.prDiff': (p) => github.diffPr(absCwd(p.cwd), p.number),
-    'git.prCreate': (p) => github.createPr(absCwd(p.cwd), { title: p.title, body: p.body, base: p.base, head: p.head, draft: p.draft }),
-    'git.sessionPrGet': (p) => ({ link: sessionPrs.get(requireString(p.sessionId, 'sessionId')) ?? null }),
-    'git.sessionPrLink': (p) => {
+    'git.worktreePrune': async (p) => ({ worktrees: await git.pruneWorktrees(await cwdOf(p.cwd)) }),
+    'git.worktreeCompare': async (p) => {
+      const cwd = await cwdOf(p.cwd);
+      return git.compareWorktree(cwd, worktreePath(cwd, p), p.baseBranch);
+    },
+    'git.worktreeMerge': async (p) => {
+      const cwd = await cwdOf(p.cwd);
+      return git.mergeWorktree(cwd, worktreePath(cwd, p), { targetBranch: p.targetBranch, squash: p.squash, confirm: p.confirm, removeAfter: p.removeAfter });
+    },
+    'git.prStatus': async (p) => github.detectGhStatus(await cwdOf(p.cwd)),
+    'git.prList': async (p) => ({ prs: await github.listPrs(await cwdOf(p.cwd), { state: p.state, limit: p.limit }) }),
+    'git.prView': async (p) => github.viewPr(await cwdOf(p.cwd), p.number),
+    'git.prDiff': async (p) => github.diffPr(await cwdOf(p.cwd), p.number),
+    'git.prCreate': async (p) => github.createPr(await cwdOf(p.cwd), { title: p.title, body: p.body, base: p.base, head: p.head, draft: p.draft }),
+    'git.sessionPrGet': async (p) => ({ link: sessionPrs.get(requireString(p.sessionId, 'sessionId')) ?? null }),
+    'git.sessionPrLink': async (p) => {
       const link = p.link ?? p;
       return {
         link: sessionPrs.link(requireString(p.sessionId, 'sessionId'), {
-          cwd: absCwd(link.cwd),
+          cwd: await cwdOf(link.cwd),
           number: link.number,
           url: link.url,
           title: link.title,
@@ -83,7 +101,7 @@ export function createGitRpc(dataDir: string, opts: GitRpcOptions = {}) {
         }),
       };
     },
-    'git.sessionPrUnlink': (p) => ({ removed: sessionPrs.unlink(requireString(p.sessionId, 'sessionId')) }),
+    'git.sessionPrUnlink': async (p) => ({ removed: sessionPrs.unlink(requireString(p.sessionId, 'sessionId')) }),
   };
 
   return {
