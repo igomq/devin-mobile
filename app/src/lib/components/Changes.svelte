@@ -367,7 +367,7 @@
     border-radius: 12px;
     border: 1px solid var(--line);
     background: var(--bg-input);
-    font-size: 13px;
+    font-size: 16px;
     outline: none;
   }
   .runner input:focus {

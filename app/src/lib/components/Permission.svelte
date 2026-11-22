@@ -47,7 +47,10 @@
 
 <style>
   .perm {
-    flex: none;
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     margin: 0 12px 8px;
     padding: 12px;
     border: 1px solid var(--amber);
