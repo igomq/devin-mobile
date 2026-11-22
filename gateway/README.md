@@ -47,6 +47,23 @@ The pairing token is generated on first start and stored in `~/.local/share/unih
 
 All messages are JSON text frames on `ws://<host>:<port>/ws`.
 
+### Harnesses
+
+Every harness is driven over ACP (JSON-RPC on stdio). Capabilities (session resume/close/delete, MCP, modes) come from the agent's `initialize` response.
+
+| Harness | id | Command started | Status |
+| --- | --- | --- | --- |
+| Devin CLI | `devin` | `devin acp` | Verified |
+| OpenAI Codex CLI | `codex` | `codex-acp` (`@zed-industries/codex-acp`) | ACP adapter, needs `codex login` |
+| Claude Code | `claude` | `claude-code-acp` (`@zed-industries/claude-code-acp`) | ACP adapter, needs Claude login |
+| OpenCode | `opencode` | `opencode acp` | Native ACP |
+| Kiro CLI | `kiro` | `kiro-cli acp` | Native ACP |
+| Command Code | `command-code` | none documented | Disabled until `bin`/`args` point at an ACP command |
+| Google Antigravity | `antigravity` | none documented | Disabled until `bin`/`args` point at an ACP command |
+| Custom | any | `harnesses.registerCustom` | Any ACP agent |
+
+`harnesses.configure` can override `bin`, `args` and `envAllowlist` for each. With a non-empty `envAllowlist`, the harness process only receives `PATH`, `HOME`, `USER`, `SHELL`, locale and XDG variables plus the listed keys. Missing binaries show `installed: false` and an `installHint`.
+
 ### Requests and responses
 
 A client sends `{"id": <any>, "type": "<request>", ...params}`. The gateway answers with `{"type": "response", "id": <same id>, "ok": true, "result": {...}}` or `{"type": "response", "id": <same id>, "ok": false, "error": "<message>"}`. Requests without an `id` get no response.

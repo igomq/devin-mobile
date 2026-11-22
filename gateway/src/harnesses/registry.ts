@@ -14,6 +14,8 @@ interface PersistedRegistry {
  * Bare session IDs without a known `<harnessId>:` prefix default to `devin`
  * for 100% backward compatibility with legacy Devin sessions.
  */
+const LIST_TIMEOUT_MS = 8000;
+
 export function parseScopedSessionId(sessionId: string, knownHarnesses: Iterable<string>): { harnessId: HarnessId; nativeId: string } {
   const idx = sessionId.indexOf(':');
   if (idx > 0) {
@@ -39,6 +41,7 @@ export class HarnessRegistry extends EventEmitter {
   private configs = new Map<HarnessId, HarnessConfig>();
   private customSpecs = new Map<string, CustomAcpHarnessSpec>();
   private configFile: string;
+  private customFactory: ((spec: CustomAcpHarnessSpec) => HarnessAdapter) | null = null;
 
   constructor(private dataDir: string) {
     super();
@@ -85,6 +88,21 @@ export class HarnessRegistry extends EventEmitter {
     adapter.on('reset', (s: Session) => this.emit('reset', s));
     adapter.on('deleted', (sessionId: string) => this.emit('deleted', formatScopedSessionId(adapter.id, sessionId)));
     adapter.on('status', (info: HarnessInfo) => this.emit('harness_status', info));
+  }
+
+  /** Instantiates adapters for persisted and newly registered custom ACP definitions. */
+  setCustomFactory(factory: (spec: CustomAcpHarnessSpec) => HarnessAdapter) {
+    this.customFactory = factory;
+    for (const spec of this.customSpecs.values()) this.instantiateCustom(spec);
+  }
+
+  private instantiateCustom(spec: CustomAcpHarnessSpec) {
+    if (!this.customFactory) return;
+    const existing = this.adapters.get(spec.id);
+    if (existing && !existing.custom) return;
+    existing?.stop();
+    this.adapters.delete(spec.id);
+    this.register(this.customFactory(spec));
   }
 
   get(id: HarnessId): HarnessAdapter | undefined {
@@ -143,6 +161,7 @@ export class HarnessRegistry extends EventEmitter {
     };
     this.customSpecs.set(id, normalized);
     this.savePersisted();
+    this.instantiateCustom(normalized);
     return normalized;
   }
 
@@ -172,7 +191,19 @@ export class HarnessRegistry extends EventEmitter {
         .filter((a) => a.info().enabled)
         .map(async (a) => {
           try {
-            const rows = await a.listSessions(cwd);
+            const listing = a.listSessions(cwd);
+            let timer: NodeJS.Timeout | undefined;
+            const timeout = new Promise<null>((resolve) => {
+              timer = setTimeout(() => resolve(null), LIST_TIMEOUT_MS);
+            });
+            const rows = await Promise.race([listing, timeout]).finally(() => clearTimeout(timer));
+            if (!rows) {
+              // A slow harness must not hold up the others: its rows arrive later as session_state updates.
+              listing
+                .then((late) => [...late].sort((x, y) => x.updatedAt - y.updatedAt).forEach((r) => this.emit('state', { ...r, harnessId: a.id })))
+                .catch(() => undefined);
+              return [];
+            }
             return rows.map((r) => ({ ...r, harnessId: a.id, sessionId: formatScopedSessionId(a.id, r.sessionId) }));
           } catch {
             return [];
