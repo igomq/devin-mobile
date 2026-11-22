@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { HarnessRegistry } from './harnesses/registry.js';
 import { formatScopedSessionId } from './harnesses/registry.js';
@@ -109,6 +109,11 @@ export async function createWorktree(repoCwd: string, id: string): Promise<{ pat
   const top = stdout.trim();
   const branch = `uniharn/sub-${id}`;
   const path = join(top, '.uniharn', 'worktrees', id);
+  const { stdout: gitDir } = await execFileAsync('git', ['-C', top, 'rev-parse', '--git-common-dir'], { timeout: 10000 });
+  const exclude = join(resolve(top, gitDir.trim()), 'info', 'exclude');
+  mkdirSync(dirname(exclude), { recursive: true });
+  const current = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
+  if (!current.split('\n').includes('/.uniharn/')) appendFileSync(exclude, (current && !current.endsWith('\n') ? '\n' : '') + '/.uniharn/\n');
   await execFileAsync('git', ['-C', top, 'worktree', 'add', '-b', branch, path], { timeout: 60000 });
   return { path, branch };
 }
@@ -205,12 +210,17 @@ export class Orchestrator extends EventEmitter {
     return this.start('handoff', sessionId, targetHarnessId, session.cwd, instruction ?? '', prompt, null);
   }
 
-  /** Runs `task` as a subagent on `harnessId`, in the parent's folder or an isolated worktree. */
-  async delegate(parentSessionId: string, harnessId: string, task: string, opts: { worktree?: boolean; includeContext?: boolean } = {}) {
+  /**
+   * Runs `task` as a subagent on `harnessId`, in the parent's folder (or `opts.cwd` when there is no
+   * parent session) or in an isolated worktree of it.
+   */
+  async delegate(parentSessionId: string | null, harnessId: string, task: string, opts: { cwd?: string; worktree?: boolean; includeContext?: boolean } = {}) {
     if (!task.trim()) throw new Error('task is required');
-    const { harnessId: fromHarness, session } = await this.source(parentSessionId);
-    const wt = opts.worktree ? await createWorktree(session.cwd, randomUUID().slice(0, 8)) : null;
-    const prompt = opts.includeContext ? buildHandoffPrompt(fromHarness, session, task) : task;
-    return this.start('delegate', parentSessionId, harnessId, session.cwd, task, prompt, wt);
+    const parent = parentSessionId ? await this.source(parentSessionId) : null;
+    const cwd = parent?.session.cwd ?? opts.cwd;
+    if (!cwd) throw new Error('sessionId or cwd is required');
+    const wt = opts.worktree ? await createWorktree(cwd, randomUUID().slice(0, 8)) : null;
+    const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, task) : task;
+    return this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt);
   }
 }

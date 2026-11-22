@@ -100,12 +100,18 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     assert.match(finished.output ?? '', /^beta did write docs cwd=.*\.uniharn\/worktrees\//);
     assert.deepEqual(events, ['running', 'done']);
     assert.match(execFileSync('git', ['-C', repo, 'worktree', 'list']).toString(), /uniharn\/sub-/);
+    assert.equal(execFileSync('git', ['-C', repo, 'status', '--porcelain']).toString(), '');
 
     const saved = JSON.parse(readFileSync(join(dir, 'data', 'orchestration.json'), 'utf8'));
     assert.equal(saved.links[0].id, link.id);
     const reloaded = new Orchestrator(registry, join(dir, 'data'));
     assert.equal(reloaded.get(link.id)?.status, 'done');
     await assert.rejects(orchestrator.delegate(`alpha:${parent.sessionId}`, 'beta', '  '), /task is required/);
+    await assert.rejects(orchestrator.delegate(null, 'beta', 'x'), /sessionId or cwd is required/);
+    const { link: free, done: freeDone } = await orchestrator.delegate(null, 'alpha', 'lint', { cwd: repo });
+    await freeDone;
+    assert.equal(orchestrator.get(free.id)?.parentSessionId, '');
+    assert.match(orchestrator.get(free.id)?.output ?? '', /^alpha did lint cwd=.*repo$/);
   } finally {
     cleanup();
   }

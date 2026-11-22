@@ -242,10 +242,15 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       return { link };
     }
     case 'orchestration.delegate': {
-      const id = requireString(p.sessionId, 'sessionId');
+      const id = typeof p.sessionId === 'string' && p.sessionId ? p.sessionId : null;
       const harnessId = requireString(p.harnessId, 'harnessId');
       const task = requireString(p.task, 'task');
-      const { link, done } = await orchestrator.delegate(id, harnessId, task, { worktree: !!p.worktree, includeContext: !!p.includeContext });
+      const { link, done } = await orchestrator.delegate(id, harnessId, task, {
+        cwd: id ? undefined : absCwd(p.cwd),
+        worktree: !!p.worktree,
+        includeContext: !!p.includeContext,
+      });
+      c.subs.add(link.childSessionId);
       if (p.wait) {
         await done;
         return { link: orchestrator.get(link.id) };
