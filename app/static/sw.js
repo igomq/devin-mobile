@@ -17,8 +17,8 @@ self.addEventListener('push', (event) => {
       await self.registration.showNotification(data.title || 'uniharn', {
         body: data.body || '',
         tag: data.tag || data.type || 'uniharn',
-        icon: 'icon.svg',
-        badge: 'icon.svg',
+        icon: 'icon-192.png',
+        badge: 'badge.png',
         timestamp: data.at || Date.now(),
         renotify: data.type === 'approval_requested',
         requireInteraction: data.type === 'approval_requested',
