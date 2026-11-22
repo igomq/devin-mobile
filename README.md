@@ -42,6 +42,11 @@ The repository has two packages:
 - Send more instructions while Devin works, stop a turn, and allow or reject permission requests. Approval cards show the command or diff Devin wants to run or apply.
 - Change the mode, model, thinking level and speed. The model picker lists single models and Fusion (main plus sidekick) pairs separately.
 
+### Notifications
+
+- In-app banners and a notification center for approvals, finished and failed runs, subagent results, Git conflicts, a lost gateway, and sessions that have waited too long.
+- Web Push to browsers and Home Screen PWAs (HTTPS via `tailscale serve`), with per-event switches and lock-screen-safe text. Native FCM/APNs need external setup; see [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
+
 ### Review
 
 - A +/− diff summary in the chat header that opens the Changes screen.

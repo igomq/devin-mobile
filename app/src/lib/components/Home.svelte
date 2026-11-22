@@ -4,6 +4,7 @@
   import { go, toast, route, requests, fresh } from '#lib/ui.svelte.ts';
   import { ago, basename, shortPath } from '#lib/format.ts';
   import Icon from './Icon.svelte';
+  import { notif } from '#lib/notifications.svelte.ts';
   import Sheet from './Sheet.svelte';
   import DirPicker from './DirPicker.svelte';
   import { getStorageItem, setStorageItem } from '#lib/storage.ts';
@@ -140,6 +141,7 @@
       </small>
     </div>
     <div class="glass-group glass">
+      <button class="iconbtn bell" onclick={() => (notif.centerOpen = !notif.centerOpen)} aria-label={notif.unreadCount ? `Notifications, ${notif.unreadCount} unread` : 'Notifications'} title="Notifications"><Icon name="bell" />{#if notif.unreadCount}<span class="badge">{notif.unreadCount > 99 ? '99+' : notif.unreadCount}</span>{/if}</button>
       <button class="iconbtn" onclick={() => go('#/terminal')} aria-label="Terminal" title="Terminal"><Icon name="terminal" /></button>
       <button class="iconbtn" onclick={() => go('#/settings')} aria-label="Settings" title="Settings (⌘,)"><Icon name="settings" /></button>
     </div>
@@ -230,6 +232,25 @@
 </Sheet>
 
 <style>
+  .bell {
+    position: relative;
+  }
+  .badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: #ff3b30;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    pointer-events: none;
+  }
   main {
     display: flex;
     flex-direction: column;

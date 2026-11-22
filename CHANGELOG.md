@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Harness picker for new sessions and a harness badge on non-Devin session rows.
 - Cross-harness handoff (`session.handoff`) and subagent delegation (`orchestration.delegate`, `orchestration.list`) with optional git worktree isolation, persisted links and `orchestration_link` events. Session controls in the app to hand off a session or run a subagent and open its result.
 - `uniharn` MCP server (`list_harnesses`, `delegate_task`, `list_delegations`) offered to every ACP session so one harness can delegate to another.
+- Notifications: in-app banners and a notification center, plus Web Push for browsers and Home Screen PWAs, for approval requests, finished and failed runs, subagent results, Git conflicts, gateway disconnects and long waits. Per-event settings, duplicate suppression, catch-up after reconnects, and lock-screen-safe text by default. Native FCM/APNs push is not included; see `docs/NOTIFICATIONS.md`.
 - Automated `node:test` test suite for gateway config migration, ACP JSON-RPC, harness registry, workspace persistence, and Devin adapter regression, wired into CI.
 
 ## [0.2.0] - 2026-11-22
