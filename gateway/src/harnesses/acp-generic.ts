@@ -105,10 +105,11 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     if (patch.bin) this.bin = patch.bin;
     if (patch.args) this.args = [...patch.args];
     if (patch.envAllowlist) this.envAllowlist = [...patch.envAllowlist];
-    this.manager.updateLaunchConfig(this.bin, this.args);
+    this.resolveLaunchBin();
   }
 
-  async probe(): Promise<HarnessInfo> {
+  /** Resolves `bin` (or, while it is not overridden, the spec's `altBins`) and launches with the result. */
+  private resolveLaunchBin() {
     this.resolvedBin = resolveBin(this.bin);
     if (!this.resolvedBin && this.bin === this.spec.bin) {
       for (const alt of this.spec.altBins ?? []) {
@@ -116,9 +117,13 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
         if (this.resolvedBin) break;
       }
     }
+    this.manager.updateLaunchConfig(this.resolvedBin ?? this.bin, this.args);
+  }
+
+  async probe(): Promise<HarnessInfo> {
+    this.resolveLaunchBin();
     this.installed = !!this.resolvedBin;
     this.version = null;
-    this.manager.updateLaunchConfig(this.resolvedBin ?? this.bin, this.args);
     if (this.resolvedBin) {
       try {
         const { stdout } = await execFileAsync(this.resolvedBin, this.spec.versionArgs ?? ['--version'], { timeout: 5000, env: filterEnv(this.envAllowlist) });

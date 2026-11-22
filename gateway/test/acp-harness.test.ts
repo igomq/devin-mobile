@@ -162,6 +162,8 @@ rl.on('line', (line) => {
   try {
     const info = await adapter.probe();
     assert.equal(info.bin, bin);
+    adapter.configure({ envAllowlist: ['ANTHROPIC_API_KEY'] });
+    assert.equal(adapter.info().bin, bin);
     const s = await adapter.createSession(dir);
     const opt = s.configOptions.find((o) => o.id === 'model');
     assert.equal(opt?.category, 'model');
