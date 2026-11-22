@@ -12,7 +12,7 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     name: 'OpenAI Codex CLI',
     bin: 'codex-acp',
     acpArgs: [],
-    installHint: 'npm i -g @openai/codex @zed-industries/codex-acp',
+    installHint: 'npm i -g @openai/codex @agentclientprotocol/codex-acp',
     authMethod: 'codex login',
   },
   {
