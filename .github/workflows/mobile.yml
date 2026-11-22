@@ -56,7 +56,7 @@ jobs:
           sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' src-tauri/gen/android/app/build.gradle.kts
           grep -n usesCleartextTraffic src-tauri/gen/android/app/build.gradle.kts
           # Keyboard and system-bar handling (see the file's comments).
-          cp src-tauri/android/MainActivity.kt src-tauri/gen/android/app/src/main/java/me/gomq/devinmobile/MainActivity.kt
+          cp src-tauri/android/MainActivity.kt src-tauri/gen/android/app/src/main/java/me/gomq/uniharn/MainActivity.kt
       - name: Build release APK (arm64)
         run: npx tauri android build --apk --target aarch64
       - name: Sign APK
@@ -78,13 +78,13 @@ jobs:
             export ANDROID_KEYSTORE_PASSWORD=android ANDROID_KEY_PASSWORD=android ANDROID_KEY_ALIAS=ci
             keytool -genkeypair -keystore "$keystore" -storepass:env ANDROID_KEYSTORE_PASSWORD \
               -keypass:env ANDROID_KEY_PASSWORD -alias "$ANDROID_KEY_ALIAS" \
-              -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=devin-mobile CI" >/dev/null
+              -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=uniharn CI" >/dev/null
           fi
           unsigned=$(find src-tauri/gen/android -name '*release-unsigned.apk' -print -quit)
           test -n "$unsigned"
           mkdir -p ../dist
           build_tools="$ANDROID_HOME/build-tools/34.0.0"
-          apk="../dist/devin-mobile-$VERSION-arm64.apk"
+          apk="../dist/uniharn-$VERSION-arm64.apk"
           "$build_tools/zipalign" -f 4 "$unsigned" "$signing_dir/aligned.apk"
           "$build_tools/apksigner" sign --ks "$keystore" --ks-key-alias "$ANDROID_KEY_ALIAS" \
             --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
@@ -92,8 +92,8 @@ jobs:
           "$build_tools/apksigner" verify "$apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: devin-mobile-${{ steps.version.outputs.value }}-arm64
-          path: dist/devin-mobile-${{ steps.version.outputs.value }}-arm64.apk
+          name: uniharn-${{ steps.version.outputs.value }}-arm64
+          path: dist/uniharn-${{ steps.version.outputs.value }}-arm64.apk
           if-no-files-found: error
 
   ios:
@@ -139,11 +139,11 @@ jobs:
           mkdir -p ../dist/Payload
           cp -R "$APP" ../dist/Payload/
           cd ../dist
-          zip -qry "devin-mobile-$VERSION-unsigned.ipa" Payload
+          zip -qry "uniharn-$VERSION-unsigned.ipa" Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: devin-mobile-${{ steps.version.outputs.value }}-unsigned
-          path: dist/devin-mobile-${{ steps.version.outputs.value }}-unsigned.ipa
+          name: uniharn-${{ steps.version.outputs.value }}-unsigned
+          path: dist/uniharn-${{ steps.version.outputs.value }}-unsigned.ipa
           if-no-files-found: error
 
   release:
@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: devin-mobile-*
+          pattern: uniharn-*
           path: dist
           merge-multiple: true
       - name: Publish APK and IPA
@@ -166,8 +166,8 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           version=${TAG#v}
-          apk="dist/devin-mobile-$version-arm64.apk"
-          ipa="dist/devin-mobile-$version-unsigned.ipa"
+          apk="dist/uniharn-$version-arm64.apk"
+          ipa="dist/uniharn-$version-unsigned.ipa"
           test -f "$apk"
           test -f "$ipa"
 
@@ -192,5 +192,5 @@ jobs:
           - Android — Download the APK and allow installation from unknown sources when prompted.
           - iOS — Sideload the unsigned IPA with AltStore, SideStore, or Sideloadly.
           EOF
-            gh release create "$TAG" "$apk" "$ipa" --verify-tag --title "Devin Mobile $TAG" --notes-file "$notes"
+            gh release create "$TAG" "$apk" "$ipa" --verify-tag --title "uniharn $TAG" --notes-file "$notes"
           fi
