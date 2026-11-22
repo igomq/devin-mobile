@@ -323,10 +323,19 @@ export function createGatewayServer(input: Config) {
           .filter((project) => !config.strictRoots || isPathWithinRoots(project.path, config.roots));
         return { projects, roots: config.roots };
       }
-      case 'fs.listDirs':
-        return listDirectory(absCwd(p.path ?? homedir()));
-      case 'sessions.list':
-        return { sessions: await registry.listAllSessions(p.cwd ? absCwd(p.cwd) : undefined) };
+      case 'fs.listDirs': {
+        const requested = typeof p.path === 'string' && p.path ? p.path : '~';
+        const home = requested === '~' || resolve(requested) === homedir();
+        // The picker starts at home; with strict roots that exclude home, start at the first root instead.
+        if (home && config.strictRoots && config.roots.length && !isPathWithinRoots(homedir(), config.roots)) {
+          return listDirectory(config.roots[0]);
+        }
+        return listDirectory(absCwd(requested));
+      }
+      case 'sessions.list': {
+        const sessions = await registry.listAllSessions(p.cwd ? absCwd(p.cwd) : undefined);
+        return { sessions: config.strictRoots ? sessions.filter((s: Json) => !s.cwd || isPathWithinRoots(s.cwd, config.roots)) : sessions };
+      }
       case 'session.create': {
         const cwd = absCwd(p.cwd);
         const harnessId = typeof p.harnessId === 'string' && p.harnessId ? p.harnessId : 'devin';
@@ -373,8 +382,9 @@ export function createGatewayServer(input: Config) {
       case 'session.open': {
         const id = requireString(p.sessionId, 'sessionId');
         const { adapter, harnessId, nativeId } = registry.resolveSession(id);
-        c.subs.add(id);
         const s = await adapter.ensureLoaded(nativeId, p.cwd ? absCwd(p.cwd) : undefined);
+        if (config.strictRoots) assertAllowedPath(s.cwd, config.roots, true);
+        c.subs.add(id);
         const firstSeq = s.events[0]?.seq ?? s.seq + 1;
         let since = p.epoch === s.epoch && typeof p.sinceSeq === 'number' ? p.sinceSeq : 0;
         if (since > 0 && since < firstSeq - 1) since = 0;
