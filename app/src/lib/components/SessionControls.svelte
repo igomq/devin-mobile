@@ -5,6 +5,8 @@
   import { shortPath } from '#lib/format.ts';
   import Sheet from './Sheet.svelte';
   import Icon from './Icon.svelte';
+  import ModelPicker from './ModelPicker.svelte';
+  import { isModelOption } from '#lib/models.ts';
 
   let { open = $bindable(false), sessionId, view }: { open?: boolean; sessionId: string; view: SessionView | undefined } = $props();
   let busy = $state<string | null>(null);
@@ -47,7 +49,9 @@
 
   {#each options as o}
     <div class="label">{o.name}</div>
-    {#if flat(o).length}
+    {#if isModelOption(o) && flat(o).length}
+      <ModelPicker option={o} disabled={busy !== null} onpick={(value) => run(o.id, 'session.setConfig', { configId: o.id, value })} />
+    {:else if flat(o).length}
       <div class="selwrap">
         <select value={o.currentValue} disabled={busy !== null} onchange={(e) => run(o.id, 'session.setConfig', { configId: o.id, value: e.currentTarget.value })}>
           {#each flat(o) as x}<option value={x.value}>{x.name}</option>{/each}
