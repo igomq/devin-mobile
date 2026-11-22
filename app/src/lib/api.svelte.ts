@@ -317,10 +317,17 @@ export function rpc(m: string, p: Json = {}): Promise<Json> {
 }
 
 /** Pre-notification-system gateways only: a background system notification. Newer gateways send `notification` events. */
-function legacyNotify(title: string, body: string) {
+function legacyNotify(type: 'approval_requested' | 'task_completed' | 'execution_failed', title: string, safeBody: string, detail: string) {
   if (conn.info?.notifications || document.visibilityState === 'visible' || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  let prefs: { enabled?: boolean; hideSensitiveDetails?: boolean; events?: Record<string, boolean> } | null = null;
   try {
-    new Notification(title, { body, tag: 'uniharn' });
+    prefs = JSON.parse(getStorageItem('notification-prefs') || 'null');
+  } catch {
+    prefs = null;
+  }
+  if (prefs?.enabled === false || prefs?.events?.[type] === false) return;
+  try {
+    new Notification(title, { body: prefs?.hideSensitiveDetails === false && detail ? detail : safeBody, tag: 'uniharn' });
   } catch {
     // not supported in this webview
   }
@@ -331,7 +338,8 @@ function upsert(summary: SessionSummary) {
   const i = app.sessions.findIndex((s) => s.id === r.id);
   if (i >= 0) {
     if (app.sessions[i].status === 'running' && (r.status === 'idle' || r.status === 'error')) {
-      legacyNotify(r.status === 'idle' ? 'Session finished' : 'Session hit an error', r.title || r.cwd || '');
+      if (r.status === 'idle') legacyNotify('task_completed', 'Session finished', 'A session finished its turn', r.title || r.cwd || '');
+      else legacyNotify('execution_failed', 'Session hit an error', 'A session stopped with an error', r.title || r.cwd || '');
     }
     // A session keeps counting as non-empty once it has shown activity.
     r.hasMessages ||= app.sessions[i].hasMessages;
@@ -371,7 +379,7 @@ function onMessage(msg: Json) {
     case 'permission_request': {
       const v = views[msg.sessionId];
       const p = v && permissionView(msg, v);
-      legacyNotify('Approval needed', p?.rawInput?.command ?? p?.title ?? msg.toolCall?.title ?? 'A session is waiting for your permission');
+      legacyNotify('approval_requested', 'Approval needed', 'A session is waiting for your permission', p?.title ?? msg.toolCall?.title ?? '');
       if (v && p && !v.state.permissions.some((x) => x.reqId === msg.requestId)) v.state.permissions.push(p);
       return;
     }
