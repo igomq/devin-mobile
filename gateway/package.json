@@ -1,6 +1,6 @@
 {
   "name": "devin-mobile-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "VM-side gateway that bridges Devin CLI (ACP) to the Devin Mobile app",
   "main": "dist/index.js",
   "scripts": {
@@ -11,6 +11,15 @@
     "typecheck": "tsc --noEmit"
   },
   "license": "MIT",
+  "author": "GomQ",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/igomq/devin-mobile"
+  },
+  "homepage": "https://github.com/igomq/devin-mobile",
+  "bugs": {
+    "url": "https://github.com/igomq/devin-mobile/issues"
+  },
   "dependencies": {
     "node-pty": "^1.1.0",
     "ws": "^8.23.0"

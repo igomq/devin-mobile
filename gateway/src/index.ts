@@ -12,7 +12,7 @@ import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const config = loadConfig();
 const manager = new SessionManager(config.devinBin, config.devinArgs);
 const tasks = new TaskRunner();

@@ -24,6 +24,15 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
+      - name: Resolve artifact version
+        id: version
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
+            version=${GITHUB_REF_NAME#v}
+          else
+            version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -47,26 +56,44 @@ jobs:
           sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' src-tauri/gen/android/app/build.gradle.kts
           grep -n usesCleartextTraffic src-tauri/gen/android/app/build.gradle.kts
           # Keyboard and system-bar handling (see the file's comments).
-          cp src-tauri/android/MainActivity.kt src-tauri/gen/android/app/src/main/java/com/igomq/devinmobile/MainActivity.kt
+          cp src-tauri/android/MainActivity.kt src-tauri/gen/android/app/src/main/java/me/gomq/devinmobile/MainActivity.kt
       - name: Build release APK (arm64)
         run: npx tauri android build --apk --target aarch64
       - name: Sign APK
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # Throwaway CI key: sideload-only builds. Use a stable keystore secret to allow in-place upgrades.
-          keytool -genkeypair -keystore ci.jks -storepass android -keypass android -alias ci \
-            -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=devin-mobile CI" >/dev/null
-          UNSIGNED=$(find src-tauri/gen/android -name '*release-unsigned.apk' | head -1)
-          echo "unsigned: $UNSIGNED"
+          signing_dir=$(mktemp -d)
+          trap 'rm -rf "$signing_dir"' EXIT
+          keystore="$signing_dir/release.keystore"
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" && -n "$ANDROID_KEYSTORE_PASSWORD" &&
+                -n "$ANDROID_KEY_ALIAS" && -n "$ANDROID_KEY_PASSWORD" ]]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          else
+            echo "Using a throwaway Android signing key. Upgrades will require uninstalling the previous build."
+            export ANDROID_KEYSTORE_PASSWORD=android ANDROID_KEY_PASSWORD=android ANDROID_KEY_ALIAS=ci
+            keytool -genkeypair -keystore "$keystore" -storepass:env ANDROID_KEYSTORE_PASSWORD \
+              -keypass:env ANDROID_KEY_PASSWORD -alias "$ANDROID_KEY_ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=devin-mobile CI" >/dev/null
+          fi
+          unsigned=$(find src-tauri/gen/android -name '*release-unsigned.apk' -print -quit)
+          test -n "$unsigned"
           mkdir -p ../dist
-          BT=$ANDROID_HOME/build-tools/34.0.0
-          $BT/zipalign -f 4 "$UNSIGNED" aligned.apk
-          $BT/apksigner sign --ks ci.jks --ks-pass pass:android --out ../dist/devin-mobile-arm64.apk aligned.apk
-          $BT/apksigner verify ../dist/devin-mobile-arm64.apk
-          ls -la ../dist
+          build_tools="$ANDROID_HOME/build-tools/34.0.0"
+          apk="../dist/devin-mobile-$VERSION-arm64.apk"
+          "$build_tools/zipalign" -f 4 "$unsigned" "$signing_dir/aligned.apk"
+          "$build_tools/apksigner" sign --ks "$keystore" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "$apk" "$signing_dir/aligned.apk"
+          "$build_tools/apksigner" verify "$apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: devin-mobile-android-apk
-          path: dist/*.apk
+          name: devin-mobile-${{ steps.version.outputs.value }}-arm64
+          path: dist/devin-mobile-${{ steps.version.outputs.value }}-arm64.apk
           if-no-files-found: error
 
   ios:
@@ -82,6 +109,15 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
+      - name: Resolve artifact version
+        id: version
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
+            version=${GITHUB_REF_NAME#v}
+          else
+            version=$(node -p 'require("./src-tauri/tauri.conf.json").version')
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
@@ -94,15 +130,67 @@ jobs:
       - name: Build (no code signing)
         run: npx tauri ios build --no-sign --archive-only --target aarch64
       - name: Package IPA
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           APP=$(find src-tauri/gen/apple/build -path '*.xcarchive/Products/Applications/*.app' -maxdepth 6 -type d | head -1)
           echo "app: $APP"
           test -n "$APP"
           mkdir -p ../dist/Payload
           cp -R "$APP" ../dist/Payload/
-          cd ../dist && zip -qry devin-mobile-unsigned.ipa Payload && ls -la
+          cd ../dist
+          zip -qry "devin-mobile-$VERSION-unsigned.ipa" Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: devin-mobile-ios-unsigned-ipa
-          path: dist/*.ipa
+          name: devin-mobile-${{ steps.version.outputs.value }}-unsigned
+          path: dist/devin-mobile-${{ steps.version.outputs.value }}-unsigned.ipa
           if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: devin-mobile-*
+          path: dist
+          merge-multiple: true
+      - name: Publish APK and IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=${TAG#v}
+          apk="dist/devin-mobile-$version-arm64.apk"
+          ipa="dist/devin-mobile-$version-unsigned.ipa"
+          test -f "$apk"
+          test -f "$ipa"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$apk" "$ipa" --clobber
+          else
+            notes=$(mktemp)
+            if [[ -f CHANGELOG.md ]]; then
+              awk -v heading="## [$version]" '
+                /^## / {
+                  if (in_section) exit
+                  in_section = index($0, heading) == 1
+                  next
+                }
+                in_section { print }
+              ' CHANGELOG.md > "$notes"
+            fi
+            cat >> "$notes" <<'EOF'
+
+          ## Install
+
+          - Android — Download the APK and allow installation from unknown sources when prompted.
+          - iOS — Sideload the unsigned IPA with AltStore, SideStore, or Sideloadly.
+          EOF
+            gh release create "$TAG" "$apk" "$ipa" --verify-tag --title "Devin Mobile $TAG" --notes-file "$notes"
+          fi

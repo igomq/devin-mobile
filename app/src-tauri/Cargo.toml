@@ -1,8 +1,8 @@
 [package]
 name = "devin-mobile"
-version = "0.1.0"
+version = "0.2.0"
 description = "Devin Mobile — mobile client for Devin CLI"
-authors = ["igomq"]
+authors = ["GomQ"]
 license = "MIT"
 repository = "https://github.com/igomq/devin-mobile"
 edition = "2024"
