@@ -17,6 +17,7 @@ const TYPES: Record<string, string> = {
 
 /** Serves the built SvelteKit SPA so a phone browser on the tailnet can use the gateway directly. */
 export function serveStatic(root: string, req: IncomingMessage, res: ServerResponse) {
+  res.setHeader('X-Frame-Options', 'DENY');
   const url = new URL(req.url ?? '/', 'http://x');
   let decoded: string;
   try {

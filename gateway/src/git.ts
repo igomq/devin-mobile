@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 const MAX = 4 * 1024 * 1024;
+type CheckRoot = (root: string) => string;
 
 async function git(cwd: string, args: string[], allowFail = false): Promise<string> {
   try {
@@ -50,9 +51,10 @@ async function repoRoot(cwd: string): Promise<string> {
   return (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
 }
 
-export async function status(cwd: string): Promise<GitStatus> {
+export async function status(cwd: string, checkRoot?: CheckRoot): Promise<GitStatus> {
   if (!(await isRepo(cwd))) return { isRepo: false, branch: null, upstream: null, ahead: 0, behind: 0, head: null, files: [] };
   cwd = await repoRoot(cwd);
+  if (checkRoot) cwd = checkRoot(cwd);
   const out = await git(cwd, ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all']);
   const res: GitStatus = { isRepo: true, branch: null, upstream: null, ahead: 0, behind: 0, head: null, files: [] };
   const parts = out.split('\0');
@@ -123,10 +125,11 @@ function parseNumstat(out: string) {
 }
 
 /** Unified diff of the working tree against HEAD (including untracked files). */
-export async function diff(cwd: string, path?: string): Promise<{ diff: string; truncated: boolean }> {
-  const st = await status(cwd);
+export async function diff(cwd: string, path?: string, checkRoot?: CheckRoot): Promise<{ diff: string; truncated: boolean }> {
+  const st = await status(cwd, checkRoot);
   if (!st.isRepo) throw new Error('Not a git repository');
   cwd = await repoRoot(cwd);
+  if (checkRoot) cwd = checkRoot(cwd);
   const targets = path ? st.files.filter((f) => f.path === path) : st.files;
   let out = '';
   const tracked = targets.filter((f) => f.status !== 'untracked').flatMap((f) => (f.oldPath ? [f.oldPath, f.path] : [f.path]));
@@ -141,8 +144,9 @@ export async function diff(cwd: string, path?: string): Promise<{ diff: string; 
   return { diff: truncated ? out.slice(0, MAX) : out, truncated };
 }
 
-export async function log(cwd: string, n = 20) {
+export async function log(cwd: string, n = 20, checkRoot?: CheckRoot) {
   if (!(await isRepo(cwd))) return [];
+  if (checkRoot) cwd = checkRoot(await repoRoot(cwd));
   const out = await git(cwd, ['log', `-n${n}`, '--pretty=format:%h%x1f%s%x1f%an%x1f%ct'], true);
   return out
     .split('\n')

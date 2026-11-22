@@ -146,6 +146,7 @@ export interface SessionManagerLaunchOptions {
 export class SessionManager extends EventEmitter {
   private acp: AcpConnection | null = null;
   private starting: Promise<AcpConnection> | null = null;
+  private startingConnection: AcpConnection | null = null;
   private loading = new Map<string, Promise<Session>>();
   sessions = new Map<string, Session>();
   private permCounter = 0;
@@ -189,6 +190,7 @@ export class SessionManager extends EventEmitter {
         label,
         ...(this.launch.cwd ? { cwd: this.launch.cwd } : {}),
       });
+      this.startingConnection = conn;
       conn.on('notification', (m, p) => this.onNotification(m, p));
       conn.on('request', (id, m, p) => this.onRequest(conn, id, m, p));
       conn.on('exit', (code) => {
@@ -215,6 +217,7 @@ export class SessionManager extends EventEmitter {
         throw e;
       } finally {
         this.starting = null;
+        this.startingConnection = null;
       }
     })();
     return this.starting;
@@ -432,6 +435,7 @@ export class SessionManager extends EventEmitter {
   }
 
   stop() {
+    this.startingConnection?.stop();
     this.acp?.stop();
     this.acp = null;
   }

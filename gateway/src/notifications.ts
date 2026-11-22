@@ -49,6 +49,7 @@ export interface PushSubscriptionJson {
 }
 interface StoredSubscription extends PushSubscriptionJson {
   label: string | null;
+  deviceId?: string | null;
   createdAt: number;
 }
 
@@ -339,11 +340,11 @@ export class NotificationService extends EventEmitter {
     return this.vapid.publicKey;
   }
 
-  subscribe(sub: PushSubscriptionJson, label?: string | null) {
+  subscribe(sub: PushSubscriptionJson, label?: string | null, deviceId?: string | null) {
     if (!sub || typeof sub.endpoint !== 'string' || !/^https:\/\//.test(sub.endpoint)) throw new Error('A push subscription with an https endpoint is required');
     if (!sub.keys || typeof sub.keys.p256dh !== 'string' || typeof sub.keys.auth !== 'string') throw new Error('The push subscription is missing its keys');
     this.subs = this.subs.filter((s) => s.endpoint !== sub.endpoint);
-    this.subs.push({ endpoint: sub.endpoint, expirationTime: sub.expirationTime ?? null, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, label: label ?? null, createdAt: this.now() });
+    this.subs.push({ endpoint: sub.endpoint, expirationTime: sub.expirationTime ?? null, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, label: label ?? null, deviceId: deviceId ?? null, createdAt: this.now() });
     writePrivate(this.subsFile, this.subs);
     return { count: this.subs.length };
   }
@@ -353,6 +354,14 @@ export class NotificationService extends EventEmitter {
     this.subs = this.subs.filter((s) => s.endpoint !== endpoint);
     if (this.subs.length !== before) writePrivate(this.subsFile, this.subs);
     return { removed: before - this.subs.length, count: this.subs.length };
+  }
+
+  /** Drops the push subscriptions registered by a device whose token was revoked. */
+  removeDeviceSubscriptions(deviceId: string) {
+    const before = this.subs.length;
+    this.subs = this.subs.filter((s) => s.deviceId !== deviceId);
+    if (this.subs.length !== before) writePrivate(this.subsFile, this.subs);
+    return before - this.subs.length;
   }
 
   /** Subscriptions without their keys; endpoints are shortened to the push service host. */

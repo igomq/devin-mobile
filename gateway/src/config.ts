@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -12,8 +12,12 @@ export interface Config {
   dataDir: string;
   legacyMigrated: boolean;
   roots: string[];
+  strictRoots: boolean;
   staticDir: string | null;
   token: string;
+  publicUrl: string | null;
+  tailscaleIp: string | null;
+  magicDns: string | null;
 }
 
 function normalizeArgv(argv: string[]): string[] {
@@ -22,9 +26,9 @@ function normalizeArgv(argv: string[]): string[] {
   return argv;
 }
 
-function getArg(argv: string[], name: string): string | undefined {
+export function getArg(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(`--${name}`);
-  if (i >= 0) return argv[i + 1];
+  if (i >= 0) return argv[i + 1]?.startsWith('--') ? undefined : argv[i + 1];
   const pref = argv.find((a) => a.startsWith(`--${name}=`));
   return pref ? pref.slice(name.length + 3) : undefined;
 }
@@ -33,10 +37,34 @@ function getEnv(env: NodeJS.ProcessEnv, suffix: string): string | undefined {
   return env[`UNIHARN_${suffix}`] ?? env[`DEVIN_MOBILE_${suffix}`];
 }
 
+function initializeToken(file: string, contents: Buffer | string): boolean {
+  const temp = `${file}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, contents, { mode: 0o600, flag: 'wx' });
+    linkSync(temp, file);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw error;
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
 export function tailscaleIPv4(): string | null {
   try {
     const out = execFileSync('tailscale', ['ip', '-4'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).toString().trim();
     return out.split('\n')[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+export function tailscaleMagicDns(): string | null {
+  try {
+    const out = execFileSync('tailscale', ['status', '--json'], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 });
+    const name: unknown = JSON.parse(out.toString()).Self?.DNSName;
+    return typeof name === 'string' ? name.trim().replace(/\.$/, '') || null : null;
   } catch {
     return null;
   }
@@ -53,6 +81,7 @@ export interface LoadConfigOptions {
   env?: NodeJS.ProcessEnv;
   home?: string;
   detectTailscale?: () => string | null;
+  detectMagicDns?: () => string | null;
 }
 
 export function loadConfig(opts: LoadConfigOptions = {}): Config {
@@ -60,6 +89,8 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
   const env = opts.env ?? process.env;
   const home = opts.home ?? homedir();
   const detectTs = opts.detectTailscale ?? tailscaleIPv4;
+  const tailscaleIp = detectTs();
+  const magicDns = (opts.detectMagicDns ?? tailscaleMagicDns)();
 
   const explicitDataDir = getArg(argv, 'data-dir') ?? getEnv(env, 'DATA_DIR');
   const defaultDataDir = join(home, '.local/share/uniharn');
@@ -74,15 +105,13 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
   if (!explicitDataDir && !existsSync(tokenFile)) {
     const legacyTokenFile = join(legacyDataDir, 'token');
     if (existsSync(legacyTokenFile)) {
-      copyFileSync(legacyTokenFile, tokenFile);
-      chmodSync(tokenFile, 0o600);
-      legacyMigrated = true;
+      legacyMigrated = initializeToken(tokenFile, readFileSync(legacyTokenFile));
     }
   }
 
   let token = getEnv(env, 'TOKEN') ?? '';
   if (!token) {
-    if (!existsSync(tokenFile)) writeFileSync(tokenFile, randomBytes(32).toString('base64url') + '\n', { mode: 0o600 });
+    if (!existsSync(tokenFile)) initializeToken(tokenFile, randomBytes(32).toString('base64url') + '\n');
     chmodSync(tokenFile, 0o600);
     token = readFileSync(tokenFile, 'utf8').trim();
   }
@@ -93,8 +122,7 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
   if (hostArg) hosts = hostArg.split(',').map((h) => h.trim()).filter(Boolean);
   else {
     hosts = ['127.0.0.1'];
-    const ts = detectTs();
-    if (ts) hosts.push(ts);
+    if (tailscaleIp) hosts.push(tailscaleIp);
   }
 
   const rootsArg = getArg(argv, 'roots') ?? getEnv(env, 'ROOTS');
@@ -116,7 +144,11 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
     dataDir,
     legacyMigrated,
     roots,
+    strictRoots: argv.includes('--strict-roots') || /^(1|true)$/i.test(getEnv(env, 'STRICT_ROOTS') ?? ''),
     staticDir: staticDir && existsSync(staticDir) ? staticDir : null,
     token,
+    publicUrl: (getArg(argv, 'public-url') ?? getEnv(env, 'PUBLIC_URL'))?.trim() || null,
+    tailscaleIp,
+    magicDns,
   };
 }
