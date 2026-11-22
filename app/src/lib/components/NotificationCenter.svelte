@@ -1,6 +1,18 @@
 <script lang="ts">
   import { notif, openNotification, markRead, clearNotifications, EVENT_LABELS } from '#lib/notifications.svelte.ts';
-  import { go } from '#lib/ui.svelte.ts';
+  import { go, route } from '#lib/ui.svelte.ts';
+
+  // Close the popover whenever the user navigates to another view or presses Escape.
+  $effect(() => {
+    route.name;
+    route.id;
+    route.tab;
+    notif.centerOpen = false;
+  });
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && notif.centerOpen) notif.centerOpen = false;
+  }
 
   const when = (at: number) => {
     const s = Math.round((Date.now() - at) / 1000);
@@ -10,6 +22,8 @@
     return new Date(at).toLocaleDateString();
   };
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 {#if notif.centerOpen}
   <div class="scrim" role="presentation" onclick={() => (notif.centerOpen = false)}></div>
