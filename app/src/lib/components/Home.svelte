@@ -464,7 +464,9 @@
     bottom: 0;
     z-index: 15;
     display: flex;
+    align-items: center;
     justify-content: center;
+    gap: 8px;
     padding: 24px 16px calc(var(--safe-bottom) + 14px);
     pointer-events: none;
     background: linear-gradient(to top, var(--bg) 18%, color-mix(in srgb, var(--bg) 0%, transparent));
@@ -482,12 +484,16 @@
   .hsel {
     pointer-events: auto;
     min-height: 50px;
-    margin-right: 8px;
+    min-width: 0;
+    max-width: 45%;
+    flex: 0 1 auto;
     padding: 0 12px;
     border-radius: 999px;
     border: 0;
     color: var(--text);
     font: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .hbadge {
     font-size: 11px;
@@ -498,7 +504,10 @@
     color: var(--text-2, inherit);
   }
   .embedded .newbtn {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    white-space: nowrap;
   }
   .actions {
     display: grid;
