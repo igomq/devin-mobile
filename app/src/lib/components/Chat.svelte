@@ -3,9 +3,10 @@
   import { views, conn, rpc, openSession, app, errorText } from '#lib/api.svelte.ts';
   import { emptyState } from '#lib/timeline.ts';
   import type { Item, TextItem, ToolItem } from '#lib/types.ts';
-  import { go, toast } from '#lib/ui.svelte.ts';
-  import { markdown, basename } from '#lib/format.ts';
+  import { go, toast, copyText } from '#lib/ui.svelte.ts';
+  import { markdown, basename, duration } from '#lib/format.ts';
   import Icon from './Icon.svelte';
+  import BackButton from './BackButton.svelte';
   import ToolCall from './ToolCall.svelte';
   import Permission from './Permission.svelte';
   import SessionControls from './SessionControls.svelte';
@@ -17,7 +18,14 @@
   let view = $derived(views[id]);
   const blank = emptyState();
   let st = $derived(view?.state ?? blank);
-  let text = $state('');
+  // The unsent message survives leaving the session and restarting the app.
+  // svelte-ignore state_referenced_locally
+  const draftKey = 'devin-mobile.draft.' + id;
+  let text = $state(localStorage.getItem(draftKey) ?? '');
+  $effect(() => {
+    if (text) localStorage.setItem(draftKey, text);
+    else localStorage.removeItem(draftKey);
+  });
   let model = $derived(modelLabel(st.configOptions?.find(isModelOption)));
   let sending = $state(false);
   let controls = $state(false);
@@ -26,6 +34,7 @@
   let pinned = $state(true);
   let openGroups = $state<Record<string, boolean>>({});
   let loadError = $state<string | null>(null);
+  let dockHeight = $state(0);
 
   $effect(() => {
     const sid = id;
@@ -58,9 +67,44 @@
     return (st.commands ?? []).filter((c) => c.name.toLowerCase().startsWith(q)).slice(0, 6);
   });
 
+  // Live elapsed time of the running turn, counted from the prompt that started it.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!busy) return;
+    now = Date.now();
+    const timer = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
+  // A backwards loop: Array.prototype.findLast needs iOS 15.4, and the app supports 15.0.
+  let turnStart = $derived.by(() => {
+    const items = view?.items ?? [];
+    for (let i = items.length - 1; i >= 0; i--) if (items[i].kind === 'user') return items[i].ts;
+    return null;
+  });
+  let elapsed = $derived(busy && turnStart ? duration(now - turnStart) : '');
+
+  // Working-tree summary for the header, refreshed whenever a tool call finishes.
+  let changes = $state<{ files: number; added: number; removed: number } | null>(null);
+  let toolsDone = $derived((view?.items ?? []).filter((i) => i.kind === 'tool' && (i.status === 'completed' || i.status === 'failed')).length);
+  $effect(() => {
+    const cwd = view?.cwd;
+    toolsDone;
+    conn.generation;
+    if (!cwd || conn.status !== 'online') return;
+    untrack(async () => {
+      try {
+        const s = await rpc('git.status', { cwd });
+        const files: { added: number | null; removed: number | null }[] = s.repo ? s.files : [];
+        changes = { files: files.length, added: files.reduce((n, f) => n + (f.added ?? 0), 0), removed: files.reduce((n, f) => n + (f.removed ?? 0), 0) };
+      } catch {
+        changes = null;
+      }
+    });
+  });
+
   function summary(g: Steps) {
     const tools = g.items.filter((i) => i.kind === 'tool');
-    const active = tools.findLast((t) => t.status === 'pending' || t.status === 'in_progress');
+    const active = tools.filter((t) => t.status === 'pending' || t.status === 'in_progress').pop();
     if (active) return active.title;
     if (!tools.length) return 'Thought';
     const failed = tools.filter((t) => t.status === 'failed').length;
@@ -68,6 +112,12 @@
   }
   const working = (g: Steps) => g.items.some((i) => i.kind === 'tool' && (i.status === 'pending' || i.status === 'in_progress'));
   const isOpen = (g: Steps, last: boolean) => openGroups[g.id] ?? (last && busy);
+  /** A reply gets a Copy button once its turn is over: the next block, skipping notices such as "stopped", is a prompt or nothing. */
+  function endsTurn(i: number) {
+    let j = i + 1;
+    while (blocks[j]?.kind === 'notice') j++;
+    return blocks[j] ? blocks[j].kind === 'user' : !busy;
+  }
 
   function onScroll() {
     if (scroller) pinned = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
@@ -79,14 +129,18 @@
   $effect(() => {
     view?.seq;
     st.permissions?.length;
+    dockHeight;
     toBottom();
   });
 
   function autosize() {
     if (!input) return;
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+    input.style.height = Math.min(input.scrollHeight, 180) + 'px';
   }
+  $effect(() => {
+    if (input) untrack(autosize);
+  });
 
   type Attachment = { mimeType: string; data: string; name: string; url: string };
   const MAX_IMAGES = 4;
@@ -94,10 +148,11 @@
   const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
   let images = $state<Attachment[]>([]);
   let fileInput = $state<HTMLInputElement>();
+  let dropping = $state(false);
   const rawSize = (b64: string) => Math.floor((b64.length * 3) / 4);
 
-  async function onfiles(e: Event) {
-    const files = [...((e.target as HTMLInputElement).files ?? [])];
+  /** Shared by the file picker, paste and drag-and-drop. */
+  async function addFiles(files: File[]) {
     let total = images.reduce((n, i) => n + rawSize(i.data), 0);
     let skipped = 0;
     for (const f of files) {
@@ -109,10 +164,35 @@
       const bytes = new Uint8Array(await f.arrayBuffer());
       let bin = '';
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      images.push({ mimeType: f.type, data: btoa(bin), name: f.name, url: URL.createObjectURL(f) });
+      images.push({ mimeType: f.type, data: btoa(bin), name: f.name || 'Pasted image', url: URL.createObjectURL(f) });
     }
     if (skipped) toast(`Up to ${MAX_IMAGES} images, 8 MB each.`, 'error');
+  }
+
+  async function onfiles(e: Event) {
+    await addFiles([...((e.target as HTMLInputElement).files ?? [])]);
     if (fileInput) fileInput.value = '';
+  }
+
+  function onpaste(e: ClipboardEvent) {
+    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
+    if (!files.length || !view?.ready) return;
+    // Keep normal text paste when the clipboard also carries text.
+    if (!e.clipboardData?.getData('text/plain')) e.preventDefault();
+    addFiles(files);
+  }
+
+  const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+  function ondragover(e: DragEvent) {
+    if (!hasFiles(e) || !view?.ready) return;
+    e.preventDefault();
+    dropping = true;
+  }
+  function ondrop(e: DragEvent) {
+    dropping = false;
+    if (!hasFiles(e) || !view?.ready) return;
+    e.preventDefault();
+    addFiles([...(e.dataTransfer?.files ?? [])]);
   }
 
   function removeImage(i: number) {
@@ -155,155 +235,194 @@
   }
 
   function keydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(pointer: fine)').matches) {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    // Enter sends with a hardware keyboard and pointer; on touch keyboards it inserts a newline. Cmd/Ctrl+Enter always sends.
+    if (e.metaKey || e.ctrlKey || matchMedia('(pointer: fine)').matches) {
       e.preventDefault();
       send();
     }
+  }
+
+  // Esc stops the running turn, like the Devin and Claude Code TUIs, unless a sheet is open.
+  function windowKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && busy && !e.defaultPrevented && !document.querySelector('[aria-modal="true"]')) stop();
+  }
+
+  async function copyReply(source: string, e: MouseEvent) {
+    const btn = e.currentTarget as HTMLElement;
+    if (!(await copyText(source))) return toast('Could not copy', 'error');
+    btn.classList.add('done');
+    setTimeout(() => btn.classList.remove('done'), 1400);
   }
 
   function copyCode(e: MouseEvent) {
     const btn = (e.target as Element).closest?.('[data-copy]');
     if (!btn) return;
     const code = btn.closest('.codeblock')?.querySelector('code')?.innerText ?? '';
-    navigator.clipboard?.writeText(code).then(() => {
+    copyText(code).then((ok) => {
+      if (!ok) return;
       btn.textContent = 'Copied';
       setTimeout(() => (btn.textContent = 'Copy'), 1200);
     });
   }
 </script>
 
-<div class="screen">
+<svelte:window onkeydown={windowKey} />
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="screen" ondragover={ondragover} ondragleave={() => (dropping = false)} ondrop={ondrop}>
   <header class="topbar">
-    <button class="iconbtn" onclick={() => go('#/')} aria-label="Back to sessions"><Icon name="back" /></button>
-    <button class="title" onclick={() => (controls = true)}>
+    <BackButton to="#/" label="Back to sessions" />
+    <button class="title press" onclick={() => (controls = true)}>
       <b>{st.title || 'New session'}</b>
       <small>
         <span class="dot {st.status}"></span>
-        {#if conn.status !== 'online'}Reconnecting…{:else if st.status === 'running'}Working{:else if st.status === 'awaiting_permission'}Needs approval{:else}{basename(view?.cwd)}{/if}
-        {#if mode}· {mode.name}{/if}
+        {#if conn.status !== 'online'}Reconnecting…{:else if st.status === 'running'}Working {elapsed}{:else if st.status === 'awaiting_permission'}Needs approval{:else}{basename(view?.cwd)}{/if}
+        {#if mode}<span class="sep">·</span> {mode.name}{/if}
       </small>
     </button>
-    <button class="iconbtn" onclick={() => go('#/s/' + encodeURIComponent(id) + '/changes')} aria-label="Changes"><Icon name="diff" /></button>
-    <button class="iconbtn" onclick={() => (controls = true)} aria-label="Session settings"><Icon name="settings" /></button>
+    <div class="glass-group glass">
+      <button class="iconbtn diffbtn" class:has={changes && changes.files} onclick={() => go('#/s/' + encodeURIComponent(id) + '/changes')} aria-label={changes?.files ? `Changes: ${changes.files} files, ${changes.added} added, ${changes.removed} removed lines` : 'Changes'}>
+        {#if changes && changes.files}
+          <span class="plus">+{changes.added}</span><span class="minus">−{changes.removed}</span>
+        {:else}<Icon name="diff" />{/if}
+      </button>
+      <button class="iconbtn" onclick={() => (controls = true)} aria-label="Session settings"><Icon name="settings" /></button>
+    </div>
   </header>
 
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="log" bind:this={scroller} onscroll={onScroll} onclick={copyCode}>
-    {#if !view?.ready}
-      <div class="empty">
-        {#if loadError}<h2>Could not open this session</h2><p>{loadError}</p><button class="btn" onclick={() => go('#/')}>Back</button>
-        {:else}<span class="spinner" style="margin:auto"></span>{/if}
-      </div>
-    {:else if blocks.length === 0}
-      <div class="empty">
-        <h2>What should Devin do?</h2>
-        <p class="mono small">{view.cwd}</p>
-      </div>
-    {:else}
-      {#each blocks as b, i (b.id)}
-        {#if b.kind === 'user'}
-          <div class="msg user">
-            <div class="bubble">
-              {#if b.images}
-                <div class="pics">
-                  {#each b.images as img}<img src={`data:${img.mimeType};base64,${img.data}`} alt="Attachment" />{/each}
+  <div class="log scroller" bind:this={scroller} onscroll={onScroll} onclick={copyCode} style:padding-bottom={dockHeight + 20 + 'px'}>
+    <div class="column">
+      {#if !view?.ready}
+        <div class="empty">
+          {#if loadError}<h2>Could not open this session</h2><p>{loadError}</p><button class="btn" onclick={() => go('#/')}>Back to sessions</button>
+          {:else}<span class="spinner" style="margin:auto"></span>{/if}
+        </div>
+      {:else if blocks.length === 0}
+        <div class="empty">
+          <h2>What should Devin do?</h2>
+          <p class="mono small">{view.cwd}</p>
+        </div>
+      {:else}
+        {#each blocks as b, i (b.id)}
+          {#if b.kind === 'user'}
+            <div class="msg user">
+              <div class="bubble">
+                {#if b.images}
+                  <div class="pics">
+                    {#each b.images as img}<img src={`data:${img.mimeType};base64,${img.data}`} alt="Attachment" />{/each}
+                  </div>
+                {/if}
+                {b.text}
+              </div>
+            </div>
+          {:else if b.kind === 'assistant'}
+            <div class="msg assistant">
+              <div class="md">{@html markdown(b.text)}</div>
+              {#if endsTurn(i)}
+                <div class="msgbar">
+                  <button class="copy press" onclick={(e) => copyReply(b.text, e)} aria-label="Copy reply"><Icon name="copy" size={15} /><Icon name="check" size={15} /></button>
                 </div>
               {/if}
-              {b.text}
             </div>
-          </div>
-        {:else if b.kind === 'assistant'}
-          <div class="msg assistant md">{@html markdown(b.text)}</div>
-        {:else if b.kind === 'steps'}
-          {@const last = i === blocks.length - 1}
-          {@const opened = isOpen(b, last)}
-          <div class="steps">
-            <button class="shead" onclick={() => (openGroups[b.id] = !opened)} aria-expanded={opened}>
-              {#if working(b) || (last && busy)}<span class="spinner sm"></span>{:else}<Icon name="list" size={15} />{/if}
-              <span class="stext">{summary(b)}</span>
-              <span class="chev" class:open={opened}><Icon name="chevron" size={14} /></span>
-            </button>
-            {#if opened}
-              <div class="sbody">
-                {#each b.items as it (it.id)}
-                  {#if it.kind === 'thought'}
-                    <details class="thought">
-                      <summary><Icon name="brain" size={14} /> Thinking <span class="peek">{it.text.slice(0, 80)}</span></summary>
-                      <div class="md ttext">{@html markdown(it.text)}</div>
-                    </details>
-                  {:else if it.kind === 'tool'}
-                    <ToolCall item={it} />
-                  {/if}
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {:else if b.kind === 'plan'}
-          <div class="plan">
-            <div class="phead"><Icon name="list" size={15} /> Plan</div>
-            {#each b.entries as e}
-              <div class="pitem {e.status}"><span class="box">{#if e.status === 'completed'}<Icon name="check" size={12} />{/if}</span><span>{e.content}</span></div>
-            {/each}
-          </div>
-        {:else if b.kind === 'notice'}
-          <div class="notice {b.level}">{b.text}</div>
+          {:else if b.kind === 'steps'}
+            {@const last = i === blocks.length - 1}
+            {@const opened = isOpen(b, last)}
+            <div class="steps">
+              <button class="shead" onclick={() => (openGroups[b.id] = !opened)} aria-expanded={opened}>
+                {#if working(b) || (last && busy)}<span class="spinner sm"></span>{:else}<Icon name="list" size={15} />{/if}
+                <span class="stext">{summary(b)}</span>
+                <span class="chev" class:open={opened}><Icon name="chevron" size={14} /></span>
+              </button>
+              {#if opened}
+                <div class="sbody">
+                  {#each b.items as it (it.id)}
+                    {#if it.kind === 'thought'}
+                      <details class="thought">
+                        <summary><Icon name="brain" size={14} /> Thinking <span class="peek">{it.text.slice(0, 80)}</span></summary>
+                        <div class="md ttext">{@html markdown(it.text)}</div>
+                      </details>
+                    {:else if it.kind === 'tool'}
+                      <ToolCall item={it} />
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {:else if b.kind === 'plan'}
+            <div class="plan card">
+              <div class="phead"><Icon name="list" size={15} /> Plan</div>
+              {#each b.entries as e}
+                <div class="pitem {e.status}"><span class="box">{#if e.status === 'completed'}<Icon name="check" size={12} />{/if}</span><span>{e.content}</span></div>
+              {/each}
+            </div>
+          {:else if b.kind === 'notice'}
+            <div class="notice {b.level}">{b.text}</div>
+          {/if}
+        {/each}
+        {#if st.status === 'running' && blocks[blocks.length - 1]?.kind === 'user'}
+          <div class="typing" aria-label="Devin is working"><span></span><span></span><span></span></div>
         {/if}
-      {/each}
-      {#if st.status === 'running' && blocks[blocks.length - 1]?.kind === 'user'}
-        <div class="typing"><span></span><span></span><span></span></div>
       {/if}
-    {/if}
+    </div>
   </div>
 
   {#if !pinned}
-    <button class="jump" onclick={() => ((pinned = true), toBottom(true))} aria-label="Scroll to latest"><Icon name="down" size={18} /></button>
+    <button class="jump iconbtn glass" style:bottom={dockHeight + 12 + 'px'} onclick={() => ((pinned = true), toBottom(true))} aria-label="Scroll to latest"><Icon name="down" size={20} /></button>
   {/if}
 
-  {#each st.permissions ?? [] as p (p.reqId)}
-    <Permission sessionId={id} request={p} />
-  {/each}
-
-  <div class="composer">
-    {#if suggestions.length}
-      <div class="sugg">
-        {#each suggestions as c}
-          <button onclick={() => ((text = '/' + c.name + ' '), input?.focus())}><b class="mono">/{c.name}</b><small>{c.description}</small></button>
-        {/each}
-      </div>
-    {/if}
-    <div class="box">
-      {#if images.length}
-        <div class="thumbs">
-          {#each images as img, i (img.url)}
-            <span class="thumb">
-              <img src={img.url} alt={img.name} />
-              <button aria-label="Remove image" onclick={() => removeImage(i)}><Icon name="x" size={12} /></button>
-            </span>
+  <div class="dock" bind:clientHeight={dockHeight}>
+    <div class="dock-inner">
+      {#if st.permissions?.length}
+        <div class="perms">
+          {#each st.permissions as p (p.reqId)}
+            <Permission sessionId={id} request={p} />
           {/each}
         </div>
       {/if}
-      <textarea
-        bind:this={input}
-        bind:value={text}
-        oninput={autosize}
-        onkeydown={keydown}
-        rows="1"
-        placeholder={busy ? 'Add instructions while Devin works…' : 'Message Devin'}
-        aria-label="Message"
-        disabled={!view?.ready}
-      ></textarea>
-      <div class="bar">
-        <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image"><Icon name="plus" size={18} /></button>
-        <input bind:this={fileInput} type="file" accept="image/*" multiple hidden onchange={onfiles} />
-        <button class="chip" onclick={() => (controls = true)}><Icon name="settings" size={14} /> {mode?.name ?? 'Mode'}</button>
-        {#if model}<button class="chip model" onclick={() => (controls = true)} title={model}><span>{model}</span></button>{/if}
-        <span class="grow"></span>
-        {#if busy}
-          <button class="round stop" onclick={stop} aria-label="Stop"><Icon name="stop" size={16} /></button>
+      {#if suggestions.length}
+        <div class="sugg glass">
+          {#each suggestions as c}
+            <button onclick={() => ((text = '/' + c.name + ' '), input?.focus())}><b class="mono">/{c.name}</b><small>{c.description}</small></button>
+          {/each}
+        </div>
+      {/if}
+      <div class="box glass" class:dropping>
+        {#if images.length}
+          <div class="thumbs">
+            {#each images as img, i (img.url)}
+              <span class="thumb">
+                <img src={img.url} alt={img.name} />
+                <button aria-label="Remove image" onclick={() => removeImage(i)}><Icon name="x" size={12} /></button>
+              </span>
+            {/each}
+          </div>
         {/if}
-        {#if !busy || text.trim() || images.length}
-          <button class="round send" onclick={send} disabled={(!text.trim() && !images.length) || sending || conn.status !== 'online'} aria-label="Send"><Icon name="send" size={18} /></button>
-        {/if}
+        <textarea
+          bind:this={input}
+          bind:value={text}
+          oninput={autosize}
+          onkeydown={keydown}
+          {onpaste}
+          rows="1"
+          placeholder={dropping ? 'Drop images to attach' : busy ? 'Add instructions while Devin works…' : 'Message Devin'}
+          aria-label="Message"
+          disabled={!view?.ready}
+        ></textarea>
+        <div class="bar">
+          <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image"><Icon name="plus" size={18} /></button>
+          <input bind:this={fileInput} type="file" accept="image/*" multiple hidden onchange={onfiles} />
+          <button class="chip" onclick={() => (controls = true)}>{mode?.name ?? 'Mode'}</button>
+          {#if model}<button class="chip model" onclick={() => (controls = true)} title={model}><span>{model}</span></button>{/if}
+          <span class="grow"></span>
+          {#if busy}
+            <button class="round stop" onclick={stop} aria-label="Stop" title="Stop (Esc)"><Icon name="stop" size={15} /></button>
+          {/if}
+          {#if !busy || text.trim() || images.length}
+            <button class="round send" onclick={send} disabled={(!text.trim() && !images.length) || sending || conn.status !== 'online'} aria-label="Send"><Icon name="send" size={18} /></button>
+          {/if}
+        </div>
       </div>
     </div>
   </div>
@@ -314,17 +433,41 @@
 <style>
   button.title {
     text-align: left;
+    min-height: 44px;
+    border-radius: 14px;
+  }
+  .sep {
+    color: var(--text-3);
+  }
+  .diffbtn.has {
+    width: auto;
+    min-width: 40px;
+    padding: 0 10px;
+    gap: 6px;
+    display: inline-flex;
+    border-radius: 999px;
+    font: 600 12.5px var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .plus {
+    color: var(--green);
+  }
+  .minus {
+    color: var(--red);
   }
   .log {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-    padding: 14px 14px 8px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+  }
+  .column {
+    width: 100%;
+    max-width: var(--column);
+    margin: 0 auto;
+    padding: 8px calc(var(--safe-right) + 16px) 0 calc(var(--safe-left) + 16px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
   }
   .small {
     font-size: 12.5px;
@@ -333,31 +476,69 @@
   .msg.user {
     display: flex;
     justify-content: flex-end;
+    margin-top: 4px;
   }
   .bubble {
-    max-width: 86%;
-    padding: 9px 14px;
-    border-radius: 18px;
-    background: var(--bg-elev2);
+    max-width: min(86%, 560px);
+    padding: 10px 15px;
+    border-radius: 22px 22px 8px 22px;
+    background: color-mix(in srgb, var(--accent) 13%, var(--bg-elev2));
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    line-height: 1.45;
   }
   .msg.assistant {
-    font-size: 15.5px;
-    line-height: 1.58;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .msgbar {
+    display: flex;
+    margin: 4px 0 0 -8px;
+  }
+  .copy {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--text-3);
+  }
+  .copy:active {
+    background: var(--fill);
+  }
+  .copy :global(svg) {
+    grid-area: 1 / 1;
+    transition: opacity 0.2s ease, transform 0.25s var(--ease-out);
+  }
+  .copy :global(svg:last-child),
+  .copy:global(.done) :global(svg:first-child) {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  .copy:global(.done) :global(svg:last-child) {
+    opacity: 1;
+    transform: none;
+    color: var(--green);
   }
   .steps {
-    border-left: 2px solid var(--line);
-    padding-left: 10px;
+    margin: -4px 0;
   }
   .shead {
     display: flex;
     align-items: center;
     gap: 8px;
-    min-height: 32px;
+    min-height: 36px;
     max-width: 100%;
+    padding: 0 12px 0 10px;
+    margin-left: -10px;
+    border-radius: 999px;
     color: var(--text-2);
     font-size: 13.5px;
+    transition: background-color 0.18s ease;
+  }
+  .shead:active {
+    background: var(--fill);
   }
   .stext {
     overflow: hidden;
@@ -366,7 +547,7 @@
   }
   .chev {
     display: grid;
-    transition: transform 0.15s;
+    transition: transform 0.25s var(--ease-out);
     color: var(--text-3);
   }
   .chev.open {
@@ -380,7 +561,9 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 4px 0 2px;
+    padding: 6px 0 2px 12px;
+    margin-left: 2px;
+    border-left: 2px solid var(--line);
   }
   .thought summary {
     display: flex;
@@ -390,7 +573,7 @@
     cursor: pointer;
     color: var(--text-2);
     font-size: 13px;
-    min-height: 30px;
+    min-height: 32px;
   }
   .thought summary::-webkit-details-marker {
     display: none;
@@ -412,11 +595,8 @@
     padding: 2px 0 6px 20px;
   }
   .plan {
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 10px 12px;
-    background: var(--bg-elev);
-    font-size: 14px;
+    padding: 12px 14px;
+    font-size: 14.5px;
   }
   .phead {
     display: flex;
@@ -424,19 +604,20 @@
     gap: 6px;
     color: var(--text-2);
     font-size: 13px;
+    font-weight: 600;
     margin-bottom: 6px;
   }
   .pitem {
     display: flex;
-    gap: 8px;
-    padding: 3px 0;
+    gap: 10px;
+    padding: 4px 0;
   }
   .pitem .box {
     flex: none;
-    width: 16px;
-    height: 16px;
-    margin-top: 3px;
-    border-radius: 5px;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    border-radius: 50%;
     border: 1.5px solid var(--line-strong);
     display: grid;
     place-items: center;
@@ -452,30 +633,31 @@
   }
   .pitem.in_progress .box {
     border-color: var(--green);
+    box-shadow: inset 0 0 0 3px var(--bg-elev), inset 0 0 0 9px var(--green);
   }
   .notice {
     font-size: 13.5px;
-    padding: 8px 12px;
-    border-radius: 10px;
-    background: var(--bg-elev);
+    padding: 10px 14px;
+    border-radius: var(--r-md);
+    background: var(--fill);
     color: var(--text-2);
     overflow-wrap: anywhere;
   }
   .notice.error {
     color: var(--red);
-    border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+    background: color-mix(in srgb, var(--red) 10%, transparent);
   }
   .typing {
     display: flex;
-    gap: 4px;
-    padding: 6px 2px;
+    gap: 5px;
+    padding: 8px 2px;
   }
   .typing span {
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     background: var(--text-3);
-    animation: pulse 1s ease-in-out infinite;
+    animation: pulse 1.1s ease-in-out infinite;
   }
   .typing span:nth-child(2) {
     animation-delay: 0.15s;
@@ -485,26 +667,58 @@
   }
   .jump {
     position: absolute;
-    right: 16px;
-    bottom: calc(var(--safe-bottom) + 128px);
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    background: var(--bg-elev2);
-    border: 1px solid var(--line-strong);
-    z-index: 5;
+    left: 50%;
+    translate: -50% 0;
+    z-index: 16;
+    animation: materialize 0.25s var(--ease-out);
   }
-  .composer {
-    flex: none;
-    padding: 4px 12px calc(var(--safe-bottom) + 10px);
+  /* Floating dock: approvals and the composer, with the log fading out behind it. */
+  .dock {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 15;
+    padding: 18px calc(var(--safe-right) + 10px) calc(var(--safe-bottom) + 10px) calc(var(--safe-left) + 10px);
+    pointer-events: none;
+  }
+  .dock::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(to top, var(--bg) 0%, color-mix(in srgb, var(--bg) 70%, transparent) 45%, transparent);
+    pointer-events: none;
+  }
+  .dock-inner {
+    max-width: calc(var(--column) + 8px);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .dock-inner > * {
+    pointer-events: auto;
+  }
+  .perms {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: calc(var(--vvh) * 0.5);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
   .box {
-    border: 1px solid var(--line-strong);
-    border-radius: 22px;
-    background: var(--bg-input);
-    padding: 8px 8px 8px 14px;
+    border-radius: 26px;
+    padding: 8px 8px 8px 16px;
+    transition: box-shadow 0.2s ease;
+  }
+  .box:focus-within {
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--glass-rim)), var(--glass-shadow);
+  }
+  .box.dropping {
+    box-shadow: inset 0 0 0 2px var(--accent), var(--glass-shadow);
   }
   textarea {
     display: block;
@@ -513,9 +727,9 @@
     outline: 0;
     resize: none;
     background: none;
-    padding: 4px 0 6px;
-    max-height: 160px;
-    line-height: 1.4;
+    padding: 6px 0 8px;
+    max-height: 180px;
+    line-height: 1.45;
     font-size: 16px;
   }
   textarea::placeholder {
@@ -524,13 +738,13 @@
   .bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-left: -6px;
+    gap: 6px;
+    margin-left: -8px;
   }
   .thumbs {
     display: flex;
     gap: 8px;
-    padding: 4px 0 8px;
+    padding: 6px 0 8px;
     overflow-x: auto;
   }
   .thumb {
@@ -539,18 +753,18 @@
   }
   .thumb img {
     display: block;
-    width: 56px;
-    height: 56px;
+    width: 58px;
+    height: 58px;
     object-fit: cover;
-    border-radius: 10px;
-    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 0 0 1px var(--line);
   }
   .thumb button {
     position: absolute;
     top: -5px;
     right: -5px;
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -564,17 +778,17 @@
     margin-bottom: 6px;
   }
   .pics img {
-    max-width: 140px;
-    max-height: 140px;
-    border-radius: 10px;
+    max-width: 160px;
+    max-height: 160px;
+    border-radius: 14px;
     display: block;
-  }
-  .attach {
-    background: none;
-    color: var(--text-2);
   }
   .grow {
     flex: 1;
+  }
+  .chip {
+    height: 32px;
+    background: var(--fill);
   }
   .chip.model {
     min-width: 0;
@@ -594,20 +808,33 @@
     place-items: center;
     flex: none;
   }
+  .round.attach {
+    background: var(--fill);
+    color: var(--text-2);
+  }
   .round.send {
     background: var(--accent);
     color: var(--on-accent);
   }
+  .round.send:not(:disabled) {
+    animation: pop 0.32s var(--ease-spring);
+  }
+  .round.send:disabled {
+    background: var(--fill-2);
+    color: var(--text-3);
+    opacity: 1;
+  }
   .round.stop {
-    background: var(--bg-elev2);
-    border: 1px solid var(--line-strong);
+    background: color-mix(in srgb, var(--red) 16%, transparent);
     color: var(--red);
   }
+  @keyframes pop {
+    from {
+      transform: scale(0.7);
+    }
+  }
   .sugg {
-    margin-bottom: 6px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--bg-elev);
+    border-radius: 20px;
     overflow: hidden;
   }
   .sugg button {
@@ -615,12 +842,15 @@
     gap: 10px;
     align-items: baseline;
     width: 100%;
+    min-height: 44px;
     text-align: left;
-    padding: 9px 12px;
-    border-bottom: 1px solid var(--line);
+    padding: 11px 16px;
   }
-  .sugg button:last-child {
-    border-bottom: 0;
+  .sugg button + button {
+    border-top: 1px solid var(--line);
+  }
+  .sugg button:active {
+    background: var(--fill);
   }
   .sugg b {
     font-size: 13px;

@@ -57,28 +57,38 @@
 
 <Sheet bind:open title="Choose a project" tall>
   {#if !browsing}
-    {#if recents.length}<div class="label">Recent</div>{/if}
-    {#each recents as p}
-      <button class="row" onclick={() => pick(p)}>
-        <span class="ic"><Icon name="folder" size={20} /></span>
-        <span class="main"><b>{basename(p)}</b><small class="mono">{shortPath(p, conn.info?.home)}</small></span>
+    {#if recents.length}
+      <div class="label">Recent</div>
+      <div class="group">
+        {#each recents as p}
+          <button class="row" onclick={() => pick(p)}>
+            <span class="ic"><Icon name="folder" size={18} /></span>
+            <span class="main"><b>{basename(p)}</b><small class="mono">{shortPath(p, conn.info?.home)}</small></span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+    {#if others.length}
+      <div class="label">Repositories</div>
+      <div class="group">
+        {#each others as p}
+          <button class="row" onclick={() => pick(p.path)}>
+            <span class="ic"><Icon name="git" size={18} /></span>
+            <span class="main"><b>{p.name}</b><small class="mono">{shortPath(p.path, conn.info?.home)}</small></span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+    <div class="group browse">
+      <button class="row" onclick={() => ((browsing = true), load(listing?.path ?? '~'))}>
+        <span class="ic"><Icon name="search" size={18} /></span>
+        <span class="main"><b>Browse the VM…</b><small>Pick any directory</small></span>
+        <span class="chev"><Icon name="chevron" size={18} /></span>
       </button>
-    {/each}
-    {#if others.length}<div class="label">Repositories</div>{/if}
-    {#each others as p}
-      <button class="row" onclick={() => pick(p.path)}>
-        <span class="ic"><Icon name="git" size={20} /></span>
-        <span class="main"><b>{p.name}</b><small class="mono">{shortPath(p.path, conn.info?.home)}</small></span>
-      </button>
-    {/each}
-    <button class="row" onclick={() => ((browsing = true), load(listing?.path ?? '~'))}>
-      <span class="ic"><Icon name="search" size={20} /></span>
-      <span class="main"><b>Browse the VM…</b><small>Pick any directory</small></span>
-      <Icon name="chevron" size={18} />
-    </button>
+    </div>
   {:else}
     <div class="crumb">
-      <button class="up" disabled={!listing?.parent} onclick={() => listing?.parent && load(listing.parent)} aria-label="Parent directory"><Icon name="back" size={18} /></button>
+      <button class="up press" disabled={!listing?.parent} onclick={() => listing?.parent && load(listing.parent)} aria-label="Parent directory"><Icon name="back" size={18} /></button>
       <span class="mono path"><bdi>{shortPath(listing?.path ?? '', conn.info?.home) || '…'}</bdi></span>
       {#if loading}<span class="spinner"></span>{/if}
     </div>
@@ -86,12 +96,12 @@
     <button class="btn primary block use" disabled={!listing} onclick={() => listing && pick(listing.path)}>
       Use {listing ? basename(listing.path) : ''}
     </button>
-    <div class="list">
+    <div class="group">
       {#each listing?.dirs ?? [] as d}
         <button class="row" onclick={() => listing && load(listing.path.replace(/\/$/, '') + '/' + d.name)}>
-          <span class="ic"><Icon name={d.git ? 'git' : 'folder'} size={20} /></span>
+          <span class="ic"><Icon name={d.git ? 'git' : 'folder'} size={18} /></span>
           <span class="main"><b>{d.name}</b></span>
-          <Icon name="chevron" size={18} />
+          <span class="chev"><Icon name="chevron" size={18} /></span>
         </button>
       {:else}
         {#if listing && !loading}<p class="muted none">No sub-folders here.</p>{/if}
@@ -101,35 +111,59 @@
 </Sheet>
 
 <style>
-  .label {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-3);
-    margin: 4px 2px 6px;
+  .label:first-child {
+    margin-top: 4px;
+  }
+  .group {
+    border-radius: var(--r-lg);
+    background: var(--fill);
+    overflow: hidden;
+  }
+  .browse {
+    margin-top: 22px;
+  }
+  .browse:first-child {
+    margin-top: 4px;
   }
   .row {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 12px;
     width: 100%;
-    min-height: 52px;
-    padding: 8px 4px;
+    min-height: 56px;
+    padding: 10px 14px 10px 16px;
     text-align: left;
-    border-bottom: 1px solid var(--line);
     color: var(--text);
+    transition: background-color 0.2s ease;
   }
-  .row .ic {
-    color: var(--text-2);
+  .row:active {
+    background: var(--fill);
+  }
+  /* Inset hairline between rows, aligned with the row text. */
+  .row + .row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50px;
+    right: 0;
+    height: 1px;
+    background: var(--line);
+  }
+  .ic {
+    flex: none;
+    width: 22px;
     display: grid;
+    place-items: center;
+    color: var(--text-2);
   }
-  .row .main {
+  .main {
     flex: 1;
     min-width: 0;
   }
   .row b {
     display: block;
-    font-weight: 500;
+    font-weight: 600;
     font-size: 15px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -143,23 +177,30 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .chev {
+    flex: none;
+    display: grid;
+    color: var(--text-3);
+  }
   .crumb {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
+    gap: 10px;
+    margin: 4px 0 12px;
   }
   .up {
-    width: 36px;
-    height: 36px;
+    flex: none;
+    width: 40px;
+    height: 40px;
     display: grid;
     place-items: center;
-    border-radius: 10px;
-    background: var(--bg-elev2);
+    border-radius: 50%;
+    background: var(--fill);
   }
   .path {
     flex: 1;
     font-size: 13px;
+    color: var(--text-2);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -167,14 +208,16 @@
     text-align: left;
   }
   .use {
-    margin-bottom: 8px;
+    margin-bottom: 14px;
   }
   .err {
     color: var(--red);
     font-size: 14px;
+    margin: 0 4px 12px;
   }
   .none {
-    padding: 18px 4px;
+    margin: 0;
+    padding: 16px;
     font-size: 14px;
   }
 </style>

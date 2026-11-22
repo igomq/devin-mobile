@@ -30,6 +30,26 @@ export const ACCENTS = [
 ] as const;
 export const prefs = $state({ theme: stored('devin-mobile.theme') || 'system', accent: stored('devin-mobile.accent') || 'mono' });
 
+// Tablet layout: at this width the session list stays in a sidebar next to the open session.
+const WIDE = '(min-width: 768px)';
+export const layout = $state({
+  wide: typeof window !== 'undefined' && matchMedia(WIDE).matches,
+  sidebar: stored('devin-mobile.sidebar') !== 'hidden'
+});
+if (typeof window !== 'undefined') {
+  matchMedia(WIDE).addEventListener('change', (e) => (layout.wide = e.matches));
+}
+export const sidebarShown = () => layout.wide && layout.sidebar;
+export function toggleSidebar() {
+  layout.sidebar = !layout.sidebar;
+  localStorage.setItem('devin-mobile.sidebar', layout.sidebar ? 'shown' : 'hidden');
+}
+
+// Requests from keyboard shortcuts to the home screen, which may be in the sidebar or not mounted yet.
+// Each holds the time it was made; the home screen acts on requests younger than a second.
+export const requests = $state({ newSession: 0, search: 0 });
+export const fresh = (at: number) => Date.now() - at < 1000;
+
 if (typeof window !== 'undefined') {
   window.addEventListener('hashchange', () => {
     const r = parse();
@@ -94,4 +114,23 @@ export function toast(text: string, kind: 'info' | 'error' = 'info') {
     const i = toasts.findIndex((x) => x.id === t.id);
     if (i >= 0) toasts.splice(i, 1);
   }, 3200);
+}
+
+/** Copies text; falls back to execCommand where the Clipboard API is missing (plain-HTTP origins). */
+export async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const t = document.createElement('textarea');
+    t.value = text;
+    t.setAttribute('readonly', '');
+    t.style.position = 'fixed';
+    t.style.opacity = '0';
+    document.body.appendChild(t);
+    t.select();
+    const ok = document.execCommand('copy');
+    t.remove();
+    return ok;
+  }
 }

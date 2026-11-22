@@ -25,8 +25,8 @@
   }
 </script>
 
-<div class="perm" role="alertdialog" aria-label="Permission request">
-  <div class="head"><Icon name="shield" size={16} /> <b>Devin needs approval</b></div>
+<div class="perm glass" role="alertdialog" aria-label="Permission request">
+  <div class="head"><Icon name="shield" size={17} /> <b>Devin needs approval</b></div>
   <div class="details">
     <div class="what mono">{request.title}</div>
     {#if command && command !== request.title}<pre class="cmd"><span class="ps">$</span> {command}</pre>{/if}
@@ -51,19 +51,21 @@
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
-    margin: 0 12px 8px;
-    padding: 12px;
-    border: 1px solid var(--amber);
-    border-radius: var(--radius);
-    background: var(--bg-elev);
+    padding: 14px;
+    border-radius: var(--r-lg);
+    /* Glass material with an amber ring in place of the neutral rim. */
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px color-mix(in srgb, var(--amber) 55%, transparent), var(--glass-shadow);
   }
   .head {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     color: var(--amber);
-    font-size: 13px;
-    margin-bottom: 6px;
+    font-size: 14px;
+    margin: 0 2px 8px;
+  }
+  .head b {
+    font-weight: 650;
   }
   .details {
     max-height: 38vh;
@@ -72,14 +74,15 @@
   }
   .what {
     font-size: 13px;
+    color: var(--text);
     overflow-wrap: anywhere;
-    margin-bottom: 8px;
+    margin: 0 2px 10px;
   }
   .cmd {
-    margin: 0 0 8px;
-    padding: 8px 10px;
-    border-radius: 8px;
-    background: var(--bg);
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
+    background: var(--fill);
     font: 12px/1.5 var(--mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -90,28 +93,32 @@
     color: var(--green);
   }
   .prev {
-    border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--r-sm);
     overflow: hidden;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     max-height: 180px;
     overflow-y: auto;
-    background: var(--bg);
+    background: var(--fill);
   }
   .fname {
     font-size: 12px;
-    padding: 5px 10px;
+    padding: 6px 12px;
+    color: var(--text-2);
     border-bottom: 1px solid var(--line);
   }
   .opts {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    margin-top: 4px;
   }
   .opts .btn {
     flex: 1 1 auto;
-    min-height: 42px;
-    font-size: 14px;
-    padding: 0 12px;
+    min-height: 44px;
+    font-size: 14.5px;
+    padding: 0 16px;
+  }
+  .opts .btn:not(.primary) {
+    background: var(--fill);
   }
 </style>

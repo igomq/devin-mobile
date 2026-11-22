@@ -26,8 +26,10 @@
   .more {
     display: block;
     width: 100%;
+    min-height: 44px;
     padding: 10px;
-    font-size: 13px;
-    color: var(--blue);
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--accent-text);
   }
 </style>

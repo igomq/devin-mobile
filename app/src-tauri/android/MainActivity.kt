@@ -1,4 +1,4 @@
-package com.igomq.devinmobile
+package me.gomq.devinmobile
 
 import android.graphics.Color
 import android.os.Bundle

@@ -4,9 +4,8 @@
   import { FitAddon } from '@xterm/addon-fit';
   import '@xterm/xterm/css/xterm.css';
   import { conn, rpc, onTerminal, views, app, errorText, refreshSessions } from '#lib/api.svelte.ts';
-  import { go } from '#lib/ui.svelte.ts';
   import { basename } from '#lib/format.ts';
-  import Icon from './Icon.svelte';
+  import BackButton from './BackButton.svelte';
 
   let { sessionId = null, login = false }: { sessionId?: string | null; login?: boolean } = $props();
   let cwd = $derived(sessionId ? (views[sessionId]?.cwd ?? app.sessions.find((s) => s.id === sessionId)?.cwd) : null);
@@ -174,24 +173,28 @@
 
 <div class="screen">
   <header class="topbar">
-    <button class="iconbtn" onclick={() => go(sessionId ? '#/s/' + encodeURIComponent(sessionId) : '#/')} aria-label="Back"><Icon name="back" /></button>
+    <BackButton to={sessionId ? '#/s/' + encodeURIComponent(sessionId) : '#/'} label="Back" />
     <div class="title">
       <b>Terminal</b>
       <small><span class="dot" class:running={conn.status === 'online' && exited === null} class:error={conn.status !== 'online'}></span>{conn.status !== 'online' ? 'Reconnecting…' : exited !== null ? `Exited (${exited})` : (basename(cwd) || conn.info?.host || '')}</small>
     </div>
-    <button class="chip" onclick={() => askRestart([])}>devin</button>
-    <button class="chip" onclick={() => askRestart()}>New shell</button>
-  </header>
-  {#if error}<div class="banner warn">{error}</div>{/if}
-  {#if replacing}
-    <div class="banner warn replace">
-      <span>This closes the current shell and stops anything running in it.</span>
-      <button class="btn danger" onclick={() => restart(replacing?.devin)}>Close it</button>
-      <button class="btn" onclick={() => (replacing = null)}>Keep</button>
+    <div class="shells glass">
+      <button class="chip" onclick={() => askRestart([])}>devin</button>
+      <button class="chip" onclick={() => askRestart()}>New shell</button>
     </div>
-  {/if}
-  <div class="term" bind:this={host}></div>
-  <div class="keys">
+  </header>
+  <div class="body">
+    {#if error}<div class="banner warn">{error}</div>{/if}
+    {#if replacing}
+      <div class="banner warn replace">
+        <span>This closes the current shell and stops anything running in it.</span>
+        <button class="btn danger" onclick={() => restart(replacing?.devin)}>Close it</button>
+        <button class="btn" onclick={() => (replacing = null)}>Keep</button>
+      </div>
+    {/if}
+    <div class="term" bind:this={host}></div>
+  </div>
+  <div class="keys glass">
     <button class:on={ctrl} onclick={() => (ctrl = !ctrl)}>ctrl</button>
     {#each keys as k}
       <button onclick={() => (sendInput(k.seq), term?.focus())}>{k.label}</button>
@@ -200,10 +203,23 @@
 </div>
 
 <style>
+  /* xterm keeps its own scrollback, so it starts below the floating bar and stops above the key dock. */
+  .body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: var(--bar-h) var(--safe-right) calc(var(--safe-bottom) + 72px) var(--safe-left);
+  }
+  .body .banner {
+    flex: none;
+    margin: 0 12px;
+  }
   .term {
     flex: 1;
     min-height: 0;
-    padding: 6px 4px 0 8px;
+    padding: 4px 4px 0 10px;
     background: var(--bg);
     overflow: hidden;
   }
@@ -213,14 +229,40 @@
   .term :global(.xterm-viewport) {
     background: transparent !important;
   }
-  .keys {
+  .shells {
     flex: none;
     display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 44px;
+    padding: 0 4px;
+    border-radius: 22px;
+  }
+  .shells .chip {
+    height: 36px;
+    padding: 0 12px;
+    background: transparent;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .shells .chip:active {
+    background: var(--accent-soft);
+  }
+  .keys {
+    position: absolute;
+    z-index: 20;
+    left: calc(var(--safe-left) + 12px);
+    right: calc(var(--safe-right) + 12px);
+    bottom: calc(var(--safe-bottom) + 10px);
+    width: fit-content;
+    max-width: calc(100% - var(--safe-left) - var(--safe-right) - 24px);
+    margin-inline: auto;
+    display: flex;
     gap: 6px;
-    padding: 8px 10px calc(var(--safe-bottom) + 8px);
+    padding: 6px;
+    border-radius: 999px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    border-top: 1px solid var(--line);
     scrollbar-width: none;
   }
   .keys::-webkit-scrollbar {
@@ -228,20 +270,22 @@
   }
   .keys button {
     flex: none;
-    min-width: 42px;
-    height: 38px;
-    padding: 0 10px;
-    border-radius: 9px;
-    background: var(--bg-elev2);
-    border: 1px solid var(--line);
-    font: 13px var(--mono);
+    min-width: 44px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--fill);
+    font: 500 13px var(--mono);
+    transition: transform 0.16s var(--ease-out), background-color 0.2s ease, color 0.2s ease;
+  }
+  .keys button:active {
+    transform: scale(0.94);
+    background: var(--fill-2);
+    transition-duration: 0.08s;
   }
   .keys button.on {
     background: var(--accent);
     color: var(--on-accent);
-  }
-  .chip {
-    flex: none;
   }
   .replace {
     display: flex;
@@ -253,10 +297,11 @@
   }
   .replace .btn {
     flex: none;
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 13.5px;
+    background: var(--fill);
     color: var(--text);
-    min-height: 34px;
-    padding: 0 10px;
-    font-size: 13px;
   }
   .replace .btn.danger {
     color: var(--red);

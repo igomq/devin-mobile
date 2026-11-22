@@ -2,10 +2,27 @@
   import '../fonts.css';
   import '../app.css';
   import { onMount } from 'svelte';
-  import { applyTheme, toasts } from '#lib/ui.svelte.ts';
+  import { applyTheme, toasts, go, layout, toggleSidebar, requests } from '#lib/ui.svelte.ts';
   import { connect, configured } from '#lib/api.svelte.ts';
 
   let { children } = $props();
+
+  // Hardware-keyboard shortcuts (iPad Magic Keyboard, desktop browsers).
+  function shortcuts(e: KeyboardEvent) {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+    const key = e.key.toLowerCase();
+    if (key === 'n') {
+      if (!layout.wide || !layout.sidebar) go('#/');
+      requests.newSession = Date.now();
+    } else if (key === 'k') {
+      if (!layout.wide) go('#/');
+      else if (!layout.sidebar) toggleSidebar();
+      requests.search = Date.now();
+    } else if (key === ',') go('#/settings');
+    else if (key === '\\') toggleSidebar();
+    else return;
+    e.preventDefault();
+  }
 
   onMount(() => {
     applyTheme();
@@ -28,10 +45,12 @@
   });
 </script>
 
+<svelte:window onkeydown={shortcuts} />
+
 {@render children()}
 
 <div class="toasts" aria-live="polite">
-  {#each toasts as t (t.id)}<div class="toast {t.kind}">{t.text}</div>{/each}
+  {#each toasts as t (t.id)}<div class="toast glass {t.kind}">{t.text}</div>{/each}
 </div>
 
 <style>
@@ -39,25 +58,31 @@
     position: fixed;
     left: 0;
     right: 0;
-    top: calc(var(--safe-top) + 58px);
+    top: calc(var(--safe-top) + 66px);
     z-index: 60;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     pointer-events: none;
     padding: 0 16px;
   }
   .toast {
-    max-width: 420px;
-    padding: 9px 14px;
-    border-radius: 12px;
-    background: var(--bg-elev2);
-    border: 1px solid var(--line-strong);
+    max-width: 440px;
+    padding: 11px 18px;
+    border-radius: 999px;
     font-size: 14px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+    font-weight: 500;
+    text-align: center;
+    animation: toast-in 0.34s var(--ease-spring);
   }
   .toast.error {
     color: var(--red);
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(-10px) scale(0.94);
+    }
   }
 </style>
