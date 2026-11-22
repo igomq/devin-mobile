@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Simpler gateway connection: `uniharn pair` shows a one-time, expiring pairing code and QR; the app pairs by scanning it (camera with `BarcodeDetector`/`jsqr`), opening its link, or typing the code, and each device gets its own token. Settings shows gateway details and security warnings, lists paired devices, and can rename, revoke, rotate tokens and pair another device. Revoked devices are disconnected immediately and rejected afterwards. New CLI commands `uniharn doctor`, `status`, `devices list|revoke|revoke-all`, `service install|uninstall|status`, plus `scripts/install-gateway.sh`. Pairing and failed sign-ins are rate limited, secrets are redacted from logs, `--strict-roots` limits paths to the configured roots, and the gateway warns when it runs as root or binds a public address. The master token keeps working.
 - Theme engine built on design tokens, with 21 variants across uniharn, Absolutely, Ayu, Catppuccin, Dracula, Everforest, GitHub, Gruvbox and Linear. Themes cover surfaces, Liquid Glass, chat, code blocks, diffs, approvals, the terminal's ANSI colors and syntax highlighting. Settings → Appearance adds theme search, light and dark themes that follow the system, and custom accent colors. Existing Light/Dark/Dim and accent settings migrate automatically. App tests cover theme registration, contrast, migration and persistence. See [docs/themes.md](docs/themes.md).
 
+### Security
+
+- The gateway removes `UNIHARN_TOKEN` from its environment at startup, so harnesses, terminals and tasks no longer inherit the master token. SECURITY.md describes the uniharn threat model (pairing, harnesses, MCP server, worktrees, Web Push).
+
 ## [0.2.0] - 2026-11-22
 
 ### Added
