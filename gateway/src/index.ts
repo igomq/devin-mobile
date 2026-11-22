@@ -2,7 +2,9 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { chmodSync, existsSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { loadConfig } from './config.js';
 import * as git from './git.js';
@@ -15,6 +17,7 @@ import type { Session } from './sessions.js';
 import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
+import { Orchestrator } from './orchestrator.js';
 import { WorkspaceStore } from './workspaces.js';
 
 const VERSION = '0.3.0';
@@ -27,6 +30,23 @@ registry.setCustomFactory(createCustomAcpAdapter);
 void registry.probeAll();
 const manager = devinHarness.manager;
 const workspaces = new WorkspaceStore(config.dataDir);
+const orchestrator = new Orchestrator(registry, config.dataDir);
+const mcpEntry = join(dirname(fileURLToPath(import.meta.url)), 'mcp.js');
+if (process.env.UNIHARN_SUBAGENT_MCP !== '0' && existsSync(mcpEntry)) {
+  // Every harness session gets uniharn's MCP server so its agent can delegate to other harnesses.
+  // The token goes in a 0600 file, not the MCP env, so harnesses never see it in ACP request payloads.
+  const mcpTokenFile = join(config.dataDir, 'mcp-token');
+  writeFileSync(mcpTokenFile, config.token + '\n', { mode: 0o600 });
+  chmodSync(mcpTokenFile, 0o600);
+  const env = [
+    { name: 'UNIHARN_DATA_DIR', value: config.dataDir },
+    { name: 'UNIHARN_TOKEN_FILE', value: mcpTokenFile },
+    { name: 'UNIHARN_GATEWAY_URL', value: `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}/ws` },
+  ];
+  registry.setMcpServers((cwd) => [
+    { name: 'uniharn', command: process.execPath, args: [mcpEntry], env: cwd ? [...env, { name: 'UNIHARN_SESSION_CWD', value: cwd }] : env },
+  ]);
+}
 const tasks = new TaskRunner();
 const terminals = new TerminalManager(config.devinBin);
 const notifications = new NotificationService(config.dataDir);
@@ -107,6 +127,7 @@ registry.on('permission_resolved', (s: Session, requestId, optionId) => {
   broadcast({ type: 'permission_resolved', sessionId: sid, harnessId: s.harnessId, requestId, optionId });
   notifications.onPermissionResolved(sid, requestId);
 });
+orchestrator.on('link', (link) => broadcast({ type: 'orchestration_link', link }));
 // Emitted by the orchestrator when a delegated subagent task ends.
 registry.on('subagent_completed', (t: Json) => notifications.notifySubagentCompleted(t ?? {}));
 notifications.on('notification', (n) => broadcast({ type: 'notification', notification: n }));
@@ -252,6 +273,31 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       }
       return { session: { ...s.summary(), sessionId: scopedId, harnessId }, epoch: s.epoch, workspaceId };
     }
+    case 'session.handoff': {
+      const id = requireString(p.sessionId, 'sessionId');
+      const target = requireString(p.harnessId, 'harnessId');
+      const { link } = await orchestrator.handoff(id, target, typeof p.instruction === 'string' ? p.instruction : undefined);
+      c.subs.add(link.childSessionId);
+      return { link };
+    }
+    case 'orchestration.delegate': {
+      const id = typeof p.sessionId === 'string' && p.sessionId ? p.sessionId : null;
+      const harnessId = requireString(p.harnessId, 'harnessId');
+      const task = requireString(p.task, 'task');
+      const { link, done } = await orchestrator.delegate(id, harnessId, task, {
+        cwd: id ? undefined : absCwd(p.cwd),
+        worktree: !!p.worktree,
+        includeContext: !!p.includeContext,
+      });
+      c.subs.add(link.childSessionId);
+      if (p.wait) {
+        await done;
+        return { link: orchestrator.get(link.id) };
+      }
+      return { link };
+    }
+    case 'orchestration.list':
+      return { links: orchestrator.list(typeof p.sessionId === 'string' ? p.sessionId : undefined) };
     case 'session.open': {
       const id = requireString(p.sessionId, 'sessionId');
       const { adapter, harnessId, nativeId } = registry.resolveSession(id);

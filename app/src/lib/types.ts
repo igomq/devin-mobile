@@ -270,7 +270,7 @@ export interface HarnessInfo {
 	acpVersion: number | null;
 	capabilities: HarnessCapabilities;
 	models: { id: string; name: string; description?: string; reasoningLevels?: string[]; default?: boolean }[];
-	status: 'idle' | 'starting' | 'ready' | 'error' | 'disabled';
+	status: 'idle' | 'starting' | 'ready' | 'running' | 'error' | 'disabled' | 'unavailable';
 	error: string | null;
 	installHint: string | null;
 }
@@ -291,6 +291,24 @@ export interface Workspace {
 	activeHarnessId: string | null;
 	activeSessionId: string | null;
 	sessions: WorkspaceSessionRef[];
+	createdAt: number;
+	updatedAt: number;
+}
+
+export interface SessionLink {
+	id: string;
+	kind: 'handoff' | 'delegate';
+	parentSessionId: string;
+	childSessionId: string;
+	harnessId: string;
+	task: string;
+	cwd: string;
+	worktree: string | null;
+	branch: string | null;
+	status: 'running' | 'done' | 'error';
+	output: string | null;
+	stopReason: string | null;
+	error: string | null;
 	createdAt: number;
 	updatedAt: number;
 }

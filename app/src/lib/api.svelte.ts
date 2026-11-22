@@ -2,7 +2,7 @@
 // automatic reconnect and per-session resume from the last seen sequence number.
 import { getStorageItem, removeStorageItem, setStorageItem } from './storage.ts';
 import { applyUpdate, emptyState, permissionView, stateFromSummary } from './timeline.ts';
-import type { AppNotification, ChangedFile, ChangedFileView, ConnInfo, HarnessInfo, Json, PendingPermission, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
+import type { AppNotification, ChangedFile, ChangedFileView, ConnInfo, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
 
 const STORE_SUFFIX = 'connection';
 
@@ -47,7 +47,8 @@ export const app = $state({
   sessions: [] as SessionRow[],
   sessionsLoaded: false,
   harnesses: [] as HarnessInfo[],
-  workspaces: [] as Workspace[]
+  workspaces: [] as Workspace[],
+  links: [] as SessionLink[]
 });
 
 export const views = $state<Record<string, SessionView>>({});
@@ -237,6 +238,12 @@ function rowKeepingActivity(s: SessionSummary): SessionRow {
 
 const sid = (p: Json) => ({ sessionId: p.id });
 
+function upsertLink(l: SessionLink) {
+  const i = app.links.findIndex((x) => x.id === l.id);
+  if (i >= 0) app.links[i] = l;
+  else app.links.unshift(l);
+}
+
 // The screens speak in terms of what they need; this table maps each call onto the gateway's
 // request types and reshapes the answer.
 const calls: Record<string, (p: Json) => Promise<Json>> = {
@@ -297,6 +304,14 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'harnesses.configure': (p) => request('harnesses.configure', p),
   'workspaces.list': async () => (await request('workspaces.list')).workspaces,
   'workspaces.create': async (p) => (await request('workspaces.create', p)).workspace,
+  'session.handoff': async (p) => (await request('session.handoff', { ...sid(p), harnessId: p.harnessId, instruction: p.instruction })).link,
+  'orchestration.delegate': async (p) =>
+    (await request('orchestration.delegate', { ...sid(p), harnessId: p.harnessId, task: p.task, worktree: !!p.worktree, includeContext: !!p.includeContext })).link,
+  'orchestration.list': async (p) => {
+    const r = await request('orchestration.list', p?.id ? sid(p) : {});
+    for (const l of r.links as SessionLink[]) upsertLink(l);
+    return r.links;
+  },
   'projects.list': () => request('projects.list'),
   'notifications.list': (p) => request('notifications.list', p),
   'notifications.read': (p) => request('notifications.read', p),
@@ -395,6 +410,14 @@ function onMessage(msg: Json) {
       return termListeners.get(msg.termId)?.({ ev: 'term', data: msg.data });
     case 'term_exit':
       return termListeners.get(msg.term.termId)?.({ ev: 'term-exit', code: msg.term.exitCode });
+    case 'harness_status': {
+      const i = app.harnesses.findIndex((h) => h.id === msg.harness.id);
+      if (i >= 0) app.harnesses[i] = msg.harness;
+      else app.harnesses.push(msg.harness);
+      return;
+    }
+    case 'orchestration_link':
+      return upsertLink(msg.link);
     case 'task_output':
     case 'task_done':
       for (const fn of taskListeners) fn(msg);

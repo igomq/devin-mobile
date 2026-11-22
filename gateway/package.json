@@ -36,7 +36,8 @@
   "bin": {
     "uniharn": "dist/index.js",
     "uniharn-gateway": "dist/index.js",
-    "devin-mobile-gateway": "dist/index.js"
+    "devin-mobile-gateway": "dist/index.js",
+    "uniharn-mcp": "dist/mcp.js"
   },
   "engines": {
     "node": ">=20"

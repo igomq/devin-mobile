@@ -75,7 +75,16 @@ export class HarnessRegistry extends EventEmitter {
     renameSync(tmp, this.configFile);
   }
 
+  private mcpServers: ((cwd?: string) => Json[]) | null = null;
+
+  /** Offers `servers` to every registered and future adapter's sessions. */
+  setMcpServers(servers: (cwd?: string) => Json[]) {
+    this.mcpServers = servers;
+    for (const a of this.adapters.values()) a.setMcpServers?.(servers);
+  }
+
   register(adapter: HarnessAdapter) {
+    if (this.mcpServers) adapter.setMcpServers?.(this.mcpServers);
     this.adapters.set(adapter.id, adapter);
     const saved = this.configs.get(adapter.id);
     if (saved) adapter.configure(saved);

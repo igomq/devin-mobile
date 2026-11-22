@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { rpc, conn, errorText } from '#lib/api.svelte.ts';
+  import { rpc, conn, errorText, app } from '#lib/api.svelte.ts';
   import type { ConfigOption, ConfigOptionValue, Json, SessionView } from '#lib/types.ts';
   import { go, toast } from '#lib/ui.svelte.ts';
   import { shortPath } from '#lib/format.ts';
@@ -25,6 +25,48 @@
   let ctxPct = $derived(ctx ? Math.min(100, Math.round((ctx.used / ctx.size) * 100)) : 0);
   let tokens = $derived(view?.state.tokens ?? null);
   let stats = $derived(view?.state.turnStats ?? []);
+
+  let currentHarness = $derived(sessionId.includes(':') ? sessionId.slice(0, sessionId.indexOf(':')) : 'devin');
+  let targets = $derived(app.harnesses.filter((h) => h.enabled && (h.installed || h.id === 'devin')));
+  let target = $state('');
+  let instruction = $state('');
+  let worktree = $state(false);
+  let links = $derived(app.links.filter((l) => l.parentSessionId === sessionId));
+  $effect(() => {
+    if (open) rpc('orchestration.list', { id: sessionId }).catch(() => {});
+  });
+  $effect(() => {
+    if (targets.length && !targets.some((h) => h.id === target)) target = (targets.find((h) => h.id !== currentHarness) ?? targets[0]).id;
+  });
+  const harnessName = (id: string) => app.harnesses.find((h) => h.id === id)?.name ?? id;
+
+  async function handoff() {
+    busy = 'handoff';
+    try {
+      const link = await rpc('session.handoff', { id: sessionId, harnessId: target, instruction });
+      instruction = '';
+      open = false;
+      go('#/s/' + encodeURIComponent(link.childSessionId));
+    } catch (e) {
+      toast(errorText(e), 'error');
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function delegate() {
+    if (!instruction.trim()) return toast('Describe the task for the subagent', 'error');
+    busy = 'delegate';
+    try {
+      await rpc('orchestration.delegate', { id: sessionId, harnessId: target, task: instruction, worktree, includeContext: true });
+      instruction = '';
+      toast(`Subagent started on ${harnessName(target)}`);
+    } catch (e) {
+      toast(errorText(e), 'error');
+    } finally {
+      busy = null;
+    }
+  }
 
   async function run(key: string, m: string, p: Json, done?: () => void) {
     busy = key;
@@ -91,6 +133,27 @@
     {/if}
     <a class="more" href={USAGE_URL} target="_blank" rel="noreferrer">Plan quota and credits <Icon name="chevron" size={14} /></a>
   </div>
+
+  {#if targets.length > 1}
+    <div class="label">Other harnesses</div>
+    <div class="orch">
+      <select bind:value={target} aria-label="Target harness">
+        {#each targets as h (h.id)}<option value={h.id}>{h.name}</option>{/each}
+      </select>
+      <textarea rows="2" bind:value={instruction} placeholder="Instruction or subagent task"></textarea>
+      <label class="check"><input type="checkbox" bind:checked={worktree} /> Run subagent in a separate git worktree</label>
+      <div class="row2">
+        <button class="btn" disabled={busy !== null} onclick={handoff}>Hand off session</button>
+        <button class="btn" disabled={busy !== null || !instruction.trim()} onclick={delegate}>Run as subagent</button>
+      </div>
+      {#each links as l (l.id)}
+        <button class="link press" onclick={() => ((open = false), go('#/s/' + encodeURIComponent(l.childSessionId)))}>
+          <span class="st {l.status}">{l.status}</span>
+          <span class="lt"><b>{harnessName(l.harnessId)}</b> · {l.kind === 'handoff' ? 'handoff' : l.task}{#if l.branch}<small class="mono">{l.branch}</small>{/if}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <div class="label">Project</div>
   <p class="mono path">{shortPath(view?.cwd, conn.info?.home)}</p>
@@ -253,5 +316,62 @@
   }
   .actions .btn {
     background: var(--fill);
+  }
+  .orch {
+    display: grid;
+    gap: 8px;
+  }
+  .orch select,
+  .orch textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 0;
+    background: var(--fill);
+    color: var(--text);
+    font: inherit;
+    resize: vertical;
+  }
+  .orch .check {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 14px;
+  }
+  .orch .row2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .orch .btn {
+    background: var(--fill);
+  }
+  .orch .link {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--fill);
+    border: 0;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+  }
+  .orch .lt {
+    display: grid;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .orch .st {
+    font-size: 11px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--bg, transparent);
+  }
+  .orch .st.error {
+    color: var(--danger, #e5484d);
   }
 </style>
