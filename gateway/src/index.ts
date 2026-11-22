@@ -64,8 +64,12 @@ registry.on('reset', (s: Session) => {
   broadcast({ type: 'session_reset', sessionId: sid, harnessId: s.harnessId, epoch: s.epoch }, (c) => c.subs.has(sid));
 });
 registry.on('deleted', (sessionId) => {
-  workspaces.removeSession(sessionId);
   broadcast({ type: 'session_deleted', sessionId });
+  try {
+    workspaces.removeSession(sessionId);
+  } catch (err) {
+    console.warn(`[uniharn] failed to update workspace after session deletion (${sessionId}):`, err instanceof Error ? err.message : err);
+  }
 });
 registry.on('harness_status', (harness) => broadcast({ type: 'harness_status', harness }));
 manager.on('agent', (status) => broadcast({ type: 'agent_status', agent: status }));
@@ -145,14 +149,38 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       return { now: Date.now() };
     case 'harnesses.list':
       return { harnesses: registry.list(), custom: registry.listCustomSpecs() };
-    case 'harnesses.probe':
+    case 'harnesses.probe': {
+      if (typeof p.harnessId === 'string' && p.harnessId) {
+        const adapter = registry.get(p.harnessId);
+        if (!adapter) throw new Error(`Unknown harness: ${p.harnessId}`);
+        return { harnesses: [await adapter.probe()] };
+      }
       return { harnesses: await registry.probeAll() };
-    case 'harnesses.configure':
-      return { harness: registry.configure(requireString(p.harnessId, 'harnessId'), p.config ?? {}) };
-    case 'harnesses.registerCustom':
-      return { custom: registry.saveCustomSpec(p.spec ?? {}) };
+    }
+    case 'harnesses.configure': {
+      const harnessId = requireString(p.harnessId, 'harnessId');
+      const patch: Record<string, unknown> = { ...(typeof p.config === 'object' && p.config ? p.config : {}) };
+      for (const k of ['enabled', 'bin', 'args', 'defaultModel', 'envAllowlist'] as const) {
+        if (p[k] !== undefined) patch[k] = p[k];
+      }
+      return { harness: registry.configure(harnessId, patch) };
+    }
+    case 'harnesses.registerCustom': {
+      const src = typeof p.spec === 'object' && p.spec ? p.spec : p;
+      return {
+        custom: registry.saveCustomSpec({
+          id: requireString(src.id, 'id'),
+          name: requireString(src.name, 'name'),
+          command: requireString(src.command, 'command'),
+          args: src.args,
+          cwd: src.cwd,
+          envAllowlist: src.envAllowlist,
+          enabled: src.enabled,
+        }),
+      };
+    }
     case 'harnesses.removeCustom':
-      return { removed: registry.removeCustomSpec(requireString(p.harnessId, 'harnessId')) };
+      return { removed: registry.removeCustomSpec(requireString(p.id ?? p.harnessId, 'id')) };
     case 'workspaces.list':
       return { workspaces: workspaces.list() };
     case 'workspaces.create': {
@@ -187,11 +215,17 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       const s = await registry.createSession(harnessId, cwd, { model: p.model, mode: p.mode });
       const scopedId = formatScopedSessionId(harnessId, s.sessionId);
       c.subs.add(scopedId);
-      const ws = p.workspaceId ? workspaces.get(p.workspaceId) : workspaces.createOrGet(cwd, { harnessId });
-      if (ws) {
-        workspaces.attachSession(ws.workspaceId, { harnessId, sessionId: scopedId, title: s.title, updatedAt: s.updatedAt });
+      let workspaceId: string | null = null;
+      try {
+        const ws = p.workspaceId ? workspaces.get(p.workspaceId) : workspaces.createOrGet(cwd, { harnessId });
+        if (ws) {
+          workspaces.attachSession(ws.workspaceId, { harnessId, sessionId: scopedId, title: s.title, updatedAt: s.updatedAt });
+          workspaceId = ws.workspaceId;
+        }
+      } catch (err) {
+        console.warn(`[uniharn] failed to persist workspace for session ${scopedId}:`, err instanceof Error ? err.message : err);
       }
-      return { session: { ...s.summary(), sessionId: scopedId, harnessId }, epoch: s.epoch, workspaceId: ws?.workspaceId ?? null };
+      return { session: { ...s.summary(), sessionId: scopedId, harnessId }, epoch: s.epoch, workspaceId };
     }
     case 'session.open': {
       const id = requireString(p.sessionId, 'sessionId');

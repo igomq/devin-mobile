@@ -137,6 +137,15 @@ test('HarnessRegistry persists harness config and custom ACP definitions', () =>
     assert.equal(devin2.info().bin, '/custom/devin');
     assert.equal(reg2.listCustomSpecs().length, 1);
     assert.equal(reg2.listCustomSpecs()[0].id, 'my-agent');
+
+    // Built-in IDs are reserved and cannot be overwritten or cleared by removeCustomSpec.
+    assert.throws(() => reg2.saveCustomSpec({ id: 'devin', name: 'Fake', command: '/bin/true' }), /reserved/);
+    assert.equal(reg2.removeCustomSpec('devin'), false);
+    const reg3 = new HarnessRegistry(dir);
+    const devin3 = new FakeAdapter('devin', 'Devin CLI');
+    reg3.register(devin3);
+    assert.equal(devin3.info().enabled, false);
+    assert.equal(devin3.info().bin, '/custom/devin');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

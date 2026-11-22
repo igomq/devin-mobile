@@ -133,6 +133,11 @@ export class SessionManager extends EventEmitter {
     super();
   }
 
+  updateLaunchConfig(bin: string, extraArgs: string[]): void {
+    this.bin = bin;
+    this.extraArgs = [...extraArgs];
+  }
+
   get initResult() {
     return this.acp?.initResult ?? null;
   }

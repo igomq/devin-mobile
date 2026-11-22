@@ -10,7 +10,9 @@
   let { sessionId = null, login = false }: { sessionId?: string | null; login?: boolean } = $props();
   let cwd = $derived(sessionId ? (views[sessionId]?.cwd ?? app.sessions.find((s) => s.id === sessionId)?.cwd) : null);
   // svelte-ignore state_referenced_locally
-  const storeKey = 'uniharn.term.' + (login ? 'login' : (sessionId ?? 'home'));
+  const termSuffix = login ? 'login' : (sessionId ?? 'home');
+  const storeKey = 'uniharn.term.' + termSuffix;
+  const legacyStoreKey = 'devin-mobile.term.' + termSuffix;
 
   let host = $state<HTMLElement>();
   let termId = $state<string | null>(null);
@@ -78,7 +80,7 @@
 
   // Re-attach to the PTY that is still running on the VM, replaying its scrollback.
   async function attachOrStart() {
-    const saved = termId ?? sessionStorage.getItem(storeKey);
+    const saved = termId ?? sessionStorage.getItem(storeKey) ?? sessionStorage.getItem(legacyStoreKey);
     if (saved) {
       try {
         const t = await rpc('term.attach', { id: saved });

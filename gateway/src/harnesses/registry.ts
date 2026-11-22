@@ -123,9 +123,13 @@ export class HarnessRegistry extends EventEmitter {
   }
 
   saveCustomSpec(spec: CustomAcpHarnessSpec): CustomAcpHarnessSpec {
-    const id = spec.id.trim();
+    const id = spec.id.trim().toLowerCase();
     if (!id || !/^[a-z0-9][a-z0-9-_]{1,63}$/.test(id)) {
       throw new Error('Custom harness id must be 2-64 lowercase letters, digits, hyphens, or underscores');
+    }
+    const existing = this.adapters.get(id);
+    if (existing && !existing.custom) {
+      throw new Error(`Harness id "${id}" is reserved for a built-in harness`);
     }
     if (!spec.command?.trim()) throw new Error('Custom harness command is required');
     const normalized: CustomAcpHarnessSpec = {
@@ -143,9 +147,12 @@ export class HarnessRegistry extends EventEmitter {
   }
 
   removeCustomSpec(id: string): boolean {
-    const existed = this.customSpecs.delete(id);
-    this.configs.delete(id);
     const adapter = this.adapters.get(id);
+    if (adapter && !adapter.custom) return false;
+    const existed = this.customSpecs.delete(id);
+    if (existed || adapter?.custom) {
+      this.configs.delete(id);
+    }
     if (adapter?.custom) {
       adapter.stop();
       this.adapters.delete(id);

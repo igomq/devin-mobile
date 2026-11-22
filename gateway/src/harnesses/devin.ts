@@ -59,6 +59,7 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
     if (patch.enabled !== undefined) this.enabled = patch.enabled;
     if (patch.bin) this.bin = patch.bin;
     if (patch.args) this.args = [...patch.args];
+    this.manager.updateLaunchConfig(this.bin, this.args);
   }
 
   async probe(): Promise<HarnessInfo> {
