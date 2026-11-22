@@ -2,7 +2,10 @@
   import { conn, forgetConnection, rpc } from '#lib/api.svelte.ts';
   import { go, toast } from '#lib/ui.svelte.ts';
   import BackButton from './BackButton.svelte';
+  import Icon from './Icon.svelte';
   import ThemePicker from './ThemePicker.svelte';
+  import Devices from './Devices.svelte';
+  import { compareVersions } from '#lib/pairing.ts';
   import { USAGE_URL } from '#lib/usage.ts';
   import type { Json, NotificationEventType, NotificationPrefs } from '#lib/types.ts';
   import { notif, EVENT_LABELS, savePrefs, sendTest, enablePush, disablePush, enableSystemNotifications, pushUnavailableReason } from '#lib/notifications.svelte.ts';
@@ -37,6 +40,25 @@
   ] as const;
 
   let agent = $derived(conn.info?.agent ?? null);
+
+  // What the gateway reported about itself in hello; older gateways send none of this.
+  let security = $derived(conn.info?.security ?? null);
+  let securityNotes = $derived(
+    security
+      ? [
+          security.isRoot && 'The gateway runs as root. Run it as a regular user.',
+          security.publicBindWarning && 'The gateway listens on all network interfaces. Bind it to loopback or your Tailscale address.',
+          !security.strictRoots && 'Folders outside the configured roots are browsable.'
+        ].filter((x): x is string => !!x)
+      : []
+  );
+  let versionWarning = $derived.by(() => {
+    const info = conn.info;
+    if (!info) return null;
+    if ((info.protocolVersion ?? 1) < 2) return 'This gateway is older than the app. Update it to use pairing codes and device management.';
+    if (info.minAppVersion && compareVersions(__APP_VERSION__, info.minAppVersion) < 0) return `This gateway needs app version ${info.minAppVersion} or newer. Update the app.`;
+    return null;
+  });
 
   let account = $state<{ loggedIn: boolean; fields: { label: string; value: string }[] } | null>(null);
   let accountError = $state<string | null>(null);
@@ -139,14 +161,25 @@
         </div>
       {/if}
 
-      <div class="label">Server</div>
+      <div class="label">Gateway</div>
       <div class="card">
         <div class="kv"><span>Status</span><b><span class="dot" class:running={conn.status === 'online'} class:error={conn.status !== 'online'}></span> {conn.status === 'online' ? 'Connected' : 'Reconnecting…'}</b></div>
         <div class="kv"><span>Address</span><b class="mono">{conn.url}</b></div>
         <div class="kv"><span>Host</span><b>{conn.info?.host}</b></div>
-        <div class="kv"><span>Gateway</span><b>{conn.info?.version}</b></div>
+        <div class="kv"><span>Version</span><b>{conn.info?.version}</b></div>
+        <div class="kv"><span>Protocol</span><b>{conn.info?.protocolVersion ?? 1}</b></div>
+        {#if conn.info?.gatewayId}<div class="kv"><span>Gateway ID</span><b class="mono" title={conn.info.gatewayId}>{conn.info.gatewayId.slice(0, 8)}</b></div>{/if}
+        {#if conn.info?.authKind}<div class="kv"><span>Signed in as</span><b>{conn.info.authKind === 'master' ? 'Master token' : (conn.info.deviceName ?? 'This device')}</b></div>{/if}
         <div class="kv"><span>Agent</span><b>{agent?.agentInfo?.title ?? agent?.agentInfo?.name ?? 'Devin'} {agent?.agentInfo?.version ?? ''}</b></div>
+        {#each securityNotes as note}
+          <div class="kv warn"><span><Icon name="shield" size={18} /></span><b class="bad">{note}</b></div>
+        {/each}
+        {#if versionWarning}
+          <div class="kv warn"><span><Icon name="refresh" size={18} /></span><b class="bad">{versionWarning}</b></div>
+        {/if}
       </div>
+
+      <Devices />
 
       <div class="label">Devin CLI</div>
       <div class="card">
@@ -238,6 +271,18 @@
   }
   .kv b.bad {
     color: var(--amber);
+  }
+  .kv.warn {
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .kv.warn > span {
+    color: var(--amber);
+    display: inline-flex;
+  }
+  .kv.warn b {
+    text-align: left;
+    font-size: 14px;
   }
   .detail {
     font-size: 13px;

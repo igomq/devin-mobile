@@ -29,9 +29,28 @@ The gateway also serves the built web UI from `../app/build` and answers `GET /h
 | `--static` | `UNIHARN_STATIC` (fallback `DEVIN_MOBILE_STATIC`) | `../app/build` | Directory of the web UI. `none` disables serving it. |
 | `--data-dir` | `UNIHARN_DATA_DIR` (fallback `DEVIN_MOBILE_DATA_DIR`) | `~/.local/share/uniharn` | Where the token, harness configs, and workspace metadata live. |
 | | `UNIHARN_TOKEN` (fallback `DEVIN_MOBILE_TOKEN`) | generated | Use this token instead of the token file. |
-| `--print-token` | | | Print the pairing token at startup. |
+| `--print-token` | | | Print the master token at startup. |
+| `--public-url` | `UNIHARN_PUBLIC_URL` | Tailscale MagicDNS name or IP | Address put in pairing links, e.g. an HTTPS `tailscale serve` URL. |
+| `--strict-roots` | `UNIHARN_STRICT_ROOTS=1` | off | Refuse file, folder, Git and session paths outside `--roots`. |
 
-The pairing token is generated on first start and stored in `~/.local/share/uniharn/token` with mode 0600 (automatically migrating from `~/.local/share/devin-mobile/token` if present).
+The master token is generated on first start and stored in `~/.local/share/uniharn/token` with mode 0600 (automatically migrating from `~/.local/share/devin-mobile/token` if present). It still works for existing setups, but new devices should pair instead.
+
+`scripts/install-gateway.sh [--systemd]` installs the `uniharn` command into `~/.local/bin`, runs `uniharn doctor`, optionally installs a systemd user service, and prints the pairing steps.
+
+## Pairing and devices
+
+```bash
+uniharn pair                 # one-time code + terminal QR, valid 5 minutes (--ttl 30..900, --url, --json)
+uniharn devices list         # paired devices
+uniharn devices revoke <id>  # revoke one device; it is disconnected immediately
+uniharn devices revoke-all
+uniharn doctor | status      # diagnostics: Node, Tailscale IP/MagicDNS, bind warnings, harnesses, devices
+uniharn service install | uninstall | status
+```
+
+A pairing code is 8 characters (`ABCD-EFGH`), works once and expires. The QR encodes `http(s)://<gateway>/#pair=<CODE>`: the code is only in the URL fragment, so it never reaches request logs, and the web app removes it from the address bar before any request. The QR never contains the master token or a device token. Clients exchange the code over `POST /api/pair` (`{"code", "deviceName?", "platform?"}`) or the WebSocket `pair` request and get a per-device token (`uhd_…`) plus `deviceId` and `gatewayId`.
+
+Codes and device tokens are stored only as SHA-256 hashes in `<dataDir>/pairing.json` and `<dataDir>/devices.json` (mode 0600). Failed `hello` and pairing attempts are rate limited per client IP (HTTP 429 / error with retry time). Revoking a device closes its sockets with a `device_revoked` event and close code 4003 (reason `device revoked`), removes its Web Push subscriptions, and rejects the token on every later `hello`. Logs redact tokens, codes and bearer headers.
 
 ## Scripts
 
@@ -68,11 +87,19 @@ Every harness is driven over ACP (JSON-RPC on stdio). Capabilities (session resu
 
 A client sends `{"id": <any>, "type": "<request>", ...params}`. The gateway answers with `{"type": "response", "id": <same id>, "ok": true, "result": {...}}` or `{"type": "response", "id": <same id>, "ok": false, "error": "<message>"}`. Requests without an `id` get no response.
 
-The first request must be `hello` with the pairing token, sent within 10 seconds. Otherwise the gateway closes the socket with code 4001. A wrong token gets an error response followed by close code 4003. Any other request before `hello` fails with `Not authenticated`. The gateway pings each client every 20 seconds and drops clients that do not answer. Frames are limited to 32 MiB.
+The first request must be `hello` with a device token or the master token (or `pair` with a pairing code), sent within 10 seconds. Otherwise the gateway closes the socket with code 4001. A wrong token gets an error response followed by close code 4003. Any other request before `hello` fails with `Not authenticated`. The gateway pings each client every 20 seconds and drops clients that do not answer. Frames are limited to 32 MiB.
 
 | Request | Parameters | Result |
 | --- | --- | --- |
-| `hello` | `token` | Gateway version, hostname, home directory, agent status, `harnesses`, `workspaces`, known sessions, terminals and task runs. |
+| `hello` | `token` | Gateway version, `gatewayId`, `protocolVersion` (2), `minAppVersion`, `deviceId`, `deviceName`, `authKind` (`device` or `master`), `security`, hostname, home directory, agent status, `harnesses`, `workspaces`, known sessions, terminals and task runs. |
+| `pair` | `code`, `deviceName?`, `platform?` | `token`, `deviceId`, `device` and gateway info. Allowed before `hello`; the socket is authenticated as the new device. |
+| `pairing.create` | `ttlSec?`, `url?` | `codeId`, `code`, `pairingUri`, `qrSvg`, `expiresAt`. |
+| `pairing.list` / `pairing.revoke` | `codeId` (revoke) | Pending codes (no secrets) / `revoked`. |
+| `devices.list` | | Devices with `current`, `lastSeenAt`, `revokedAt`. |
+| `devices.rename` | `deviceId`, `name` | `device`. |
+| `devices.revoke` | `deviceId` | `device`, `disconnected` (sockets closed). |
+| `devices.rotate` | | New `token` for the calling device; the old one stops working at once. |
+| `gateway.diagnostics` | | Same data as `uniharn doctor`. |
 | `ping` | | `now` |
 | `harnesses.list` | | Registered harness info list and custom ACP specs. |
 | `harnesses.probe` | `harnessId?` | Probes one or all harnesses for installation, version, auth, and capabilities. |

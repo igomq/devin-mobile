@@ -17,6 +17,9 @@ const TYPES: Record<string, string> = {
 
 /** Serves the built SvelteKit SPA so a phone browser on the tailnet can use the gateway directly. */
 export function serveStatic(root: string, req: IncomingMessage, res: ServerResponse) {
+  res.setHeader('X-Frame-Options', 'DENY');
+  // The app's pairing QR scanner needs the camera on this origin only; nothing else is used.
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(), usb=()');
   const url = new URL(req.url ?? '/', 'http://x');
   let decoded: string;
   try {

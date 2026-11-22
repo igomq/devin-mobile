@@ -76,3 +76,23 @@ test('loadConfig automatically migrates legacy token from ~/.local/share/devin-m
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('loadConfig reports Tailscale discovery even with an explicit host and honors strict roots and public URL', (t) => {
+  const home = makeTempHome();
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const env = { UNIHARN_STRICT_ROOTS: 'true', UNIHARN_PUBLIC_URL: 'https://env.example.test' };
+  const opts = {
+    home, env, detectTailscale: () => '100.64.0.4', detectMagicDns: () => 'test.example.ts.net',
+  };
+  const explicit = loadConfig({
+    ...opts, argv: ['node', 'uniharn', 'gateway', '--host', '127.0.0.2', '--public-url=https://cli.example.test'],
+  });
+  assert.deepEqual(explicit.hosts, ['127.0.0.2']);
+  assert.equal(explicit.strictRoots, true);
+  assert.equal(explicit.publicUrl, 'https://cli.example.test');
+  assert.equal(explicit.tailscaleIp, '100.64.0.4');
+  assert.equal(explicit.magicDns, 'test.example.ts.net');
+  const automatic = loadConfig({ ...opts, argv: ['node', 'uniharn'] });
+  assert.deepEqual(automatic.hosts, ['127.0.0.1', '100.64.0.4']);
+  assert.equal(automatic.publicUrl, 'https://env.example.test');
+});
