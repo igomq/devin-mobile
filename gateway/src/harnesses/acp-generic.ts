@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync } from 'node:fs';
+import { accessSync, constants, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -32,13 +32,22 @@ export interface AcpHarnessSpec {
 }
 
 export function resolveBin(bin: string, env: NodeJS.ProcessEnv = process.env): string | null {
-  if (isAbsolute(bin)) return existsSync(bin) ? bin : null;
+  if (isAbsolute(bin)) return isExecutable(bin) ? bin : null;
   const dirs = [...(env.PATH ?? '').split(delimiter), join(homedir(), '.local', 'bin')].filter(Boolean);
   for (const d of dirs) {
     const p = join(d, bin);
-    if (existsSync(p)) return p;
+    if (isExecutable(p)) return p;
   }
   return null;
+}
+
+function isExecutable(p: string): boolean {
+  try {
+    accessSync(p, constants.X_OK);
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 export function filterEnv(allowlist: string[] | undefined, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {

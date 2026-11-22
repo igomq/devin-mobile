@@ -1,9 +1,9 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AcpHarnessAdapter, filterEnv } from '../src/harnesses/acp-generic.js';
+import { AcpHarnessAdapter, filterEnv, resolveBin } from '../src/harnesses/acp-generic.js';
 import { BUILTIN_ACP_SPECS, createCustomAcpAdapter } from '../src/harnesses/builtins.js';
 import { HarnessRegistry, formatScopedSessionId } from '../src/harnesses/registry.js';
 
@@ -87,6 +87,53 @@ test('Registry instantiates custom ACP adapters from persisted definitions', () 
     assert.equal(r2.removeCustomSpec('my-agent'), true);
     assert.equal(r2.get('my-agent'), undefined);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveBin skips non-executable PATH matches', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uniharn-bin-'));
+  try {
+    const a = join(dir, 'a');
+    const b = join(dir, 'b');
+    mkdirSync(a);
+    mkdirSync(b);
+    writeFileSync(join(a, 'tool'), 'not executable', { mode: 0o644 });
+    writeFileSync(join(b, 'tool'), '#!/bin/sh\n', { mode: 0o755 });
+    assert.equal(resolveBin('tool', { PATH: [a, b].join(':') }), join(b, 'tool'));
+    assert.equal(resolveBin(join(a, 'tool')), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('listAllSessions does not wait for a stalled harness and reports its rows later', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uniharn-slow-'));
+  const registry = new HarnessRegistry(dir);
+  const fast = new AcpHarnessAdapter({ id: 'fast', name: 'fast', bin: mockAcpBin(dir, 'fast'), acpArgs: ['acp'] });
+  const slow = new AcpHarnessAdapter({ id: 'slow', name: 'slow', bin: mockAcpBin(dir, 'slow'), acpArgs: ['acp'] });
+  let release!: (rows: any[]) => void;
+  slow.listSessions = () => new Promise((r) => (release = r));
+  registry.register(fast);
+  registry.register(slow);
+  const t = mock.timers;
+  try {
+    await registry.probeAll();
+    const late: any[] = [];
+    registry.on('state', (s) => late.push(s));
+    t.enable({ apis: ['setTimeout'] });
+    const listing = registry.listAllSessions();
+    await new Promise((r) => setImmediate(r));
+    t.tick(10_000);
+    t.reset();
+    assert.deepEqual(await listing, []);
+    release([{ sessionId: 'x', harnessId: 'slow', updatedAt: 1 }]);
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(late.map((s) => [s.harnessId, s.sessionId]), [['slow', 'x']]);
+  } finally {
+    t.reset();
+    fast.stop();
+    slow.stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });
