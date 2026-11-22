@@ -316,10 +316,23 @@ export function rpc(m: string, p: Json = {}): Promise<Json> {
   return fn ? fn(p) : Promise.reject(new Error(`Unknown call: ${m}`));
 }
 
+/** Pre-notification-system gateways only: a background system notification. Newer gateways send `notification` events. */
+function legacyNotify(title: string, body: string) {
+  if (conn.info?.notifications || document.visibilityState === 'visible' || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try {
+    new Notification(title, { body, tag: 'uniharn' });
+  } catch {
+    // not supported in this webview
+  }
+}
+
 function upsert(summary: SessionSummary) {
   const r = row(summary);
   const i = app.sessions.findIndex((s) => s.id === r.id);
   if (i >= 0) {
+    if (app.sessions[i].status === 'running' && (r.status === 'idle' || r.status === 'error')) {
+      legacyNotify(r.status === 'idle' ? 'Session finished' : 'Session hit an error', r.title || r.cwd || '');
+    }
     // A session keeps counting as non-empty once it has shown activity.
     r.hasMessages ||= app.sessions[i].hasMessages;
     app.sessions[i] = r;
@@ -358,6 +371,7 @@ function onMessage(msg: Json) {
     case 'permission_request': {
       const v = views[msg.sessionId];
       const p = v && permissionView(msg, v);
+      legacyNotify('Approval needed', p?.rawInput?.command ?? p?.title ?? msg.toolCall?.title ?? 'A session is waiting for your permission');
       if (v && p && !v.state.permissions.some((x) => x.reqId === msg.requestId)) v.state.permissions.push(p);
       return;
     }
