@@ -2,6 +2,8 @@
   import { conn, forgetConnection, rpc } from '#lib/api.svelte.ts';
   import { go, prefs, setTheme, setAccent, THEMES, ACCENTS, toast } from '#lib/ui.svelte.ts';
   import Icon from './Icon.svelte';
+  import { USAGE_URL } from '#lib/usage.ts';
+  import type { Json } from '#lib/types.ts';
 
   let checking = $state(false);
   const canNotify = typeof Notification !== 'undefined';
@@ -12,6 +14,31 @@
     toast(notifications === 'granted' ? 'Notifications enabled' : 'Notifications are blocked for this app', notifications === 'granted' ? 'info' : 'error');
   }
   let agent = $derived(conn.info?.agent ?? null);
+
+  let account = $state<{ loggedIn: boolean; fields: { label: string; value: string }[] } | null>(null);
+  let accountError = $state<string | null>(null);
+  let loadingAccount = $state(false);
+  async function loadAccount(refresh = false) {
+    loadingAccount = true;
+    try {
+      account = (await rpc('agent.account', { refresh })) as Json;
+      accountError = null;
+    } catch (e) {
+      accountError = String((e as Error)?.message ?? e);
+    }
+    loadingAccount = false;
+  }
+  $effect(() => {
+    if (conn.status === 'online' && !account && !loadingAccount && !accountError) loadAccount();
+  });
+  async function copyUsageLink() {
+    try {
+      await navigator.clipboard.writeText(USAGE_URL);
+      toast('Link copied');
+    } catch {
+      toast(USAGE_URL);
+    }
+  }
 
   async function recheck() {
     checking = true;
@@ -77,6 +104,26 @@
         <button class="btn" onclick={recheck} disabled={checking}>Re-check</button>
       </div>
       <p class="muted detail">Login runs <span class="mono">devin auth login</span> in a terminal on the VM. Credentials are stored there, never on this phone.</p>
+    </div>
+
+    <div class="label">Devin account</div>
+    <div class="card">
+      {#if account?.loggedIn}
+        {#each account.fields as f}
+          <div class="kv"><span>{f.label}</span><b>{f.value}</b></div>
+        {/each}
+      {:else if account}
+        <div class="kv"><span>Status</span><b class="bad">Not logged in</b></div>
+      {:else}
+        <div class="kv"><span>Status</span><b class:bad={!!accountError}>{accountError ? 'Unavailable' : 'Checking…'}</b></div>
+      {/if}
+      {#if accountError}<p class="muted detail">{accountError}</p>{/if}
+      <p class="muted detail">Devin CLI doesn't report remaining quota or credits. Check them, and when they reset, under Usage &amp; limits on app.devin.ai. Per-session token and context use is in each session's controls.</p>
+      <div class="row2">
+        <a class="btn" href={USAGE_URL} target="_blank" rel="noreferrer">Usage &amp; limits</a>
+        <button class="btn" onclick={copyUsageLink}>Copy link</button>
+        <button class="btn" onclick={() => loadAccount(true)} disabled={loadingAccount}>Refresh</button>
+      </div>
     </div>
 
     <button class="btn block danger" onclick={() => (forgetConnection(), go('#/'))}>Disconnect and forget this server</button>

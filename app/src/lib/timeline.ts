@@ -23,7 +23,7 @@ function toolContent(list: Json): ToolContent[] | undefined {
 }
 
 export function emptyState(): SessionState {
-  return { status: 'idle', title: null, mode: null, modes: [], configOptions: [], commands: [], permissions: [], lastStop: null, updatedAt: null };
+  return { status: 'idle', title: null, mode: null, modes: [], configOptions: [], commands: [], permissions: [], lastStop: null, updatedAt: null, context: null, tokens: null, turnStats: null };
 }
 
 /** The per-session fields the gateway reports in its session summary. */
@@ -35,7 +35,10 @@ export function stateFromSummary(s: SessionSummary): Partial<SessionState> {
     modes: s.modes?.availableModes ?? [],
     configOptions: s.configOptions ?? [],
     commands: (s.commands ?? []).map((c: Json) => ({ name: c.name, description: c.description ?? '', hint: c.input?.hint ?? null, category: c._meta?.['cognition.ai/category'] ?? null })),
-    updatedAt: s.updatedAt ?? null
+    updatedAt: s.updatedAt ?? null,
+    context: typeof s.usage?.used === 'number' && typeof s.usage?.size === 'number' && s.usage.size > 0 ? { used: s.usage.used, size: s.usage.size } : null,
+    tokens: s.tokens ?? null,
+    turnStats: s.turnStats ?? null
   };
 }
 

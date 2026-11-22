@@ -33,6 +33,15 @@ export interface SessionSummary {
   modes: Json | null;
   commands: Json[];
   usage: Json | null;
+  tokens: TokenTotals;
+  turnStats: Json[] | null;
+}
+
+export interface TokenTotals {
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedReadTokens: number;
 }
 
 const MAX_EVENTS = 20000;
@@ -52,6 +61,10 @@ export class Session {
   modes: Json | null = null;
   commands: Json[] = [];
   usage: Json | null = null;
+  /** Summed from each `session/prompt` result's `usage` while this gateway runs. */
+  tokens: TokenTotals = { turns: 0, inputTokens: 0, outputTokens: 0, cachedReadTokens: 0 };
+  /** Session-wide totals from Devin CLI's `_cognition.ai/turn_stats` (label/value rows). */
+  turnStats: Json[] | null = null;
   permissions = new Map<string, PendingPermission>();
 
   constructor(public sessionId: string, public cwd: string) {}
@@ -79,6 +92,8 @@ export class Session {
       modes: this.modes,
       commands: this.commands,
       usage: this.usage,
+      tokens: this.tokens,
+      turnStats: this.turnStats,
     };
   }
 
@@ -266,6 +281,13 @@ export class SessionManager extends EventEmitter {
       .request('session/prompt', { sessionId, prompt: content })
       .then((r) => {
         s.lastStopReason = r?.stopReason ?? null;
+        const u = r?.usage;
+        s.tokens = {
+          turns: s.tokens.turns + 1,
+          inputTokens: s.tokens.inputTokens + (u?.inputTokens ?? 0),
+          outputTokens: s.tokens.outputTokens + (u?.outputTokens ?? 0),
+          cachedReadTokens: s.tokens.cachedReadTokens + (u?.cachedReadTokens ?? 0),
+        };
         const done = s.push({ sessionUpdate: '_turn_end', stopReason: s.lastStopReason });
         this.emit('event', s, done);
       })
@@ -359,7 +381,17 @@ export class SessionManager extends EventEmitter {
     return acp.request('authenticate', { methodId }, 300000);
   }
 
+  private onTurnStats(params: Json) {
+    const s = this.sessions.get(params?.sessionId);
+    if (!s || !Array.isArray(params.responseDimensions)) return;
+    s.turnStats = params.responseDimensions
+      .filter((d: Json) => d?.kind && (d.kind.type === 'metric' || d.kind.type === 'cumulativeMetric'))
+      .map((d: Json) => ({ id: d.uid, group: d.groupTitle ?? null, label: d.label, value: d.kind.value }));
+    this.emit('state', s.summary());
+  }
+
   private onNotification(method: string, params: Json) {
+    if (method === '_cognition.ai/turn_stats') return this.onTurnStats(params);
     if (method !== 'session/update' || !params?.sessionId) return;
     const s = this.sessions.get(params.sessionId);
     if (!s) return;
@@ -391,6 +423,11 @@ export class SessionManager extends EventEmitter {
   }
 
   private onRequest(conn: AcpConnection, id: Json, method: string, params: Json) {
+    if (method === '_cognition.ai/turn_stats') {
+      this.onTurnStats(params);
+      conn.respond(id, {});
+      return;
+    }
     if (method === 'session/request_permission') {
       const s = this.sessions.get(params?.sessionId);
       if (!s) {
