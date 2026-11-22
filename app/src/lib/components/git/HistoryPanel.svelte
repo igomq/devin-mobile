@@ -47,7 +47,7 @@
     detailError = null;
     try {
       const d: GitCommitDetail = await rpc('git.commitShow', { cwd, hash: c.fullHash });
-      if (selected === c) detail = { ...d, rows: parseDiff(d.diff) };
+      if (selected === c) detail = { ...d, rows: parseDiff(d.diff, { files: true }) };
     } catch (e) {
       if (selected === c) detailError = errorText(e);
     }

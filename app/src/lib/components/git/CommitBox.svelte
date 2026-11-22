@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { rpc } from '#lib/api.svelte.ts';
-  import type { GitCommit, GitStatusView } from '#lib/types.ts';
+  import type { GitCommitDetail, GitStatusView } from '#lib/types.ts';
   import { toast } from '#lib/ui.svelte.ts';
   import { Busy } from './git.svelte.ts';
 
@@ -41,8 +41,8 @@
     amend = !amend;
     if (!amend || message.trim()) return;
     // Amending usually keeps the last message; start from it.
-    const last: GitCommit[] | undefined = await busy.run('last', () => rpc('git.log', { cwd, limit: 1 }));
-    if (amend && !message.trim() && last?.[0]) message = last[0].subject;
+    const last: GitCommitDetail | undefined = await busy.run('last', () => rpc('git.commitShow', { cwd, hash: 'HEAD' }));
+    if (amend && !message.trim() && last) message = last.body ? `${last.subject}\n\n${last.body}` : last.subject;
   }
 
   function commit() {

@@ -105,7 +105,7 @@
     try {
       const r: WorktreeCompare = await rpc('git.worktreeCompare', { cwd, worktreePath: w.path, baseBranch: compareBase || undefined });
       if (comparing !== w) return;
-      compare = { ...r, rows: parseDiff(r.diff) };
+      compare = { ...r, rows: parseDiff(r.diff, { files: true }) };
       compareBase = r.baseBranch;
     } catch (e) {
       if (comparing === w) compareError = errorText(e);

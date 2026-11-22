@@ -56,7 +56,7 @@
     const n = number;
     try {
       const r = await rpc('git.prDiff', { cwd, number: n });
-      if (number === n) diff = { rows: parseDiff(r.diff), truncated: r.truncated };
+      if (number === n) diff = { rows: parseDiff(r.diff, { files: true }), truncated: r.truncated };
     } catch (e) {
       if (number === n) diffError = errorText(e);
     }

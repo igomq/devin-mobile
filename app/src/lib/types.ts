@@ -189,6 +189,7 @@ export interface ConflictHunk {
 export interface ConflictFile {
 	path: string;
 	content: string;
+	binary?: boolean;
 	hunks: ConflictHunk[];
 }
 

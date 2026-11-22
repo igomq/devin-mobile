@@ -144,7 +144,7 @@
     return busy.run('create', async () => {
       if (publish) await rpc('git.push', { cwd, setUpstream: true });
       else if (pushFirst && status.ahead > 0) await rpc('git.push', { cwd });
-      const pr: CreatedPullRequest = await rpc('git.prCreate', { cwd, title: title.trim(), body, base: base.trim(), head, draft: draft || undefined });
+      const pr: CreatedPullRequest = await rpc('git.prCreate', { cwd, title: title.trim(), body, base: base.trim(), draft: draft || undefined });
       creating = false;
       toast(`Opened PR #${pr.number}`);
       try {
