@@ -275,6 +275,7 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'term.detach': (p) => request('term.detach', { termId: p.id }),
   'term.close': (p) => request('term.close', { termId: p.id }),
   'agent.status': async () => (await request('agent.status')).agent,
+  'agent.account': (p) => request('agent.account', { refresh: !!p.refresh }),
   'projects.list': () => request('projects.list')
 };
 

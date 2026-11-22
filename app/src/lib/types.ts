@@ -31,6 +31,28 @@ export interface SessionSummary {
 	modes: { currentModeId: string; availableModes: { id: string; name: string; description?: string }[] } | null;
 	commands: { name: string; description?: string; input?: { hint?: string } | null }[];
 	usage: Json | null;
+	tokens?: TokenTotals;
+	turnStats?: TurnStat[] | null;
+}
+
+export interface TokenTotals {
+	turns: number;
+	inputTokens: number;
+	outputTokens: number;
+	cachedReadTokens: number;
+}
+
+export interface TurnStat {
+	id: string;
+	group: string | null;
+	label: string;
+	value: string | number;
+}
+
+/** ACP `usage_update`: context window use. */
+export interface ContextUsage {
+	used: number;
+	size: number;
 }
 
 export interface SessionEvent {
@@ -174,6 +196,9 @@ export interface SessionState {
 	permissions: PermissionView[];
 	lastStop: string | null;
 	updatedAt: number | null;
+	context: ContextUsage | null;
+	tokens: TokenTotals | null;
+	turnStats: TurnStat[] | null;
 }
 
 export interface SessionView {

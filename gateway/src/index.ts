@@ -70,6 +70,27 @@ function absCwd(v: unknown): string {
   return resolve(p.startsWith('~') ? homedir() + p.slice(1) : p);
 }
 
+const ACCOUNT_FIELDS = ['Name', 'Email', 'Plan', 'Tier', 'Team membership', 'Enterprise'];
+let accountCache: { at: number; value: Json } | null = null;
+
+/** Account and plan details as reported by `devin auth status` (the CLI has no credit-balance query). */
+async function accountInfo(refresh: boolean): Promise<Json> {
+  if (!refresh && accountCache && Date.now() - accountCache.at < 60_000) return accountCache.value;
+  const { execFile } = await import('node:child_process');
+  const out = await new Promise<string>((res, rej) =>
+    execFile(config.devinBin, ['auth', 'status'], { timeout: 20_000 }, (e, stdout, stderr) =>
+      e && !stdout.trim() && !stderr.trim() ? rej(new Error(`Could not run devin auth status: ${e.message}`)) : res(`${stdout}\n${stderr}`),
+    ),
+  );
+  const fields: { label: string; value: string }[] = [];
+  for (const m of out.matchAll(/^[ \t]+([A-Za-z][A-Za-z ]*?):[ \t]+(.+?)[ \t]*$/gm)) {
+    if (ACCOUNT_FIELDS.includes(m[1])) fields.push({ label: m[1], value: m[2] });
+  }
+  const value = { loggedIn: /Logged in/i.test(out) && !/Not logged in/i.test(out), fields };
+  accountCache = { at: Date.now(), value };
+  return value;
+}
+
 async function handle(c: Client, type: string, p: Json): Promise<Json> {
   switch (type) {
     case 'hello': {
@@ -88,6 +109,8 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
     }
     case 'ping':
       return { now: Date.now() };
+    case 'agent.account':
+      return accountInfo(!!p.refresh);
     case 'agent.status':
       try {
         await manager.ensureAgent();
