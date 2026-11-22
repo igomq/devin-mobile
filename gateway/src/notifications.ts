@@ -314,7 +314,8 @@ export class NotificationService extends EventEmitter {
           await this.sendPush({ endpoint: sub.endpoint, expirationTime: sub.expirationTime ?? null, keys: sub.keys }, payload, {
             TTL: 3600,
             urgency: rec.severity === 'error' || rec.type === 'approval_requested' ? 'high' : 'normal',
-            topic: rec.type.replace(/_/g, '').slice(0, 32),
+            // Per-notification topic: the push service replaces queued messages that share one.
+            topic: `${rec.type.replace(/_/g, '').slice(0, 20)}${hashish(rec.dedupKey)}`,
             vapidDetails: this.vapid,
           });
           sent++;
