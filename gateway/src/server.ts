@@ -666,10 +666,15 @@ export function createGatewayServer(input: Config) {
       }
     }, 20_000).unref();
     let lastPollError: string | undefined;
+    let revocationTick = 0;
     revocationPoll = setInterval(() => {
-      if (![...clients].some((client) => client.authed && client.deviceId)) return;
+      // Every 250 ms while device clients are connected, otherwise every 5 s (push subscriptions only).
+      if (![...clients].some((client) => client.authed && client.deviceId) && revocationTick++ % 20 !== 0) return;
       try {
-        const active = new Set(authStore.listDevices().filter((device) => device.revokedAt === null).map((device) => device.deviceId));
+        const devices = authStore.listDevices();
+        // Revocations can come from the CLI while the device is offline: drop its push subscriptions too.
+        for (const device of devices) if (device.revokedAt !== null) notifications.removeDeviceSubscriptions(device.deviceId);
+        const active = new Set(devices.filter((device) => device.revokedAt === null).map((device) => device.deviceId));
         for (const client of clients) {
           if (client.deviceId && !active.has(client.deviceId)) disconnectRevoked(client);
         }
