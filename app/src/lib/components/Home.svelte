@@ -16,7 +16,7 @@
   let usableHarnesses = $derived(app.harnesses.filter((h) => h.enabled && (h.installed || h.id === 'devin')));
   let harnessName = (id?: string) => app.harnesses.find((h) => h.id === id)?.name ?? id ?? '';
   $effect(() => {
-    if (usableHarnesses.length && !usableHarnesses.some((h) => h.id === harnessId)) harnessId = 'devin';
+    if (usableHarnesses.length && !usableHarnesses.some((h) => h.id === harnessId)) harnessId = usableHarnesses[0].id;
   });
   let creating = $state(false);
   let actionsFor = $state<SessionRow | null>(null);
