@@ -618,3 +618,67 @@ test('diff marks patches over 4 MiB as truncated', async () => {
     assert.match(result.diff, /large-untracked\.txt/);
   });
 });
+
+test('unstaging the new path of a staged rename also unstages the old path', async () => {
+  await withRepo(async ({ repo }) => {
+    runGit(repo, ['mv', 'README.md', 'DOC.md']);
+    assert.ok((await git.status(repo)).files.some((f) => f.status === 'renamed' && f.staged));
+    const st = await git.unstage(repo, ['DOC.md']);
+    assert.ok(!st.files.some((f) => f.staged));
+    assert.equal(runGit(repo, ['diff', '--cached', '--name-only']), '');
+  });
+});
+
+test('force push only updates the current branch even with push.default=matching', async () => {
+  await withRepo(async ({ repo, remote }) => {
+    runGit(repo, ['config', 'push.default', 'matching']);
+    await git.createBranch(repo, 'side', { checkout: true });
+    write(repo, 'side.txt', 'side\n');
+    commit(repo, 'side commit');
+    runGit(repo, ['push', 'origin', 'side']);
+    const remoteSide = runGit(remote, ['rev-parse', 'refs/heads/side']);
+    runGit(repo, ['reset', '--hard', 'HEAD~1']);
+    await git.checkout(repo, 'main');
+    write(repo, 'main.txt', 'main\n');
+    commit(repo, 'main commit');
+    await git.push(repo, { force: true, confirmForce: true });
+    assert.equal(runGit(remote, ['rev-parse', 'refs/heads/main']), runGit(repo, ['rev-parse', 'HEAD']));
+    assert.equal(runGit(remote, ['rev-parse', 'refs/heads/side']), remoteSide);
+  });
+});
+
+test('binary conflicts are reported as binary and refuse manual text resolution', async () => {
+  await withRepo(async ({ repo }) => {
+    writeFileSync(join(repo, 'blob.bin'), Buffer.from([0, 1, 2, 0xff]));
+    commit(repo, 'add binary');
+    await git.createBranch(repo, 'feature/bin', { checkout: true });
+    writeFileSync(join(repo, 'blob.bin'), Buffer.from([0, 9, 9, 0xfe]));
+    commit(repo, 'feature binary');
+    await git.checkout(repo, 'main');
+    writeFileSync(join(repo, 'blob.bin'), Buffer.from([0, 7, 7, 0xfd]));
+    commit(repo, 'main binary');
+    assert.throws(() => runGit(repo, ['merge', '--no-edit', 'feature/bin']));
+    const parsed = await git.conflicts(repo);
+    assert.equal(parsed.files[0]?.binary, true);
+    assert.equal(parsed.files[0]?.content, '');
+    await assert.rejects(git.resolveConflict(repo, 'blob.bin', 'manual', 'text'), /Binary files/);
+    assert.deepEqual([...readFileSync(join(repo, 'blob.bin'))], [0, 7, 7, 0xfd]);
+    await git.resolveConflict(repo, 'blob.bin', 'theirs');
+    assert.deepEqual([...readFileSync(join(repo, 'blob.bin'))], [0, 9, 9, 0xfe]);
+  });
+});
+
+test('confirmed dirty worktree removal keeps a branch with unmerged commits', async () => {
+  await withRepo(async ({ repo }) => {
+    const wt = await git.addWorktree(repo, { newBranch: 'feature/unmerged', baseRef: 'main' });
+    write(wt.path, 'work.txt', 'committed\n');
+    commit(wt.path, 'unmerged work');
+    write(wt.path, 'dirty.txt', 'uncommitted\n');
+    await assert.rejects(
+      git.removeWorktree(repo, wt.path, { force: true, confirmDirty: true, deleteBranch: true }),
+      /Branch retained/,
+    );
+    assert.equal(existsSync(wt.path), false);
+    assert.ok((await git.branches(repo)).some((branch) => branch.name === 'feature/unmerged'));
+  });
+});

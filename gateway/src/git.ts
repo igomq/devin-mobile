@@ -310,7 +310,12 @@ export async function stage(cwd: string, paths?: string[], all?: boolean) {
 
 export async function unstage(cwd: string, paths?: string[], all?: boolean) {
   const root = await repoRoot(cwd);
-  const requested = all === true ? ['.'] : changePaths(paths);
+  let requested = all === true ? ['.'] : changePaths(paths);
+  if (all !== true) {
+    // Unstaging only the new side of a staged rename would leave the old path staged for deletion.
+    const renamed = (await readStatus(root)).files.filter(f => f.oldPath && f.staged && requested.includes(f.path));
+    requested = [...new Set([...requested, ...renamed.map(f => f.oldPath!)])];
+  }
   const hasHead = (await gitResult(root, ['rev-parse', '--verify', 'HEAD'])).code === 0;
   const command = hasHead ? ['reset', 'HEAD'] : ['rm', '--cached', '-r', '-f', '--ignore-unmatch'];
   await git(root, ['--literal-pathspecs', ...command, '--', ...requested]);
@@ -519,9 +524,10 @@ export async function push(cwd: string, opts: RemoteOptions & ForceOptions & { s
   if (opts.setUpstream === true) args.push('--set-upstream');
   if (opts.force === true) args.push('--force-with-lease');
   let branch = opts.branch;
-  if (opts.setUpstream === true && branch === undefined) {
+  // A force push names the branch explicitly so push.default=matching cannot force other branches.
+  if ((opts.setUpstream === true || opts.force === true) && branch === undefined) {
     branch = shortBranch((await git(cwd, ['symbolic-ref', '--quiet', 'HEAD'], 1)).trimEnd());
-    if (!branch) throw new Error('Specify a branch to set an upstream when HEAD is detached');
+    if (!branch) throw new Error('Specify a branch to push when HEAD is detached');
   }
   const result = await gitResult(cwd, [...args, ...await remoteArgs(cwd, { remote: opts.remote, branch }, true)]);
   if (result.code !== 0) throw gitError(result);
@@ -575,6 +581,16 @@ function conflictHunks(content: string): ConflictHunk[] {
   return hunks;
 }
 
+/** File bytes as text, or null when they are binary (a NUL byte or invalid UTF-8) and cannot be edited as text. */
+function textContent(bytes: Buffer): string | null {
+  if (bytes.includes(0)) return null;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
 export async function conflicts(cwd: string) {
   const root = await realpath(await repoRoot(cwd));
   const { files, operation } = await readStatus(root);
@@ -582,8 +598,10 @@ export async function conflicts(cwd: string) {
   for (const file of files.filter(f => f.status === 'conflict')) {
     const { absolute } = await checkedFile(root, file.path);
     const st = await lstatIfExists(absolute);
-    const content = st?.isSymbolicLink() ? await readlink(absolute) : st?.isFile() ? await readFile(absolute, 'utf8') : '';
-    conflicted.push({ path: file.path, content, hunks: conflictHunks(content) });
+    const text = st?.isSymbolicLink() ? await readlink(absolute) : st?.isFile() ? textContent(await readFile(absolute)) : '';
+    const binary = text === null;
+    const content = text ?? '';
+    conflicted.push({ path: file.path, content, binary, hunks: conflictHunks(content) });
   }
   return { files: conflicted, operation };
 }
@@ -598,6 +616,9 @@ export async function resolveConflict(cwd: string, path: string, strategy: 'ours
     if (typeof content !== 'string') throw new Error('Manual conflict resolution requires string content');
     const existing = await lstatIfExists(absolute);
     if (existing && !existing.isFile()) throw new Error('Manual conflict resolution requires a regular file');
+    if (existing && textContent(await readFile(absolute)) === null) {
+      throw new Error('Binary files cannot be resolved with edited text; choose ours or theirs');
+    }
     const temp = join(dirname(absolute), `.uniharn-${randomUUID()}.tmp`);
     const file = await open(temp, 'wx', existing ? existing.mode & 0o777 : 0o666);
     try {
@@ -779,7 +800,8 @@ export async function removeWorktree(cwd: string, worktreePath: string, opts: Re
   const main = entries[0].path;
   await git(main, ['worktree', 'remove', ...(force ? ['--force'] : []), '--', entry.path]);
   if (opts.deleteBranch === true && entry.branch) {
-    const result = await gitResult(main, ['branch', force ? '-D' : '-d', '--', entry.branch]);
+    // Confirming lost changes does not cover commits only on this branch, so unmerged branches are kept.
+    const result = await gitResult(main, ['branch', '-d', '--', entry.branch]);
     if (result.code !== 0) throw new Error(`Worktree removed. Branch retained: ${gitError(result).message}`);
   }
 }
