@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/igomq/devin-mobile/security/policy
+    url: https://github.com/igomq/uniharn/security/policy
     about: Report vulnerabilities privately as described in the security policy, not in a public issue.

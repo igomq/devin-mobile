@@ -9,8 +9,8 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 You need Node.js 20 or later and npm. The CI workflow uses Node.js 22. To work on the gateway against a real agent you also need Devin CLI, logged in, on the same machine.
 
 ```bash
-git clone https://github.com/igomq/devin-mobile.git
-cd devin-mobile
+git clone https://github.com/igomq/uniharn.git
+cd uniharn
 (cd app && npm ci)
 (cd gateway && npm ci)
 ```
@@ -70,7 +70,7 @@ Then try the change by hand. For UI changes, check a phone-sized and a tablet-si
 
 ## Reporting bugs
 
-Open an issue with the bug report form at https://github.com/igomq/devin-mobile/issues/new/choose. Include:
+Open an issue with the bug report form at https://github.com/igomq/uniharn/issues/new/choose. Include:
 
 - the app version and how you run it (Android APK, iOS IPA or browser), with the device and OS version
 - the gateway version, the Devin CLI version (`devin --version`) and the Node.js version on the VM

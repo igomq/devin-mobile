@@ -6,11 +6,11 @@
 	"author": "GomQ",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/igomq/devin-mobile"
+		"url": "https://github.com/igomq/uniharn"
 	},
-	"homepage": "https://github.com/igomq/devin-mobile",
+	"homepage": "https://github.com/igomq/uniharn",
 	"bugs": {
-		"url": "https://github.com/igomq/devin-mobile/issues"
+		"url": "https://github.com/igomq/uniharn/issues"
 	},
 	"type": "module",
 	"imports": {
