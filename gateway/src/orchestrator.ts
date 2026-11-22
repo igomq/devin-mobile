@@ -152,6 +152,16 @@ export class Orchestrator extends EventEmitter {
     Object.assign(link, patch, { updatedAt: Date.now() });
     this.save();
     this.emit('link', { ...link });
+    if (link.kind === 'delegate' && (patch.status === 'done' || patch.status === 'error')) {
+      this.registry.emit('subagent_completed', {
+        taskId: link.id,
+        harnessId: link.harnessId,
+        title: link.task.split('\n')[0].slice(0, 120),
+        parentSessionId: link.parentSessionId,
+        ok: link.status === 'done',
+        summary: (link.error ?? link.output ?? '').slice(0, 500),
+      });
+    }
   }
 
   list(sessionId?: string): SessionLink[] {

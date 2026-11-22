@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Additive WebSocket RPCs (`harnesses.list`, `harnesses.probe`, `harnesses.configure`, `harnesses.registerCustom`, `harnesses.removeCustom`, `workspaces.list`, `workspaces.create`, `workspaces.get`).
 - Generic ACP harness adapter with built-in Codex (`codex-acp`), Claude Code (`claude-code-acp`), OpenCode (`opencode acp`) and Kiro (`kiro-cli acp`) harnesses; Command Code and Antigravity are listed but disabled until pointed at an ACP command. Custom ACP definitions now start real adapters. Per-harness env allowlists.
 - Harness picker for new sessions and a harness badge on non-Devin session rows.
+- Cross-harness handoff (`session.handoff`) and subagent delegation (`orchestration.delegate`, `orchestration.list`) with optional git worktree isolation, persisted links and `orchestration_link` events. Session controls in the app to hand off a session or run a subagent and open its result.
+- `uniharn` MCP server (`list_harnesses`, `delegate_task`, `list_delegations`) offered to every ACP session so one harness can delegate to another.
 - Automated `node:test` test suite for gateway config migration, ACP JSON-RPC, harness registry, workspace persistence, and Devin adapter regression, wired into CI.
 
 ## [0.2.0] - 2026-11-22

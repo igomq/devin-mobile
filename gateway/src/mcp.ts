@@ -138,7 +138,7 @@ export function connectGateway(url: string, token: string): Promise<GatewayCall>
 async function main() {
   const { loadConfig } = await import('./config.js');
   const config = loadConfig({ argv: process.argv, detectTailscale: () => null });
-  const url = process.env.UNIHARN_GATEWAY_URL ?? `ws://${config.hosts[0]}:${config.port}`;
+  const url = process.env.UNIHARN_GATEWAY_URL ?? `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}/ws`;
   let gateway: Promise<GatewayCall> | null = null;
   const call: GatewayCall = async (type, params) => {
     gateway ??= connectGateway(url, config.token).catch((e) => {

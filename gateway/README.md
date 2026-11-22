@@ -77,7 +77,7 @@ The first request must be `hello` with the pairing token, sent within 10 seconds
 | `harnesses.list` | | Registered harness info list and custom ACP specs. |
 | `harnesses.probe` | `harnessId?` | Probes one or all harnesses for installation, version, auth, and capabilities. |
 | `harnesses.configure` | `harnessId`, `enabled?`, `bin?`, `args?`, `defaultModel?`, `envAllowlist?` | Persists harness configuration in `<dataDir>/harnesses.json`. |
-| `harnesses.registerCustom` | `id`, `name`, `command`, `args?`, `cwd?`, `envAllowlist?` | Saves a custom ACP agent definition. |
+| `harnesses.registerCustom` | `spec` (`id`, `name`, `command`, `args?`, `cwd?`, `envAllowlist?`, `enabled?`) | Saves a custom ACP agent definition and starts its adapter. Pass the fields under `spec`: a top-level `id` is the request id. |
 | `harnesses.removeCustom` | `id` | Removes a custom ACP agent definition. |
 | `workspaces.list` | | Persisted workspaces. |
 | `workspaces.create` | `cwd`, `name?`, `harnessId?`, `repoRoot?`, `branch?` | Creates or returns the workspace for `cwd`. |
@@ -98,6 +98,9 @@ The first request must be `hello` with the pairing token, sent within 10 seconds
 | `session.setMode` | `sessionId`, `modeId` | Updated session summary. |
 | `session.close` | `sessionId` | Cancels a running turn, calls ACP `session/close` when the agent supports it, and marks the session unloaded. |
 | `session.delete` | `sessionId` | Deletes the session, or fails if this Devin CLI version cannot delete sessions. |
+| `session.handoff` | `sessionId`, `harnessId`, `instruction?` | Starts a session on `harnessId` in the same folder, primed with the source transcript and `instruction`. Returns the `link`. |
+| `orchestration.delegate` | `harnessId`, `task`, `sessionId?` or `cwd`, `worktree?`, `includeContext?`, `wait?` | Runs `task` as a subagent on `harnessId`. `worktree` runs it in a new git worktree. `includeContext` adds the parent transcript. `wait` returns after the turn ends. Returns the `link`. |
+| `orchestration.list` | `sessionId?` | Handoff and subagent links, newest first, optionally only those touching one session. |
 | `git.status` | `cwd` | Branch and changed files with line counts. |
 | `git.diff` | `cwd`, `path?` | Diff for one file or the whole working tree. |
 | `git.log` | `cwd`, `limit?` | Recent commits (default 20). |
@@ -133,8 +136,21 @@ The gateway pushes these messages without a request:
 | `task_done` | All clients | `task` |
 | `term_data` | Clients attached to the terminal | `termId`, `data` |
 | `term_exit` | All clients | `term` |
+| `orchestration_link` | All clients | `link` (created, then updated when the child turn ends) |
 
 The `update` of an `event` is an ACP `session/update` payload, or one of the records the gateway adds to the log: `_turn_end` (with `stopReason`), `_turn_error` (with `message`), `_permission_request` and `_permission_resolved`. The user's own prompt is logged as a `user_message_chunk` marked `_local`. Config option, mode, title and command changes and usage updates also update the session summary, which arrives as `session_state`.
+
+### Handoff and subagents
+
+A link records one handoff or subagent run: `id`, `kind` (`handoff` or `delegate`), `parentSessionId`, `childSessionId`, `harnessId`, `task`, `cwd`, `worktree`, `branch`, `status` (`running`, `done` or `error`), `output` (the child's last reply), `stopReason`, `error`, `createdAt` and `updatedAt`. Links are stored in `<dataDir>/orchestration.json`.
+
+A handoff sends the target harness a prompt with the source session's transcript (user and agent messages and tool call titles, last 12,000 characters) and the instruction.
+
+With `worktree`, the gateway runs `git worktree add -b uniharn/sub-<id> <repo>/.uniharn/worktrees/<id>` and adds `/.uniharn/` to the repo's `info/exclude`. The worktree and branch are kept for review; remove them with `git worktree remove`.
+
+When a subagent finishes, the harness registry emits `subagent_completed` with `taskId`, `harnessId`, `title`, `parentSessionId`, `ok` and `summary`.
+
+Harnesses can delegate too. The gateway offers every ACP session an MCP server named `uniharn` (`node dist/mcp.js`, also installed as `uniharn-mcp`) with the tools `list_harnesses`, `delegate_task` and `list_delegations`. It connects back to the gateway with the pairing token from `UNIHARN_DATA_DIR`. Set `UNIHARN_SUBAGENT_MCP=0` to turn this off.
 
 ### Resuming a session
 

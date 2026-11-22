@@ -39,7 +39,7 @@ if (process.env.UNIHARN_SUBAGENT_MCP !== '0' && existsSync(mcpEntry)) {
     args: [mcpEntry],
     env: [
       { name: 'UNIHARN_DATA_DIR', value: config.dataDir },
-      { name: 'UNIHARN_GATEWAY_URL', value: `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}` },
+      { name: 'UNIHARN_GATEWAY_URL', value: `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}/ws` },
     ],
   };
   registry.setMcpServers(() => [server]);

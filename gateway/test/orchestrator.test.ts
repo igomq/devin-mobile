@@ -89,6 +89,8 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     const parent = await registry.createSession('alpha', repo);
     const events: string[] = [];
     orchestrator.on('link', (l) => events.push(l.status));
+    const completed: any[] = [];
+    registry.on('subagent_completed', (e) => completed.push(e));
 
     const { link, done } = await orchestrator.delegate(`alpha:${parent.sessionId}`, 'beta', 'write docs', { worktree: true });
     assert.ok(link.worktree && existsSync(link.worktree));
@@ -99,6 +101,13 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     assert.equal(finished.stopReason, 'end_turn');
     assert.match(finished.output ?? '', /^beta did write docs cwd=.*\.uniharn\/worktrees\//);
     assert.deepEqual(events, ['running', 'done']);
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0].taskId, link.id);
+    assert.equal(completed[0].harnessId, 'beta');
+    assert.equal(completed[0].title, 'write docs');
+    assert.equal(completed[0].parentSessionId, `alpha:${parent.sessionId}`);
+    assert.equal(completed[0].ok, true);
+    assert.match(completed[0].summary, /^beta did write docs/);
     assert.match(execFileSync('git', ['-C', repo, 'worktree', 'list']).toString(), /uniharn\/sub-/);
     assert.equal(execFileSync('git', ['-C', repo, 'status', '--porcelain']).toString(), '');
 
