@@ -7,7 +7,7 @@ import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { loadConfig } from './config.js';
-import * as git from './git.js';
+import { createGitRpc } from './git-rpc.js';
 import { DevinHarnessAdapter } from './harnesses/devin.js';
 import { createBuiltinAcpAdapters, createCustomAcpAdapter } from './harnesses/builtins.js';
 import { formatScopedSessionId, HarnessRegistry } from './harnesses/registry.js';
@@ -47,6 +47,9 @@ if (process.env.UNIHARN_SUBAGENT_MCP !== '0' && existsSync(mcpEntry)) {
     { name: 'uniharn', command: process.execPath, args: [mcpEntry], env: cwd ? [...env, { name: 'UNIHARN_SESSION_CWD', value: cwd }] : env },
   ]);
 }
+const gitRpc = createGitRpc(config.dataDir, {
+  onStatus: (cwd, st) => notifications.notifyGitConflict(cwd, st.files.filter((f) => f.status === 'conflict').map((f) => f.path)),
+});
 const tasks = new TaskRunner();
 const terminals = new TerminalManager(config.devinBin);
 const notifications = new NotificationService(config.dataDir);
@@ -173,6 +176,8 @@ async function accountInfo(refresh: boolean): Promise<Json> {
 }
 
 async function handle(c: Client, type: string, p: Json): Promise<Json> {
+  const gitResult = gitRpc.handle(type, p);
+  if (gitResult) return gitResult;
   switch (type) {
     case 'hello': {
       if (!tokenOk(p.token)) throw new Error('Invalid token');
@@ -355,11 +360,6 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       await adapter.deleteSession(nativeId);
       return {};
     }
-    case 'git.status': {
-      const st = await git.status(absCwd(p.cwd));
-      if (st.isRepo) notifications.notifyGitConflict(absCwd(p.cwd), st.files.filter((f) => f.status === 'conflict').map((f) => f.path));
-      return st;
-    }
     case 'notifications.list':
       return notifications.list({ sinceSeq: typeof p.sinceSeq === 'number' ? p.sinceSeq : undefined, limit: typeof p.limit === 'number' ? p.limit : undefined, unreadOnly: !!p.unreadOnly });
     case 'notifications.read':
@@ -387,10 +387,6 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       const push = await notifications.waitForPush(n.id);
       return { delivered: true, notification: n, push };
     }
-    case 'git.diff':
-      return git.diff(absCwd(p.cwd), p.path);
-    case 'git.log':
-      return { commits: await git.log(absCwd(p.cwd), p.limit ?? 20) };
     case 'tasks.detect':
       return { command: detectTestCommand(absCwd(p.cwd)) };
     case 'tasks.run': {
