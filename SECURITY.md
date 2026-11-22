@@ -36,7 +36,7 @@ uniharn is designed for one person who controls one Linux VM from their own devi
 ### Harnesses and agents
 
 - **Credentials stay on the VM**: each harness keeps its own login (`devin auth`, `codex login`, `claude /login`, API keys in the environment). The app never receives them.
-- **Environment**: a harness inherits the gateway's environment unless its `envAllowlist` is set; then it gets only `PATH`, `HOME`, locale and XDG variables plus the listed names. Set an allowlist when the gateway's environment holds keys a harness should not see.
+- **Environment**: the gateway removes `UNIHARN_TOKEN` from its own environment at startup, so no child process inherits the master token. A harness inherits the rest of the gateway's environment unless its `envAllowlist` is set; then it gets only `PATH`, `HOME`, locale and XDG variables plus the listed names. Set an allowlist when the gateway's environment holds keys a harness should not see.
 - **Custom ACP agents**: adding one runs the configured command as the gateway user. Only an authenticated client can add or change one, and that client can already open a shell.
 - **`uniharn` MCP server**: agents get delegation tools through an MCP server that connects back to the gateway. Its token is read from `<dataDir>/mcp-token` (mode 0600); only the file path is passed in ACP requests, so the token never appears in agent prompts or logs. An agent with these tools can start sessions on other harnesses with the same rights as the user.
 - **Worktrees**: delegated subagents can run in a separate Git worktree under `.uniharn/worktrees/`, which keeps their edits off your branch. It is isolation for changes, not a sandbox: the agent can still read and write anything the gateway user can.
