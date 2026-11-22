@@ -64,9 +64,9 @@
   li + li { border-top: 1px solid var(--line); }
   .item { position: relative; width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px 10px 18px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
   li.unread .item::before { content: ''; position: absolute; left: 6px; top: 16px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-  .item.error .kind { color: #ff5c5c; }
-  .item.warning .kind { color: #e09b00; }
-  .item.success .kind { color: #2fbf71; }
+  .item.error .kind { color: var(--red); }
+  .item.warning .kind { color: var(--amber); }
+  .item.success .kind { color: var(--green); }
   .kind { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .body { color: var(--muted); font-size: 0.9em; overflow-wrap: anywhere; }
   time { position: absolute; right: 14px; top: 10px; font-size: 0.75em; color: var(--muted); }
