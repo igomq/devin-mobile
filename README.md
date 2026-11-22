@@ -29,18 +29,30 @@ The repository has two packages:
 - Pick a working directory under the gateway's `--roots`, then start, resume, switch between, end and delete sessions. Each session shows its live status.
 - Search sessions. Sessions waiting for your approval are listed first.
 
+### Harnesses
+
+- One app for several coding agents: Devin CLI, OpenAI Codex CLI, Claude Code, OpenCode and Kiro CLI over the Agent Client Protocol, plus any ACP agent you add with its own command, arguments, working directory and environment allowlist. Command Code and Google Antigravity are listed but stay off until they ship an ACP entry point.
+- Pick the harness when you start a session. Modes, models and options come from what each agent reports, so every harness shows its own pickers. Missing CLIs show an install hint, and sign-in errors say how to log in.
+- See [docs/HARNESSES.md](docs/HARNESSES.md) for tested versions and limits.
+
+### Handoff and subagents
+
+- Hand a session off to another harness. The new session starts in the same directory with the conversation transcript and an optional next instruction.
+- Delegate a task to a subagent on any harness, optionally in its own Git worktree so its edits stay off your branch. Subagents appear under their parent session with their status and result, and you get a notification when one finishes.
+- Every ACP harness gets a `uniharn` MCP server with `delegate_task`, `list_harnesses` and related tools, so agents can delegate to each other.
+
 ### Chat
 
 - Streamed replies with Markdown and syntax-highlighted code, plus collapsible thinking and tool calls.
 - Attach images, or paste or drop them into the composer.
 - The composer keeps an unsent draft for each session.
 - Copy a reply.
-- Live elapsed time while Devin works.
+- Live elapsed time while the agent works.
 
 ### Control
 
-- Send more instructions while Devin works, stop a turn, and allow or reject permission requests. Approval cards show the command or diff Devin wants to run or apply.
-- Change the mode, model, thinking level and speed. The model picker lists single models and Fusion (main plus sidekick) pairs separately.
+- Send more instructions while the agent works, stop a turn, and allow or reject permission requests. Approval cards show the command or diff the agent wants to run or apply.
+- Change the mode, model, thinking level and speed. For Devin the model picker lists single models and Fusion (main plus sidekick) pairs separately.
 
 ### Notifications
 
@@ -50,11 +62,12 @@ The repository has two packages:
 ### Review
 
 - A +/− diff summary in the chat header that opens the Changes screen.
-- The Changes screen lists changed files with a per-file Git diff, and runs tests or other commands on the VM and shows their output. The gateway detects a test command for npm, pnpm, yarn, bun, Cargo, Go, pytest and Makefile projects, and you can enter your own.
+- The Changes screen has Files, History, Branches, Worktrees, PRs and Runs tabs: stage, unstage and discard, commit and amend, switch and create branches, fetch, pull and push, resolve merge, rebase and cherry-pick conflicts, compare and merge worktrees, and list, view, create and link GitHub PRs through `gh`. Destructive actions ask for confirmation, and force pushes use `--force-with-lease`.
+- Runs tests or other commands on the VM and shows their output. The gateway detects a test command for npm, pnpm, yarn, bun, Cargo, Go, pytest and Makefile projects, and you can enter your own.
 
 ### Terminal
 
-- A PTY on the VM, running either a shell or the interactive `devin` TUI, for anything the UI does not cover, such as `devin auth login` or MCP setup.
+- A PTY on the VM, running either a shell or the interactive `devin` TUI, for anything the UI does not cover, such as signing in to a harness or MCP setup.
 
 ### Reconnect
 
@@ -80,20 +93,19 @@ The repository has two packages:
 
 ### Not supported
 
-- Editing files, a file browser, or other IDE features. Devin CLI makes the changes, and the diff view is read-only.
-- Staging, committing or pushing from the Changes screen. Ask Devin in chat or use the terminal.
-- Push notifications while the app is closed. Notifications appear only while the app is still alive in the background, and only where the webview implements the Web Notifications API.
-- More than one user or VM per gateway. A gateway has one pairing token and one `devin acp` process.
+- Editing files, a file browser, or other IDE features. The agents make the changes.
+- Native FCM/APNs push. Web Push works in browsers and Home Screen PWAs; native push needs a Firebase project and an Apple signing team (see [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)).
+- More than one user or VM per gateway. All paired devices have the same rights.
 - TLS on the gateway. Traffic is plain WebSocket inside the tailnet. See [Security](#security).
-- Any integration with Codex or a model API of its own. Everything goes through Devin CLI.
+- A model API of its own. Every request goes through a harness CLI installed on the VM.
 
 ## Requirements
 
 On the VM:
 
-- Linux with [Devin CLI](https://docs.devin.ai/cli) installed and logged in.
+- Linux with at least one harness installed and signed in: [Devin CLI](https://docs.devin.ai/cli), Codex CLI with [`codex-acp`](https://www.npmjs.com/package/@zed-industries/codex-acp), Claude Code with [`claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), [OpenCode](https://opencode.ai), Kiro CLI, or another ACP agent.
 - Node.js 20 or later and npm. The gateway depends on `node-pty`, a native module. If npm cannot use a prebuilt binary for your platform, it compiles one, which needs Python 3, `make` and a C++ compiler.
-- Git, for the Changes screen.
+- Git, for the Changes screen and worktrees, and the GitHub CLI `gh` (signed in) for the PRs tab.
 - [Tailscale](https://tailscale.com/download), signed in to the same tailnet as your phone or tablet.
 
 On the phone or tablet:
@@ -106,11 +118,7 @@ On the phone or tablet:
 ### Set up the gateway on the VM
 
 1. Install Tailscale on the VM and on your phone, and sign in to the same tailnet on both.
-2. Install Devin CLI on the VM and log in:
-
-   ```bash
-   devin auth login
-   ```
+2. Install the harnesses you want on the VM and sign in to each, for example `devin auth login`, `codex login` or `claude /login`. [gateway/README.md](gateway/README.md#harnesses) lists the install command for each.
 
 3. Clone the repository, then build the web UI and the gateway. The gateway serves the built web UI from `app/build`.
 
@@ -121,13 +129,13 @@ On the phone or tablet:
    (cd gateway && npm ci && npm run build)
    ```
 
-4. Start the gateway and print the pairing token:
+4. Start the gateway:
 
    ```bash
-   node gateway/dist/index.js --print-token
+   node gateway/dist/index.js
    ```
 
-   By default the gateway listens on port 8787 on `127.0.0.1` and on the VM's Tailscale IPv4 address only. It never binds to all interfaces unless you pass `--host`. The token is generated on first start and stored in `~/.local/share/devin-mobile/token` with mode 0600. Run the command again with `--print-token` whenever you need to see it.
+   By default the gateway listens on port 8787 on `127.0.0.1` and on the VM's Tailscale IPv4 address only. It never binds to all interfaces unless you pass `--host`. A master token is generated on first start and stored in `~/.local/share/uniharn/token` with mode 0600; `--print-token` prints it. Pair devices as described in [Pairing](#pairing).
 
 The gateway looks up the Tailscale address once, at startup, by running `tailscale ip -4`. If Tailscale is not up yet, the gateway listens on `127.0.0.1` only. Restart it after Tailscale connects, or pass the address with `--host`.
 
@@ -174,12 +182,12 @@ Version 0.2.0 changed the app identifier to `me.gomq.devinmobile`. It installs a
 
 ## Pairing
 
-1. Get the token on the VM with `node gateway/dist/index.js --print-token`.
-2. In the app, enter the gateway address and the token. The address can be `100.x.y.z`, `100.x.y.z:8787`, a MagicDNS name, an `http(s)://` URL or a `ws(s)://…/ws` URL. Without a port, the app uses 8787 for plain `ws://` addresses.
+1. On the VM, run `node gateway/dist/index.js pair`. It prints a one-time code and a QR code for `http://<gateway>/#pair=<CODE>`, valid for 5 minutes (`--ttl 30..900`).
+2. In the app, scan the QR code, paste the link or type the code. Opening the link in a browser served by the gateway pairs automatically.
 
-You can also use a pairing link of the form `http://<tailscale-ip>:8787/#token=<token>`. Opening it in a browser connects the web UI directly and removes the token from the address bar. Pasting it into either field in the app fills in both.
+Each device gets its own token. Settings → Devices lists paired devices and can rename or revoke them, rotate this device's token, and pair another device. A revoked device is disconnected immediately. `node gateway/dist/index.js devices list|revoke|revoke-all` does the same from the VM.
 
-The token is stored on the device in app storage. Forgetting the gateway in Settings removes it along with the cached sessions.
+You can still connect with the gateway address and the master token under "Use an access token instead". Forgetting the gateway in Settings removes the token along with the cached sessions.
 
 ## Development
 
@@ -255,13 +263,15 @@ By default the APK is signed with a throwaway key generated for each build, so A
 ## Verification status
 
 - The full flow (create a session, prompt, tool run, approve and reject, diff, stop and follow up, reload, gateway restart) was run against a logged-in Devin CLI 3000.14, with the web UI in a phone-sized browser on the same machine as the gateway.
+- OpenCode 1.19.6 ran prompts and a worktree subagent that called the `uniharn` MCP server. Claude Agent ACP 0.23.1 created sessions and switched models. Codex ACP 0.16.0 completed the ACP handshake; prompts were not run because the test VM was not signed in to Codex. Kiro CLI was not tested. See [docs/HARNESSES.md](docs/HARNESSES.md).
+- Pairing, device revocation, notifications, themes and the Git screens were run in a phone-sized Chromium against a local gateway.
 - Not yet verified: the Tailscale path from a real phone, and installing and running the APK and IPA that CI builds.
 
 ## Security
 
-The gateway has no TLS. Traffic between the phone and the VM is plain HTTP and WebSocket, and relies on the tailnet, which is encrypted with WireGuard, for confidentiality. Keep the default bind (localhost and the Tailscale IP) and never expose the gateway on a public interface. The pairing token gives full control of Devin CLI and a shell on the VM as the user that runs the gateway, so treat it like an SSH key.
+The gateway has no TLS. Traffic between the phone and the VM is plain HTTP and WebSocket, and relies on the tailnet, which is encrypted with WireGuard, for confidentiality. Keep the default bind (localhost and the Tailscale IP) and never expose the gateway on a public interface. A master or device token gives full control of every harness and a shell on the VM as the user that runs the gateway, so treat it like an SSH key, and revoke devices you no longer use.
 
-Your Devin credentials stay on the VM. See [SECURITY.md](SECURITY.md) for the threat model and for how to report a vulnerability privately.
+Harness credentials stay on the VM. See [SECURITY.md](SECURITY.md) for the threat model and for how to report a vulnerability privately.
 
 ## Contributing
 
