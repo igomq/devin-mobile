@@ -39,6 +39,7 @@ export class HarnessRegistry extends EventEmitter {
   private configs = new Map<HarnessId, HarnessConfig>();
   private customSpecs = new Map<string, CustomAcpHarnessSpec>();
   private configFile: string;
+  private customFactory: ((spec: CustomAcpHarnessSpec) => HarnessAdapter) | null = null;
 
   constructor(private dataDir: string) {
     super();
@@ -85,6 +86,21 @@ export class HarnessRegistry extends EventEmitter {
     adapter.on('reset', (s: Session) => this.emit('reset', s));
     adapter.on('deleted', (sessionId: string) => this.emit('deleted', formatScopedSessionId(adapter.id, sessionId)));
     adapter.on('status', (info: HarnessInfo) => this.emit('harness_status', info));
+  }
+
+  /** Instantiates adapters for persisted and newly registered custom ACP definitions. */
+  setCustomFactory(factory: (spec: CustomAcpHarnessSpec) => HarnessAdapter) {
+    this.customFactory = factory;
+    for (const spec of this.customSpecs.values()) this.instantiateCustom(spec);
+  }
+
+  private instantiateCustom(spec: CustomAcpHarnessSpec) {
+    if (!this.customFactory) return;
+    const existing = this.adapters.get(spec.id);
+    if (existing && !existing.custom) return;
+    existing?.stop();
+    this.adapters.delete(spec.id);
+    this.register(this.customFactory(spec));
   }
 
   get(id: HarnessId): HarnessAdapter | undefined {
@@ -143,6 +159,7 @@ export class HarnessRegistry extends EventEmitter {
     };
     this.customSpecs.set(id, normalized);
     this.savePersisted();
+    this.instantiateCustom(normalized);
     return normalized;
   }
 

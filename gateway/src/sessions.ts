@@ -121,6 +121,15 @@ export class Session {
  * Emits: 'event' (session, SessionEvent), 'state' (SessionSummary), 'permission' (session, PendingPermission),
  *        'permission_resolved' (session, requestId), 'reset' (session), 'agent' (status object)
  */
+export interface SessionManagerLaunchOptions {
+  harnessId?: string;
+  /** Arguments placed before the configured extra args. Defaults to `['acp']` (Devin CLI). */
+  baseArgs?: string[];
+  label?: string;
+  cwd?: string;
+  env?: () => NodeJS.ProcessEnv;
+}
+
 export class SessionManager extends EventEmitter {
   private acp: AcpConnection | null = null;
   private starting: Promise<AcpConnection> | null = null;
@@ -129,7 +138,11 @@ export class SessionManager extends EventEmitter {
   private permCounter = 0;
   agentError: string | null = null;
 
-  constructor(private bin: string, private extraArgs: string[] = []) {
+  constructor(
+    private bin: string,
+    private extraArgs: string[] = [],
+    private readonly launch: SessionManagerLaunchOptions = {},
+  ) {
     super();
   }
 
@@ -155,12 +168,16 @@ export class SessionManager extends EventEmitter {
     if (this.acp?.alive) return this.acp;
     if (this.starting) return this.starting;
     this.starting = (async () => {
-      const conn = new AcpConnection(this.bin, ['acp', ...this.extraArgs], process.env, { label: 'devin acp' });
+      const label = this.launch.label ?? 'devin acp';
+      const conn = new AcpConnection(this.bin, [...(this.launch.baseArgs ?? ['acp']), ...this.extraArgs], this.launch.env?.() ?? process.env, {
+        label,
+        ...(this.launch.cwd ? { cwd: this.launch.cwd } : {}),
+      });
       conn.on('notification', (m, p) => this.onNotification(m, p));
       conn.on('request', (id, m, p) => this.onRequest(conn, id, m, p));
       conn.on('exit', (code) => {
         if (this.acp === conn) this.acp = null;
-        this.agentError = `devin acp exited (${code}). ${conn.stderrTail.slice(-3).join(' | ')}`;
+        this.agentError = `${label} exited (${code}). ${conn.stderrTail.slice(-3).join(' | ')}`;
         for (const s of this.sessions.values()) {
           s.loaded = false;
           s.running = 0;
@@ -190,7 +207,7 @@ export class SessionManager extends EventEmitter {
   private getOrCreate(sessionId: string, cwd: string): Session {
     let s = this.sessions.get(sessionId);
     if (!s) {
-      s = new Session(sessionId, cwd);
+      s = new Session(sessionId, cwd, this.launch.harnessId ?? 'devin');
       this.sessions.set(sessionId, s);
     }
     return s;
