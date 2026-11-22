@@ -42,12 +42,12 @@
 <Sheet bind:open title="Session">
   {#if modes.length}
   <div class="label">Mode</div>
-  <div class="seg">
+  <div class="group">
     {#each modes as m}
       <button class="opt" class:on={view?.state.mode === m.id} disabled={busy !== null} onclick={() => run('mode', 'session.setMode', { modeId: m.id })}>
         <b>{m.name}</b>
         {#if m.description}<small>{m.description}</small>{/if}
-        {#if view?.state.mode === m.id}<span class="tick"><Icon name="check" size={16} /></span>{/if}
+        {#if view?.state.mode === m.id}<span class="tick"><Icon name="check" size={18} /></span>{/if}
       </button>
     {/each}
   </div>
@@ -109,32 +109,35 @@
 </Sheet>
 
 <style>
-  .label {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-3);
-    margin: 14px 2px 6px;
-  }
   .label:first-child {
-    margin-top: 2px;
+    margin-top: 4px;
   }
-  .seg {
-    border: 1px solid var(--line);
-    border-radius: 12px;
+  .group {
+    border-radius: var(--r-lg);
     overflow: hidden;
-    background: var(--bg);
+    background: var(--fill);
   }
   .opt {
     display: block;
     position: relative;
     width: 100%;
+    min-height: 52px;
     text-align: left;
-    padding: 10px 40px 10px 14px;
-    border-bottom: 1px solid var(--line);
+    padding: 12px 48px 12px 16px;
+    transition: background-color 0.2s ease;
   }
-  .opt:last-child {
-    border-bottom: 0;
+  .opt:active:not(:disabled) {
+    background: var(--fill);
+  }
+  /* Inset hairline between options. */
+  .opt + .opt::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 16px;
+    right: 0;
+    height: 1px;
+    background: var(--line);
   }
   .opt b {
     font-weight: 500;
@@ -143,18 +146,20 @@
   .opt small {
     display: block;
     color: var(--text-2);
-    font-size: 12.5px;
+    font-size: 13px;
     line-height: 1.35;
+    margin-top: 1px;
   }
   .opt.on b {
     font-weight: 650;
   }
   .tick {
     position: absolute;
-    right: 12px;
+    right: 16px;
     top: 50%;
     transform: translateY(-50%);
     display: grid;
+    color: var(--accent-text);
   }
   .selwrap {
     position: relative;
@@ -164,15 +169,24 @@
   .selwrap select {
     appearance: none;
     width: 100%;
-    min-height: 46px;
-    padding: 0 38px 0 14px;
-    border-radius: 12px;
-    border: 1px solid var(--line);
-    background: var(--bg);
+    min-height: 48px;
+    padding: 0 42px 0 16px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--fill);
+    font-size: 16px;
+    outline: none;
+  }
+  .selwrap select:focus-visible {
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .selwrap option {
+    background: var(--bg-elev);
+    color: var(--text);
   }
   .selwrap :global(svg) {
     position: absolute;
-    right: 12px;
+    right: 16px;
     pointer-events: none;
     color: var(--text-2);
   }
@@ -182,34 +196,33 @@
   }
   .path {
     font-size: 12.5px;
-    margin: 0 2px 2px;
+    margin: 0 6px 2px;
     overflow-wrap: anywhere;
   }
   .usage {
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--bg);
-    padding: 10px 14px;
+    border-radius: var(--r-lg);
+    background: var(--fill);
+    padding: 14px 16px;
     display: grid;
-    gap: 7px;
+    gap: 8px;
   }
   .ctx {
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    font-size: 13.5px;
+    font-size: 14px;
   }
   .ctx span {
     color: var(--text-2);
   }
   .ctx b {
-    font-weight: 550;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
   .bar {
     height: 6px;
     border-radius: 99px;
-    background: var(--line);
+    background: var(--fill-2);
     overflow: hidden;
   }
   .bar i {
@@ -217,7 +230,7 @@
     height: 100%;
     background: var(--accent);
     border-radius: inherit;
-    transition: width 0.4s ease;
+    transition: width 0.4s var(--ease-out);
   }
   .bar.warn i {
     background: var(--amber);
@@ -226,13 +239,19 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 13px;
-    color: var(--accent);
+    justify-self: start;
+    min-height: 32px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--accent-text);
     text-decoration: none;
   }
   .actions {
     display: grid;
     gap: 10px;
-    margin-top: 18px;
+    margin-top: 24px;
+  }
+  .actions .btn {
+    background: var(--fill);
   }
 </style>

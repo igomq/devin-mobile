@@ -5,6 +5,7 @@
   import { go, toast } from '#lib/ui.svelte.ts';
   import { parseDiff, basename } from '#lib/format.ts';
   import Icon from './Icon.svelte';
+  import BackButton from './BackButton.svelte';
   import DiffRows from './DiffRows.svelte';
   import ToolCall from './ToolCall.svelte';
 
@@ -143,7 +144,7 @@
 
 <div class="screen">
   <header class="topbar">
-    <button class="iconbtn" onclick={() => go('#/s/' + encodeURIComponent(id))} aria-label="Back to chat"><Icon name="back" /></button>
+    <BackButton to={'#/s/' + encodeURIComponent(id)} label="Back to chat" />
     <div class="title">
       <b>Changes</b>
       <small>
@@ -152,107 +153,102 @@
         {:else}{basename(cwd)}{/if}
       </small>
     </div>
-    <button class="iconbtn" onclick={load} aria-label="Refresh">{#if loading}<span class="spinner"></span>{:else}<Icon name="refresh" />{/if}</button>
+    <button class="iconbtn glass" onclick={load} aria-label="Refresh">{#if loading}<span class="spinner"></span>{:else}<Icon name="refresh" />{/if}</button>
   </header>
 
-  <div class="tabs" role="tablist">
-    <button role="tab" aria-selected={tab === 'files'} class:on={tab === 'files'} onclick={() => (tab = 'files')}>Files{status?.files?.length ? ` ${status.files.length}` : ''}</button>
-    <button role="tab" aria-selected={tab === 'runs'} class:on={tab === 'runs'} onclick={() => (tab = 'runs')}>Test &amp; command output{runs.length ? ` ${runs.length}` : ''}</button>
-  </div>
+  <main class="scroller">
+    <div class="column">
+      <div class="segmented tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'files'} class:on={tab === 'files'} onclick={() => (tab = 'files')}>Files{status?.files?.length ? ` ${status.files.length}` : ''}</button>
+        <button role="tab" aria-selected={tab === 'runs'} class:on={tab === 'runs'} onclick={() => (tab = 'runs')}>Test &amp; command output{runs.length ? ` ${runs.length}` : ''}</button>
+      </div>
 
-  <main>
-    {#if tab === 'files'}
-      {#if error}
-        <div class="empty"><h2>Could not read changes</h2><p>{error}</p></div>
-      {:else if !status}
-        <div class="empty"><span class="spinner" style="margin:auto"></span></div>
-      {:else if !status.repo}
-        <div class="empty"><h2>Not a git repository</h2><p>Changes are shown for projects tracked with git. File edits still appear inline in the chat.</p></div>
-      {:else if status.files.length === 0}
-        <div class="empty"><h2>No changes</h2><p>The working tree matches the last commit.</p></div>
-      {:else}
-        {#each status.files as f (f.path)}
-          <div class="file">
-            <button class="fhead" onclick={() => toggle(f.path)} aria-expanded={openFile === f.path}>
-              <span class="k {f.kind}">{letter[f.kind] ?? 'M'}</span>
-              <span class="fp"><b>{basename(f.path)}</b><small class="mono"><bdi>{f.path}</bdi></small></span>
-              <span class="nums">{#if f.added != null}<span class="plus">+{f.added}</span> <span class="minus">−{f.removed}</span>{/if}</span>
-              <span class="chev" class:open={openFile === f.path}><Icon name="chevron" size={16} /></span>
-            </button>
-            {#if openFile === f.path}
-              <div class="fbody">
-                {#if !diffs[f.path]}<div class="pad"><span class="spinner"></span></div>
-                {:else if diffs[f.path].error}<div class="pad err">{diffs[f.path].error}</div>
-                {:else if !diffs[f.path].rows?.length}<div class="pad muted">No text changes to show.</div>
-                {:else}
-                  <DiffRows rows={diffs[f.path].rows ?? []} lang={ext(f.path)} />
-                  {#if diffs[f.path].truncated}<div class="pad muted">Diff truncated. Open the terminal for the full output.</div>{/if}
+      {#if tab === 'files'}
+        {#if error}
+          <div class="empty"><h2>Could not read changes</h2><p>{error}</p></div>
+        {:else if !status}
+          <div class="empty"><span class="spinner" style="margin:auto"></span></div>
+        {:else if !status.repo}
+          <div class="empty"><h2>Not a git repository</h2><p>Changes are shown for projects tracked with git. File edits still appear inline in the chat.</p></div>
+        {:else if status.files.length === 0}
+          <div class="empty"><h2>No changes</h2><p>The working tree matches the last commit.</p></div>
+        {:else}
+          <div class="card files">
+            {#each status.files as f (f.path)}
+              <div class="file">
+                <button class="fhead" onclick={() => toggle(f.path)} aria-expanded={openFile === f.path}>
+                  <span class="k {f.kind}">{letter[f.kind] ?? 'M'}</span>
+                  <span class="fp"><b>{basename(f.path)}</b><small class="mono"><bdi>{f.path}</bdi></small></span>
+                  <span class="nums">{#if f.added != null}<span class="plus">+{f.added}</span> <span class="minus">−{f.removed}</span>{/if}</span>
+                  <span class="chev" class:open={openFile === f.path}><Icon name="chevron" size={16} /></span>
+                </button>
+                {#if openFile === f.path}
+                  <div class="fbody">
+                    {#if !diffs[f.path]}<div class="pad"><span class="spinner"></span></div>
+                    {:else if diffs[f.path].error}<div class="pad err">{diffs[f.path].error}</div>
+                    {:else if !diffs[f.path].rows?.length}<div class="pad muted">No text changes to show.</div>
+                    {:else}
+                      <DiffRows rows={diffs[f.path].rows ?? []} lang={ext(f.path)} />
+                      {#if diffs[f.path].truncated}<div class="pad muted">Diff truncated. Open the terminal for the full output.</div>{/if}
+                    {/if}
+                  </div>
                 {/if}
               </div>
+            {/each}
+          </div>
+        {/if}
+      {:else}
+        <form class="runner" onsubmit={(e) => (e.preventDefault(), taskBusy ? rpc('tasks.stop', { id: task?.taskId }).catch(() => {}) : runTask())}>
+          <input class="mono" bind:value={command} placeholder="Test command, e.g. npm test" aria-label="Test command" autocapitalize="off" autocorrect="off" spellcheck="false" disabled={taskBusy} />
+          <button class="btn" class:primary={!taskBusy} class:danger={taskBusy} type="submit" disabled={!taskBusy && !command.trim()}>
+            <Icon name={taskBusy ? 'stop' : 'play'} size={16} /> {taskBusy ? 'Stop' : 'Run'}
+          </button>
+        </form>
+        {#if task}
+          <div class="card result">
+            <div class="rhead">
+              {#if taskBusy}<span class="spinner"></span> Running
+              {:else if task.exitCode === 0}<span class="ok"><Icon name="check" size={15} /> Passed</span>
+              {:else}<span class="bad"><Icon name="x" size={15} /> Exit {task.exitCode ?? 'signal'}</span>{/if}
+              <code class="mono">{task.command}</code>
+            </div>
+            <pre class="out mono" bind:this={outEl}>{output || (taskBusy ? '' : 'No output.')}</pre>
+            {#if task.truncated}<div class="pad muted">Output truncated. Open the terminal for the full run.</div>{/if}
+            {#if !taskBusy && task.exitCode !== 0}
+              <button class="btn block fix" onclick={sendToDevin}>Ask Devin to fix this</button>
             {/if}
           </div>
-        {/each}
-      {/if}
-    {:else}
-      <form class="runner" onsubmit={(e) => (e.preventDefault(), taskBusy ? rpc('tasks.stop', { id: task?.taskId }).catch(() => {}) : runTask())}>
-        <input class="mono" bind:value={command} placeholder="Test command, e.g. npm test" aria-label="Test command" autocapitalize="off" autocorrect="off" spellcheck="false" disabled={taskBusy} />
-        <button class="btn" class:primary={!taskBusy} class:danger={taskBusy} type="submit" disabled={!taskBusy && !command.trim()}>
-          <Icon name={taskBusy ? 'stop' : 'play'} size={16} /> {taskBusy ? 'Stop' : 'Run'}
-        </button>
-      </form>
-      {#if task}
-        <div class="result">
-          <div class="rhead">
-            {#if taskBusy}<span class="spinner"></span> Running
-            {:else if task.exitCode === 0}<span class="ok"><Icon name="check" size={15} /> Passed</span>
-            {:else}<span class="bad"><Icon name="x" size={15} /> Exit {task.exitCode ?? 'signal'}</span>{/if}
-            <code class="mono">{task.command}</code>
-          </div>
-          <pre class="out mono" bind:this={outEl}>{output || (taskBusy ? '' : 'No output.')}</pre>
-          {#if task.truncated}<div class="pad muted">Output truncated. Open the terminal for the full run.</div>{/if}
-          {#if !taskBusy && task.exitCode !== 0}
-            <button class="btn block fix" onclick={sendToDevin}>Ask Devin to fix this</button>
-          {/if}
+        {/if}
+        <div class="label">Run by Devin in this session</div>
+        <div class="runs">
+          {#each runs as r (r.id)}<ToolCall item={r} open={r.status === 'failed'} />{:else}
+            <p class="muted none">Tests, builds and other commands Devin runs show up here with their output.</p>
+          {/each}
         </div>
       {/if}
-      <div class="runs">
-        <div class="label">Run by Devin in this session</div>
-        {#each runs as r (r.id)}<ToolCall item={r} open={r.status === 'failed'} />{:else}
-          <p class="muted none">Tests, builds and other commands Devin runs show up here with their output.</p>
-        {/each}
-      </div>
-    {/if}
+    </div>
   </main>
 </div>
 
 <style>
-  .tabs {
-    flex: none;
-    display: flex;
-    gap: 4px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--line);
-  }
-  .tabs button {
-    flex: 1;
-    min-height: 36px;
-    border-radius: 9px;
-    font-size: 13.5px;
-    color: var(--text-2);
-  }
-  .tabs button.on {
-    background: var(--bg-elev2);
-    color: var(--text);
-    font-weight: 600;
-  }
-  main {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+  .column {
     display: flex;
     flex-direction: column;
-    padding-bottom: var(--safe-bottom);
+    min-height: 100%;
+    max-width: var(--column);
+    margin-inline: auto;
+    padding: 8px calc(var(--safe-right) + 16px) calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 16px);
+  }
+  .tabs {
+    flex: none;
+    margin-bottom: 16px;
+  }
+  .tabs button {
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
   }
   .plus {
     color: var(--green);
@@ -260,31 +256,40 @@
   .minus {
     color: var(--red);
   }
+  .files {
+    overflow: hidden;
+  }
   .file {
-    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  /* Inset hairline between files, starting at the file name. */
+  .file + .file::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50px;
+    right: 0;
+    height: 1px;
+    background: var(--line);
   }
   .fhead {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     width: 100%;
-    min-height: 54px;
-    padding: 8px 12px 8px 14px;
+    min-height: 56px;
+    padding: 8px 14px 8px 16px;
     text-align: left;
-    position: sticky;
-    top: 0;
-    background: var(--bg);
-    z-index: 1;
   }
   .k {
     flex: none;
     width: 22px;
     height: 22px;
-    border-radius: 6px;
+    border-radius: 7px;
     display: grid;
     place-items: center;
     font: 600 11px var(--mono);
-    background: var(--bg-elev2);
+    background: var(--fill-2);
     color: var(--amber);
   }
   .k.added {
@@ -300,8 +305,8 @@
   }
   .fp b {
     display: block;
-    font-weight: 500;
-    font-size: 14.5px;
+    font-weight: 600;
+    font-size: 15px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -319,74 +324,77 @@
   .nums {
     flex: none;
     font: 12px var(--mono);
+    font-variant-numeric: tabular-nums;
   }
   .chev {
     display: grid;
     color: var(--text-3);
-    transition: transform 0.15s;
+    transition: transform 0.2s var(--ease-out);
   }
   .chev.open {
     transform: rotate(90deg);
   }
   .fbody {
-    border-top: 1px solid var(--line);
+    margin: 0 10px 10px;
+    border-radius: var(--r-md);
     background: var(--bg);
+    overflow: hidden;
   }
   .pad {
-    padding: 14px;
+    padding: 14px 16px;
     font-size: 13.5px;
   }
   .err {
     color: var(--red);
   }
   .runs {
-    padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
-  .label {
-    font-size: 12px;
-    color: var(--text-3);
-    padding: 4px 2px 0;
-  }
   .none {
     font-size: 13.5px;
-    padding: 4px 2px;
+    margin: 0;
+    padding: 4px 6px;
   }
   .runner {
     display: flex;
     gap: 8px;
-    padding: 12px 12px 0;
   }
   .runner input {
     flex: 1;
     min-width: 0;
-    min-height: 44px;
-    padding: 0 12px;
-    border-radius: 12px;
-    border: 1px solid var(--line);
-    background: var(--bg-input);
+    min-height: 46px;
+    padding: 0 18px;
+    border-radius: 999px;
+    border: 0;
+    background: var(--fill);
     font-size: 16px;
     outline: none;
+    transition: box-shadow 0.18s ease;
   }
   .runner input:focus {
-    border-color: var(--line-strong);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .runner .btn {
+    flex: none;
+  }
+  .runner .btn:not(.primary) {
+    background: var(--fill);
   }
   .result {
     flex: none;
-    margin: 12px 12px 0;
-    border: 1px solid var(--line);
-    border-radius: 14px;
+    margin-top: 12px;
     overflow: hidden;
   }
   .rhead {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 12px;
-    font-size: 13.5px;
-    font-weight: 500;
+    min-height: 48px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
     border-bottom: 1px solid var(--line);
   }
   .rhead span {
@@ -411,7 +419,7 @@
   }
   .out {
     margin: 0;
-    padding: 10px 12px;
+    padding: 12px 16px;
     max-height: 42vh;
     overflow: auto;
     font-size: 12px;
@@ -423,5 +431,6 @@
   .fix {
     margin: 0 12px 12px;
     width: calc(100% - 24px);
+    background: var(--fill);
   }
 </style>

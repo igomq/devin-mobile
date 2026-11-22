@@ -29,7 +29,7 @@
 </script>
 
 {#if m.pairs.length}
-  <div class="tabs">
+  <div class="segmented tabs">
     <button class:on={tab === 'single'} onclick={() => (tab = 'single')}>Single model</button>
     <button class:on={tab === 'fusion'} onclick={() => (tab = 'fusion')}>Fusion</button>
   </div>
@@ -67,38 +67,19 @@
 
 <style>
   .tabs {
-    display: flex;
-    gap: 4px;
-    padding: 4px;
-    margin-bottom: 8px;
-    border-radius: 12px;
-    background: var(--bg);
-    border: 1px solid var(--line);
-  }
-  .tabs button {
-    flex: 1;
-    min-height: 34px;
-    border-radius: 9px;
-    font-size: 14px;
-    color: var(--text-2);
-    transition: background 0.18s, color 0.18s;
-  }
-  .tabs button.on {
-    background: var(--bg-elev2);
-    color: var(--text);
-    font-weight: 600;
+    margin-bottom: 10px;
   }
   .fusion {
     display: grid;
     gap: 6px;
   }
   .sub {
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--text-2);
-    margin: 2px 2px 0;
+    margin: 4px 6px 0;
   }
   .fusion .btn {
-    margin-top: 6px;
+    margin-top: 8px;
   }
   .selwrap {
     position: relative;
@@ -108,15 +89,24 @@
   .selwrap select {
     appearance: none;
     width: 100%;
-    min-height: 46px;
-    padding: 0 38px 0 14px;
-    border-radius: 12px;
-    border: 1px solid var(--line);
-    background: var(--bg);
+    min-height: 48px;
+    padding: 0 42px 0 16px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--fill);
+    font-size: 16px;
+    outline: none;
+  }
+  .selwrap select:focus-visible {
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .selwrap option {
+    background: var(--bg-elev);
+    color: var(--text);
   }
   .selwrap :global(svg) {
     position: absolute;
-    right: 12px;
+    right: 16px;
     pointer-events: none;
     color: var(--text-2);
   }

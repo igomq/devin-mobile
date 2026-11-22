@@ -60,9 +60,8 @@
 
 <style>
   .tool {
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--bg-elev);
+    border-radius: var(--r-md);
+    background: var(--fill);
     overflow: hidden;
   }
   .head {
@@ -70,8 +69,8 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    min-height: 38px;
-    padding: 6px 10px;
+    min-height: 40px;
+    padding: 8px 12px;
     text-align: left;
     opacity: 1 !important;
   }
@@ -102,7 +101,7 @@
   .chev {
     color: var(--text-3);
     display: grid;
-    transition: transform 0.15s;
+    transition: transform 0.2s var(--ease-out);
   }
   .chev.open {
     transform: rotate(90deg);
@@ -112,12 +111,13 @@
     height: 13px;
   }
   .body {
+    margin: 0 12px;
+    padding-bottom: 4px;
     border-top: 1px solid var(--line);
-    background: var(--bg);
   }
   pre {
     margin: 0;
-    padding: 8px 10px;
+    padding: 8px 0;
     font: 12px/1.5 var(--mono);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -136,7 +136,7 @@
   }
   .fname {
     font-size: 12px;
-    padding: 6px 10px;
+    padding: 6px 0;
     border-bottom: 1px solid var(--line);
     overflow-wrap: anywhere;
   }
