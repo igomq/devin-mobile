@@ -101,9 +101,10 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     this.resolvedBin = resolveBin(this.bin);
     this.installed = !!this.resolvedBin;
     this.version = null;
+    this.manager.updateLaunchConfig(this.resolvedBin ?? this.bin, this.args);
     if (this.resolvedBin) {
       try {
-        const { stdout } = await execFileAsync(this.resolvedBin, this.spec.versionArgs ?? ['--version'], { timeout: 5000 });
+        const { stdout } = await execFileAsync(this.resolvedBin, this.spec.versionArgs ?? ['--version'], { timeout: 5000, env: filterEnv(this.envAllowlist) });
         this.version = stdout.trim().split('\n')[0] || null;
       } catch {
         // Version probing is best effort; some ACP shims do not support --version.
