@@ -6,6 +6,7 @@
     stop: 'M7 7h10v10H7z',
     diff: 'M8 4v10M3 9h10M15 19h6M6 20a2 2 0 100-4 2 2 0 000 4zM18 8a2 2 0 100-4 2 2 0 000 4zM18 8v3a3 3 0 01-3 3H6',
     terminal: 'M5 8l4 4-4 4M12 16h7',
+    bell: 'M6 16V11a6 6 0 0112 0v5l1.5 2h-15zM10 20.5a2 2 0 004 0',
     settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
     chevron: 'M9 6l6 6-6 6',
     down: 'M6 9l6 6 6-6',

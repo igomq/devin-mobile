@@ -4,6 +4,9 @@
   import { onMount } from 'svelte';
   import { applyTheme, toasts, go, layout, toggleSidebar, requests } from '#lib/ui.svelte.ts';
   import { connect, configured } from '#lib/api.svelte.ts';
+  import { initNotifications } from '#lib/notifications.svelte.ts';
+  import NotificationBanner from '#lib/components/NotificationBanner.svelte';
+  import NotificationCenter from '#lib/components/NotificationCenter.svelte';
 
   let { children } = $props();
 
@@ -26,6 +29,7 @@
 
   onMount(() => {
     applyTheme();
+    initNotifications();
     if (configured()) connect();
     // Keep the layout above the on-screen keyboard (iOS does not resize the layout viewport).
     const vv = window.visualViewport;
@@ -48,6 +52,9 @@
 <svelte:window onkeydown={shortcuts} />
 
 {@render children()}
+
+<NotificationBanner />
+<NotificationCenter />
 
 <div class="toasts" aria-live="polite">
   {#each toasts as t (t.id)}<div class="toast glass {t.kind}">{t.text}</div>{/each}
