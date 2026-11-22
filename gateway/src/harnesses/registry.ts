@@ -199,7 +199,9 @@ export class HarnessRegistry extends EventEmitter {
             const rows = await Promise.race([listing, timeout]).finally(() => clearTimeout(timer));
             if (!rows) {
               // A slow harness must not hold up the others: its rows arrive later as session_state updates.
-              listing.then((late) => late.forEach((r) => this.emit('state', { ...r, harnessId: a.id }))).catch(() => undefined);
+              listing
+                .then((late) => [...late].sort((x, y) => x.updatedAt - y.updatedAt).forEach((r) => this.emit('state', { ...r, harnessId: a.id })))
+                .catch(() => undefined);
               return [];
             }
             return rows.map((r) => ({ ...r, harnessId: a.id, sessionId: formatScopedSessionId(a.id, r.sessionId) }));

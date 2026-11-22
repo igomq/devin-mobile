@@ -127,9 +127,9 @@ test('listAllSessions does not wait for a stalled harness and reports its rows l
     t.tick(10_000);
     t.reset();
     assert.deepEqual(await listing, []);
-    release([{ sessionId: 'x', harnessId: 'slow', updatedAt: 1 }]);
+    release([{ sessionId: 'new', harnessId: 'slow', updatedAt: 2 }, { sessionId: 'old', harnessId: 'slow', updatedAt: 1 }]);
     await new Promise((r) => setImmediate(r));
-    assert.deepEqual(late.map((s) => [s.harnessId, s.sessionId]), [['slow', 'x']]);
+    assert.deepEqual(late.map((s) => [s.harnessId, s.sessionId]), [['slow', 'old'], ['slow', 'new']]);
   } finally {
     t.reset();
     fast.stop();
