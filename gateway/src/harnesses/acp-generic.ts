@@ -167,7 +167,7 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     };
   }
 
-  setMcpServers(servers: () => Json[]): void {
+  setMcpServers(servers: (cwd?: string) => Json[]): void {
     this.manager.mcpServers = servers;
   }
 

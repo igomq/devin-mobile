@@ -106,13 +106,14 @@ export async function handleMcpMessage(msg: Json, call: GatewayCall, defaultCwd 
 }
 
 /** Connects to the gateway and returns a request function once `hello` succeeds. */
-export function connectGateway(url: string, token: string): Promise<GatewayCall> {
+export function connectGateway(url: string, token: string, onClose?: () => void): Promise<GatewayCall> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     const pending = new Map<number, { res: (v: Json) => void; rej: (e: Error) => void }>();
     let next = 1;
     const call: GatewayCall = (type, params) =>
       new Promise((res, rej) => {
+        if (ws.readyState !== WebSocket.OPEN) return rej(new Error('Gateway connection closed'));
         const id = next++;
         pending.set(id, { res, rej });
         ws.send(JSON.stringify({ id, type, ...params }));
@@ -130,6 +131,7 @@ export function connectGateway(url: string, token: string): Promise<GatewayCall>
     ws.on('close', () => {
       for (const p of pending.values()) p.rej(new Error('Gateway connection closed'));
       pending.clear();
+      onClose?.();
     });
     ws.on('open', () => call('hello', { token }).then(() => resolve(call), reject));
   });
@@ -141,7 +143,9 @@ async function main() {
   const url = process.env.UNIHARN_GATEWAY_URL ?? `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}/ws`;
   let gateway: Promise<GatewayCall> | null = null;
   const call: GatewayCall = async (type, params) => {
-    gateway ??= connectGateway(url, config.token).catch((e) => {
+    gateway ??= connectGateway(url, config.token, () => {
+      gateway = null;
+    }).catch((e) => {
       gateway = null;
       throw new Error(`Cannot reach the uniharn gateway at ${url}: ${e?.message ?? e}`);
     });
@@ -156,7 +160,7 @@ async function main() {
     } catch {
       return;
     }
-    const res = await handleMcpMessage(msg, call);
+    const res = await handleMcpMessage(msg, call, process.env.UNIHARN_SESSION_CWD || process.cwd());
     if (res) process.stdout.write(JSON.stringify(res) + '\n');
   });
   rl.on('close', () => process.exit(0));

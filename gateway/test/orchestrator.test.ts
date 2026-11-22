@@ -121,6 +121,12 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     await freeDone;
     assert.equal(orchestrator.get(free.id)?.parentSessionId, '');
     assert.match(orchestrator.get(free.id)?.output ?? '', /^alpha did lint cwd=.*repo$/);
+    const worktrees = () => execFileSync('git', ['-C', repo, 'worktree', 'list']).toString();
+    const branches = () => execFileSync('git', ['-C', repo, 'branch']).toString();
+    const [wtBefore, brBefore] = [worktrees(), branches()];
+    await assert.rejects(orchestrator.delegate(null, 'nope', 'x', { cwd: repo, worktree: true }));
+    assert.equal(worktrees(), wtBefore);
+    assert.equal(branches(), brBefore);
   } finally {
     cleanup();
   }
@@ -130,9 +136,10 @@ test('registry offers its MCP servers to every adapter and marks subagent suppor
   const { registry, cleanup } = setup();
   try {
     const server = { name: 'uniharn', command: 'node', args: ['mcp.js'], env: [] };
-    registry.setMcpServers(() => [server]);
+    registry.setMcpServers((cwd) => [{ ...server, env: cwd ? [{ name: 'UNIHARN_SESSION_CWD', value: cwd }] : [] }]);
     const alpha = registry.require('alpha') as AcpHarnessAdapter;
     assert.deepEqual(alpha.manager.mcpServers(), [server]);
+    assert.deepEqual(alpha.manager.mcpServers('/w'), [{ ...server, env: [{ name: 'UNIHARN_SESSION_CWD', value: '/w' }] }]);
     assert.equal(alpha.info().capabilities.subagents, true);
     const late = new AcpHarnessAdapter({ id: 'gamma', name: 'gamma', bin: 'missing-gamma', acpArgs: [] });
     registry.register(late);

@@ -33,16 +33,14 @@ const orchestrator = new Orchestrator(registry, config.dataDir);
 const mcpEntry = join(dirname(fileURLToPath(import.meta.url)), 'mcp.js');
 if (process.env.UNIHARN_SUBAGENT_MCP !== '0' && existsSync(mcpEntry)) {
   // Every harness session gets uniharn's MCP server so its agent can delegate to other harnesses.
-  const server = {
-    name: 'uniharn',
-    command: process.execPath,
-    args: [mcpEntry],
-    env: [
-      { name: 'UNIHARN_DATA_DIR', value: config.dataDir },
-      { name: 'UNIHARN_GATEWAY_URL', value: `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}/ws` },
-    ],
-  };
-  registry.setMcpServers(() => [server]);
+  const env = [
+    { name: 'UNIHARN_DATA_DIR', value: config.dataDir },
+    { name: 'UNIHARN_TOKEN', value: config.token },
+    { name: 'UNIHARN_GATEWAY_URL', value: `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}/ws` },
+  ];
+  registry.setMcpServers((cwd) => [
+    { name: 'uniharn', command: process.execPath, args: [mcpEntry], env: cwd ? [...env, { name: 'UNIHARN_SESSION_CWD', value: cwd }] : env },
+  ]);
 }
 const tasks = new TaskRunner();
 const terminals = new TerminalManager(config.devinBin);
