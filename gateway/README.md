@@ -128,9 +128,32 @@ The first request must be `hello` with a device token or the master token (or `p
 | `session.handoff` | `sessionId`, `harnessId`, `instruction?` | Starts a session on `harnessId` in the same folder, primed with the source transcript and `instruction`. Returns the `link`. |
 | `orchestration.delegate` | `harnessId`, `task`, `sessionId?` or `cwd`, `worktree?`, `includeContext?`, `wait?` | Runs `task` as a subagent on `harnessId`. `worktree` runs it in a new git worktree. `includeContext` adds the parent transcript. `wait` returns after the turn ends. Returns the `link`. |
 | `orchestration.list` | `sessionId?` | Handoff and subagent links, newest first, optionally only those touching one session. |
-| `git.status` | `cwd` | Branch and changed files with line counts. |
-| `git.diff` | `cwd`, `path?` | Diff for one file or the whole working tree. |
+| `git.status` | `cwd` | Branch, upstream, ahead/behind and changed files with line counts, plus `repoRoot`, `detached`, `hasConflicts`, `operation` (`merge`/`rebase`/`cherry-pick`) and per-file `staged`/`unstaged`. |
+| `git.diff` | `cwd`, `path?`, `scope?` | Diff for one file or the whole working tree; `scope` is `all` (default), `staged` or `unstaged`. |
 | `git.log` | `cwd`, `limit?` | Recent commits (default 20). |
+| `git.commitShow` | `cwd`, `hash` | One commit: body, changed files and diff. |
+| `git.stage` / `git.unstage` | `cwd`, `paths?`, `all?` | Stage or unstage files; returns `git.status`. |
+| `git.discard` | `cwd`, `paths`, `confirm: true` | Discard working-tree changes (untracked files are deleted). Refused without `confirm`. |
+| `git.commit` | `cwd`, `message`, `all?`, `amend?` | Commit; returns `{ hash, subject, status }`. Also concludes a merge or cherry-pick. |
+| `git.branches` | `cwd` | Local and remote branches with upstream, ahead/behind and last commit. |
+| `git.checkout` | `cwd`, `branch` | Switch branch (a remote branch creates a tracking branch). |
+| `git.createBranch` | `cwd`, `name`, `from?`, `checkout?` | Create a branch. |
+| `git.deleteBranch` | `cwd`, `name`, `force?`, `confirmForce?` | Delete a merged branch; an unmerged one needs `force` and `confirmForce`. |
+| `git.fetch` | `cwd`, `remote?`, `prune?` | Fetch. |
+| `git.pull` | `cwd`, `remote?`, `branch?`, `rebase?` | Pull (merges unless `rebase` or `pull.rebase` is set); returns `{ ok, conflicts, output, status }`. |
+| `git.push` | `cwd`, `remote?`, `branch?`, `setUpstream?`, `force?`, `confirmForce?` | Push. Force push uses `--force-with-lease` and needs `confirmForce`. |
+| `git.conflicts` | `cwd` | The operation in progress and each conflicted file with ours/theirs hunks. |
+| `git.resolveConflict` | `cwd`, `path`, `strategy`, `content?` | Resolve one file with `ours`, `theirs` or `manual` content and stage it. |
+| `git.abortConflict` | `cwd`, `confirm: true` | Abort the merge, rebase or cherry-pick in progress. |
+| `git.worktrees` / `git.worktreePrune` | `cwd` | List worktrees (dirty state, main, branch), or prune stale entries and list. |
+| `git.worktreeAdd` | `cwd`, `taskSlug?` or `branch?`/`newBranch?`, `baseRef?`, `path?` | Create a worktree for a new task branch (`uniharn/<slug>`) or an existing branch. |
+| `git.worktreeRemove` | `cwd`, `worktreePath`, `force?`, `confirmDirty?`, `deleteBranch?` | Remove a worktree; a dirty one needs `force` and `confirmDirty`. |
+| `git.worktreeCompare` | `cwd`, `worktreePath`, `baseBranch?` | Ahead/behind, changed files and diff of a worktree branch against a base. |
+| `git.worktreeMerge` | `cwd`, `worktreePath`, `targetBranch?`, `squash?`, `confirm?`, `removeAfter?` | Without `confirm`, a preview (commits, fast-forward, predicted conflicts); with it, merges into the target worktree. Refuses when either side has uncommitted changes. |
+| `git.prStatus` | `cwd` | Whether `gh` is installed and signed in and the repo has a GitHub remote. |
+| `git.prList` / `git.prView` / `git.prDiff` | `cwd`, `state?`/`limit?` or `number` | Pull requests through the host's `gh` login. |
+| `git.prCreate` | `cwd`, `title`, `body?`, `base?`, `head?`, `draft?` | Create a pull request with `gh pr create`. |
+| `git.sessionPrGet` / `git.sessionPrLink` / `git.sessionPrUnlink` | `sessionId`, `link?` | The pull request linked to a session, persisted in the data dir. |
 | `tasks.detect` | `cwd` | The detected test command, or `null`. |
 | `tasks.run` | `cwd`, `command?` | Starts a command (the detected test command by default). Output arrives as events. |
 | `tasks.get` | `taskId` | The run, including its output. |

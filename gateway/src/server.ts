@@ -8,7 +8,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { AuthStore, MIN_APP_VERSION, PROTOCOL_VERSION } from './auth.js';
 import type { Config } from './config.js';
 import { collectDiagnostics, gatewaySecurity, suggestedUrls, VERSION } from './diagnostics.js';
-import * as git from './git.js';
+import { createGitRpc } from './git-rpc.js';
 import { createBuiltinAcpAdapters, createCustomAcpAdapter } from './harnesses/builtins.js';
 import { DevinHarnessAdapter } from './harnesses/devin.js';
 import { formatScopedSessionId, HarnessRegistry } from './harnesses/registry.js';
@@ -166,7 +166,10 @@ export function createGatewayServer(input: Config) {
     return assertAllowedPath(resolve(p.startsWith('~') ? homedir() + p.slice(1) : p), config.roots, config.strictRoots);
   }
 
-  const checkGitRoot = config.strictRoots ? (root: string) => assertAllowedPath(root, config.roots, true) : undefined;
+  const gitRpc = createGitRpc(config.dataDir, {
+    onStatus: (cwd, st) => notifications.notifyGitConflict(cwd, st.files.filter((f) => f.status === 'conflict').map((f) => f.path)),
+    checkPath: config.strictRoots ? (path) => assertAllowedPath(path, config.roots, true) : undefined,
+  });
 
   const ACCOUNT_FIELDS = ['Name', 'Email', 'Plan', 'Tier', 'Team membership', 'Enterprise'];
   let accountCache: { at: number; value: Json } | null = null;
@@ -190,6 +193,8 @@ export function createGatewayServer(input: Config) {
   }
 
   async function handle(c: Client, type: string, p: Json): Promise<Json> {
+    const gitResult = gitRpc.handle(type, p);
+    if (gitResult) return gitResult;
     switch (type) {
       case 'hello': {
         checkRateLimit(helloLimiter, c.ip);
@@ -437,12 +442,6 @@ export function createGatewayServer(input: Config) {
         await adapter.deleteSession(nativeId);
         return {};
       }
-      case 'git.status': {
-        const cwd = absCwd(p.cwd);
-        const st = await git.status(cwd, checkGitRoot);
-        if (st.isRepo) notifications.notifyGitConflict(cwd, st.files.filter((f) => f.status === 'conflict').map((f) => f.path));
-        return st;
-      }
       case 'notifications.list':
         return notifications.list({ sinceSeq: typeof p.sinceSeq === 'number' ? p.sinceSeq : undefined, limit: typeof p.limit === 'number' ? p.limit : undefined, unreadOnly: !!p.unreadOnly });
       case 'notifications.read':
@@ -470,10 +469,6 @@ export function createGatewayServer(input: Config) {
         const push = await notifications.waitForPush(n.id);
         return { delivered: true, notification: n, push };
       }
-      case 'git.diff':
-        return git.diff(absCwd(p.cwd), p.path, checkGitRoot);
-      case 'git.log':
-        return { commits: await git.log(absCwd(p.cwd), p.limit ?? 20, checkGitRoot) };
       case 'tasks.detect':
         return { command: detectTestCommand(absCwd(p.cwd)) };
       case 'tasks.run': {

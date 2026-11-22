@@ -3,7 +3,7 @@
 import { getStorageItem, removeStorageItem, setStorageItem } from './storage.ts';
 import { defaultDeviceName, detectPlatform, httpBase, pageOrigin, pairDevice } from './pairing.ts';
 import { applyUpdate, emptyState, permissionView, stateFromSummary } from './timeline.ts';
-import type { AppNotification, ChangedFile, ChangedFileView, ConnInfo, DeviceInfo, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
+import type { AppNotification, ChangedFileView, ConnInfo, DeviceInfo, GitStatus, GitStatusView, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
 
 const STORE_SUFFIX = 'connection';
 
@@ -354,6 +354,29 @@ function upsertLink(l: SessionLink) {
   else app.links.unshift(l);
 }
 
+/** The gateway's git status, plus the summary fields the chat header reads (`repo`, `files` with `kind/added/removed`). */
+function gitStatusView(r: GitStatus): GitStatusView {
+  const entries = r.files ?? [];
+  const live = entries.filter((f) => f.status !== 'conflict');
+  return {
+    repo: r.isRepo,
+    branch: r.branch,
+    files: entries.map((f): ChangedFileView => ({ path: f.path, kind: f.status === 'untracked' ? 'added' : f.status, added: f.binary ? null : f.additions, removed: f.binary ? null : f.deletions })),
+    upstream: r.upstream ?? null,
+    ahead: r.ahead ?? 0,
+    behind: r.behind ?? 0,
+    head: r.head ?? null,
+    repoRoot: r.repoRoot ?? null,
+    detached: r.detached ?? false,
+    hasConflicts: r.hasConflicts ?? false,
+    operation: r.operation ?? null,
+    entries,
+    staged: live.filter((f) => f.staged),
+    unstaged: live.filter((f) => f.unstaged || f.status === 'untracked'),
+    conflicted: entries.filter((f) => f.status === 'conflict')
+  };
+}
+
 // The screens speak in terms of what they need; this table maps each call onto the gateway's
 // request types and reshapes the answer.
 const calls: Record<string, (p: Json) => Promise<Json>> = {
@@ -377,15 +400,53 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
     delete views[p.id];
     return r;
   },
-  'git.status': async (p) => {
-    const r = await request('git.status', { cwd: p.cwd });
-    return {
-      repo: r.isRepo,
-      branch: r.branch,
-      files: r.files.map((f: ChangedFile): ChangedFileView => ({ path: f.path, kind: f.status === 'untracked' ? 'added' : f.status, added: f.binary ? null : f.additions, removed: f.binary ? null : f.deletions }))
-    };
+  'git.status': async (p) => gitStatusView(await request('git.status', { cwd: p.cwd })),
+  'git.diff': (p) => request('git.diff', { cwd: p.cwd, path: p.path, scope: p.scope }),
+  'git.log': async (p) => (await request('git.log', { cwd: p.cwd, limit: p.limit })).commits,
+  'git.commitShow': (p) => request('git.commitShow', { cwd: p.cwd, hash: p.hash }),
+  'git.stage': async (p) => gitStatusView(await request('git.stage', { cwd: p.cwd, paths: p.paths, all: p.all })),
+  'git.unstage': async (p) => gitStatusView(await request('git.unstage', { cwd: p.cwd, paths: p.paths, all: p.all })),
+  'git.discard': async (p) => gitStatusView(await request('git.discard', { cwd: p.cwd, paths: p.paths, confirm: p.confirm })),
+  'git.commit': async (p) => {
+    const r = await request('git.commit', { cwd: p.cwd, message: p.message, amend: p.amend });
+    return { hash: r.hash, subject: r.subject, status: gitStatusView(r.status) };
   },
-  'git.diff': (p) => request('git.diff', { cwd: p.cwd, path: p.path }),
+  'git.branches': async (p) => (await request('git.branches', { cwd: p.cwd })).branches,
+  'git.checkout': async (p) => gitStatusView(await request('git.checkout', { cwd: p.cwd, branch: p.branch })),
+  'git.createBranch': async (p) => gitStatusView(await request('git.createBranch', { cwd: p.cwd, name: p.name, from: p.from, checkout: p.checkout })),
+  'git.deleteBranch': async (p) =>
+    gitStatusView(await request('git.deleteBranch', { cwd: p.cwd, name: p.name, force: p.force, confirmForce: p.confirmForce })),
+  'git.fetch': (p) => request('git.fetch', { cwd: p.cwd, remote: p.remote, prune: p.prune }),
+  'git.pull': (p) => request('git.pull', { cwd: p.cwd, remote: p.remote, branch: p.branch, rebase: p.rebase }),
+  'git.push': (p) =>
+    request('git.push', { cwd: p.cwd, remote: p.remote, branch: p.branch, setUpstream: p.setUpstream, force: p.force, confirmForce: p.confirmForce }),
+  'git.conflicts': (p) => request('git.conflicts', { cwd: p.cwd }),
+  'git.resolveConflict': (p) => request('git.resolveConflict', { cwd: p.cwd, path: p.path, strategy: p.strategy, content: p.content }),
+  'git.abortConflict': async (p) => gitStatusView(await request('git.abortConflict', { cwd: p.cwd, confirm: p.confirm })),
+  'git.worktrees': async (p) => (await request('git.worktrees', { cwd: p.cwd })).worktrees,
+  'git.worktreeAdd': (p) =>
+    request('git.worktreeAdd', { cwd: p.cwd, path: p.path, branch: p.branch, newBranch: p.newBranch, baseRef: p.baseRef, taskSlug: p.taskSlug }),
+  'git.worktreeRemove': (p) =>
+    request('git.worktreeRemove', { cwd: p.cwd, worktreePath: p.worktreePath, force: p.force, confirmDirty: p.confirmDirty, deleteBranch: p.deleteBranch }),
+  'git.worktreePrune': async (p) => (await request('git.worktreePrune', { cwd: p.cwd })).worktrees,
+  'git.worktreeCompare': (p) => request('git.worktreeCompare', { cwd: p.cwd, worktreePath: p.worktreePath, baseBranch: p.baseBranch }),
+  'git.worktreeMerge': (p) =>
+    request('git.worktreeMerge', {
+      cwd: p.cwd,
+      worktreePath: p.worktreePath,
+      targetBranch: p.targetBranch,
+      squash: p.squash,
+      confirm: p.confirm,
+      removeAfter: p.removeAfter
+    }),
+  'git.prStatus': (p) => request('git.prStatus', { cwd: p.cwd }),
+  'git.prList': async (p) => (await request('git.prList', { cwd: p.cwd, state: p.state, limit: p.limit })).prs,
+  'git.prView': (p) => request('git.prView', { cwd: p.cwd, number: p.number }),
+  'git.prDiff': (p) => request('git.prDiff', { cwd: p.cwd, number: p.number }),
+  'git.prCreate': (p) => request('git.prCreate', { cwd: p.cwd, title: p.title, body: p.body, base: p.base, head: p.head, draft: p.draft }),
+  'git.sessionPrGet': async (p) => (await request('git.sessionPrGet', { sessionId: p.id })).link,
+  'git.sessionPrLink': async (p) => (await request('git.sessionPrLink', { sessionId: p.id, link: p.link })).link,
+  'git.sessionPrUnlink': (p) => request('git.sessionPrUnlink', { sessionId: p.id }),
   'fs.list': async (p) => {
     const r = await request('fs.listDirs', { path: p.path });
     return { path: r.path, parent: r.parent, dirs: r.entries.map((d: { name: string; isGit: boolean }) => ({ name: d.name, git: d.isGit })) };

@@ -64,8 +64,8 @@ export function duration(ms: number) {
   return `${Math.floor(s / 3600)}h ${pad(Math.floor(s / 60) % 60)}m`;
 }
 
-// Unified diff text -> rows for rendering.
-export function parseDiff(text: string | null | undefined) {
+// Unified diff text -> rows for rendering. `files` adds a row naming each file of a multi-file patch.
+export function parseDiff(text: string | null | undefined, { files = false } = {}) {
   const rows: DiffRow[] = [];
   let a = 0;
   let b = 0;
@@ -85,6 +85,9 @@ export function parseDiff(text: string | null | undefined) {
         leftB = Number(m[4] ?? 1);
       }
       rows.push({ type: 'hunk', text: line });
+    } else if (!inHunk && files && line.startsWith('diff --git ')) {
+      const m = / b\/(.+)$/.exec(line);
+      rows.push({ type: 'meta', text: m ? m[1] : line.slice(11) });
     } else if (!inHunk && /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode)/.test(line)) continue;
     else if (line.startsWith('+')) rows.push({ type: 'add', b: b++, text: line.slice(1) }), leftB--;
     else if (line.startsWith('-')) rows.push({ type: 'del', a: a++, text: line.slice(1) }), leftA--;
