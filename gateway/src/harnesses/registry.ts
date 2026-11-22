@@ -191,11 +191,17 @@ export class HarnessRegistry extends EventEmitter {
         .filter((a) => a.info().enabled)
         .map(async (a) => {
           try {
+            const listing = a.listSessions(cwd);
             let timer: NodeJS.Timeout | undefined;
-            const timeout = new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error(`${a.id} did not list sessions in time`)), LIST_TIMEOUT_MS);
+            const timeout = new Promise<null>((resolve) => {
+              timer = setTimeout(() => resolve(null), LIST_TIMEOUT_MS);
             });
-            const rows = await Promise.race([a.listSessions(cwd), timeout]).finally(() => clearTimeout(timer));
+            const rows = await Promise.race([listing, timeout]).finally(() => clearTimeout(timer));
+            if (!rows) {
+              // A slow harness must not hold up the others: its rows arrive later as session_state updates.
+              listing.then((late) => late.forEach((r) => this.emit('state', { ...r, harnessId: a.id }))).catch(() => undefined);
+              return [];
+            }
             return rows.map((r) => ({ ...r, harnessId: a.id, sessionId: formatScopedSessionId(a.id, r.sessionId) }));
           } catch {
             return [];
