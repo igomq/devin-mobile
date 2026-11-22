@@ -2,7 +2,9 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { loadConfig } from './config.js';
 import * as git from './git.js';
@@ -28,6 +30,20 @@ void registry.probeAll();
 const manager = devinHarness.manager;
 const workspaces = new WorkspaceStore(config.dataDir);
 const orchestrator = new Orchestrator(registry, config.dataDir);
+const mcpEntry = join(dirname(fileURLToPath(import.meta.url)), 'mcp.js');
+if (process.env.UNIHARN_SUBAGENT_MCP !== '0' && existsSync(mcpEntry)) {
+  // Every harness session gets uniharn's MCP server so its agent can delegate to other harnesses.
+  const server = {
+    name: 'uniharn',
+    command: process.execPath,
+    args: [mcpEntry],
+    env: [
+      { name: 'UNIHARN_DATA_DIR', value: config.dataDir },
+      { name: 'UNIHARN_GATEWAY_URL', value: `ws://${config.hosts[0].includes(':') ? `[${config.hosts[0]}]` : config.hosts[0]}:${config.port}` },
+    ],
+  };
+  registry.setMcpServers(() => [server]);
+}
 const tasks = new TaskRunner();
 const terminals = new TerminalManager(config.devinBin);
 

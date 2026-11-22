@@ -116,3 +116,19 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     cleanup();
   }
 });
+
+test('registry offers its MCP servers to every adapter and marks subagent support', async () => {
+  const { registry, cleanup } = setup();
+  try {
+    const server = { name: 'uniharn', command: 'node', args: ['mcp.js'], env: [] };
+    registry.setMcpServers(() => [server]);
+    const alpha = registry.require('alpha') as AcpHarnessAdapter;
+    assert.deepEqual(alpha.manager.mcpServers(), [server]);
+    assert.equal(alpha.info().capabilities.subagents, true);
+    const late = new AcpHarnessAdapter({ id: 'gamma', name: 'gamma', bin: 'missing-gamma', acpArgs: [] });
+    registry.register(late);
+    assert.deepEqual(late.manager.mcpServers(), [server]);
+  } finally {
+    cleanup();
+  }
+});

@@ -140,7 +140,7 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
       sessionResume: !!caps?.loadSession,
       sessionClose: !!sc?.close,
       sessionDelete: !!sc?.delete,
-      subagents: false,
+      subagents: this.manager.mcpServers().length > 0,
       usage: false,
     };
     const unverified = this.spec.verified === false;
@@ -165,6 +165,10 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
       error,
       installHint: this.spec.installHint ?? null,
     };
+  }
+
+  setMcpServers(servers: () => Json[]): void {
+    this.manager.mcpServers = servers;
   }
 
   async ensureReady(): Promise<void> {

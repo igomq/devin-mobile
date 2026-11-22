@@ -146,6 +146,9 @@ export class SessionManager extends EventEmitter {
     super();
   }
 
+  /** MCP servers offered to every new or loaded session (ACP `mcpServers`). */
+  mcpServers: () => Json[] = () => [];
+
   updateLaunchConfig(bin: string, extraArgs: string[]): void {
     this.bin = bin;
     this.extraArgs = [...extraArgs];
@@ -253,7 +256,7 @@ export class SessionManager extends EventEmitter {
 
   async createSession(cwd: string): Promise<Session> {
     const acp = await this.ensureAgent();
-    const r = await acp.request('session/new', { cwd, mcpServers: [] }, 60000);
+    const r = await acp.request('session/new', { cwd, mcpServers: this.mcpServers() }, 60000);
     const s = this.getOrCreate(r.sessionId, cwd);
     s.loaded = true;
     this.applySessionResult(s, r);
@@ -280,7 +283,7 @@ export class SessionManager extends EventEmitter {
     this.emit('reset', s);
     s.loaded = true; // updates during replay must be accepted
     try {
-      const r = await acp.request('session/load', { sessionId: s.sessionId, cwd: s.cwd, mcpServers: [] }, 120000);
+      const r = await acp.request('session/load', { sessionId: s.sessionId, cwd: s.cwd, mcpServers: this.mcpServers() }, 120000);
       this.applySessionResult(s, r);
     } catch (e) {
       s.loaded = false;

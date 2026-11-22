@@ -95,6 +95,7 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
       ...DEFAULT_CAPABILITIES,
       sessionClose: Boolean(sessionCaps?.close ?? true),
       sessionDelete: Boolean(sessionCaps?.delete ?? false),
+      subagents: this.manager.mcpServers().length > 0,
     };
     const status = !this.installed && !st.running ? 'unavailable' : st.error && !st.running ? 'error' : st.running ? 'running' : 'idle';
     return {
@@ -115,6 +116,10 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
       error: st.error,
       installHint: 'curl -fsSL https://cli.devin.ai/install.sh | sh',
     };
+  }
+
+  setMcpServers(servers: () => Json[]): void {
+    this.manager.mcpServers = servers;
   }
 
   async ensureReady(): Promise<void> {

@@ -101,5 +101,7 @@ export interface HarnessAdapter extends EventEmitter {
   closeSession(sessionId: string): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   authenticate?(methodId: string): Promise<Json>;
+  /** Offer these MCP servers (e.g. uniharn's delegation server) to the harness's sessions. */
+  setMcpServers?(servers: () => Json[]): void;
   stop(): void;
 }
