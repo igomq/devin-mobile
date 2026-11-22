@@ -103,7 +103,7 @@ The repository has two packages:
 
 On the VM:
 
-- Linux with at least one harness installed and signed in: [Devin CLI](https://docs.devin.ai/cli), Codex CLI with [`codex-acp`](https://www.npmjs.com/package/@zed-industries/codex-acp), Claude Code with [`claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), [OpenCode](https://opencode.ai), Kiro CLI, or another ACP agent.
+- Linux with at least one harness installed and signed in: [Devin CLI](https://docs.devin.ai/cli), Codex CLI with [`codex-acp`](https://www.npmjs.com/package/@agentclientprotocol/codex-acp), Claude Code with [`claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), [OpenCode](https://opencode.ai), Kiro CLI, or another ACP agent.
 - Node.js 20 or later and npm. The gateway depends on `node-pty`, a native module. If npm cannot use a prebuilt binary for your platform, it compiles one, which needs Python 3, `make` and a C++ compiler.
 - Git, for the Changes screen and worktrees, and the GitHub CLI `gh` (signed in) for the PRs tab.
 - [Tailscale](https://tailscale.com/download), signed in to the same tailnet as your phone or tablet.
@@ -263,7 +263,7 @@ By default the APK is signed with a throwaway key generated for each build, so A
 ## Verification status
 
 - The full flow (create a session, prompt, tool run, approve and reject, diff, stop and follow up, reload, gateway restart) was run against a logged-in Devin CLI 3000.14, with the web UI in a phone-sized browser on the same machine as the gateway.
-- OpenCode 1.19.6 ran prompts and a worktree subagent that called the `uniharn` MCP server. Claude Agent ACP 0.23.1 created sessions and switched models. Codex ACP 0.16.0 completed the ACP handshake; prompts were not run because the test VM was not signed in to Codex. Kiro CLI was not tested. See [docs/HARNESSES.md](docs/HARNESSES.md).
+- OpenCode 1.19.6 ran prompts and a worktree subagent that called the `uniharn` MCP server. Claude Code 2.1.330 (Claude Agent ACP 0.23.1) and Codex 0.171.0 (`@agentclientprotocol/codex-acp`, ChatGPT sign-in) ran real sessions with streaming, model changes and cleanup, plus Claude permission approval and cancel. Kiro CLI was not tested. See [docs/HARNESSES.md](docs/HARNESSES.md).
 - Pairing, device revocation, notifications, themes and the Git screens were run in a phone-sized Chromium against a local gateway.
 - Not yet verified: the Tailscale path from a real phone, and installing and running the APK and IPA that CI builds.
 

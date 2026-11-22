@@ -8,8 +8,8 @@ Tested on Linux x64 with gateway 0.3.0 (unreleased), November 2026.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Devin CLI | 3000.14 | Yes | Yes | Yes | config option | Offered; tested with a mock agent | Reference harness |
 | OpenCode | 1.19.6 (`opencode acp`) | Yes | Yes | Yes | config option | Yes, called `list_harnesses` | Ran as a worktree subagent |
-| Claude Code | `claude-agent-acp` 0.23.1 | Yes | Yes | Not run | `session/set_model` | Not run | Prompting uses the signed-in Claude account |
-| OpenAI Codex | `codex-acp` 0.16.0 | Yes | Auth required | Not run | Not run | Not run | Needs `codex login`, `CODEX_API_KEY` or `OPENAI_API_KEY` |
+| Claude Code | 2.1.330 with `claude-agent-acp` 0.23.1 | Yes | Yes | Yes, with permission approval and cancel | `session/set_model` | Not run | Uses the signed-in Claude account |
+| OpenAI Codex | 0.171.0 with `@agentclientprotocol/codex-acp` | Yes | Yes | Yes | Yes | Not run | Signed in with ChatGPT (`codex login`); without sign-in `session/new` fails with `Authentication required` |
 | Kiro CLI | not installed | - | - | - | - | - | `kiro-cli acp`, untested |
 | Command Code | - | - | - | - | - | - | No documented ACP entrypoint; disabled |
 | Google Antigravity | - | - | - | - | - | - | IDE without an ACP CLI; disabled |

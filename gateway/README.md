@@ -73,8 +73,8 @@ Every harness is driven over ACP (JSON-RPC on stdio). Capabilities (session resu
 | Harness | id | Command started | Status |
 | --- | --- | --- | --- |
 | Devin CLI | `devin` | `devin acp` | Verified |
-| OpenAI Codex CLI | `codex` | `codex-acp` (`@zed-industries/codex-acp`) | ACP handshake verified; needs `codex login` or `CODEX_API_KEY`/`OPENAI_API_KEY` |
-| Claude Code | `claude` | `claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`), falls back to `claude-code-acp` | Sessions and model switching verified |
+| OpenAI Codex CLI | `codex` | `codex-acp` (`@agentclientprotocol/codex-acp`) | Sessions, prompts and model changes verified; needs `codex login` or `CODEX_API_KEY`/`OPENAI_API_KEY` |
+| Claude Code | `claude` | `claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`), falls back to `claude-code-acp` | Sessions, prompts, permissions and model switching verified |
 | OpenCode | `opencode` | `opencode acp` | Prompts, worktree subagents and the `uniharn` MCP server verified |
 | Kiro CLI | `kiro` | `kiro-cli acp` | Native ACP, not tested |
 | Command Code | `command-code` | none documented | Disabled until `bin`/`args` point at an ACP command |
