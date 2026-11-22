@@ -96,6 +96,17 @@ The first request must be `hello` with the pairing token, sent within 10 seconds
 | `term.resize` | `termId`, `cols`, `rows` | Resizes the PTY. |
 | `term.close` | `termId` | Kills the PTY. |
 | `term.list` | | Open and exited PTYs. |
+| `notifications.list` | `sinceSeq?`, `limit?`, `unreadOnly?` | Stored notifications (newest 200), `lastSeq`, `unreadCount`. Pass the last seen `seq` after a reconnect to get only missed ones. |
+| `notifications.read` | `ids?` | Marks notifications read (all when `ids` is omitted). |
+| `notifications.clear` | | Deletes the stored notifications. |
+| `notifications.prefs.get` | | Notification preferences. |
+| `notifications.prefs.set` | `prefs` | Merges and saves preferences (`enabled`, `inApp`, `webPush`, `hideSensitiveDetails`, `dedupWindowMs`, `attentionTimeoutMs`, `events`). |
+| `notifications.capabilities` | | What each platform (in-app, Web Push, Android FCM, iOS APNs) supports and why. |
+| `notifications.test` | | Fires a test notification, including Web Push, and returns the delivery result. |
+| `notifications.push.publicKey` | | The gateway's VAPID public key. |
+| `notifications.push.subscribe` | `subscription`, `label?` | Saves a browser `PushSubscription`. |
+| `notifications.push.unsubscribe` | `endpoint` | Removes a push subscription. |
+| `notifications.push.list` | `endpoint?` | Subscriptions without their keys. |
 
 A `cwd` that starts with `~` is resolved against the home directory of the user running the gateway.
 
@@ -116,8 +127,13 @@ The gateway pushes these messages without a request:
 | `task_done` | All clients | `task` |
 | `term_data` | Clients attached to the terminal | `termId`, `data` |
 | `term_exit` | All clients | `term` |
+| `notification` | All clients | `notification` (`id`, `seq`, `type`, `severity`, `title`, `body`, `safeBody`, `sessionId`, `route`, `at`, `read`) |
+| `notification_read` | All clients | `ids`, `unreadCount` |
+| `notifications_cleared` | All clients | |
 
 The `update` of an `event` is an ACP `session/update` payload, or one of the records the gateway adds to the log: `_turn_end` (with `stopReason`), `_turn_error` (with `message`), `_permission_request` and `_permission_resolved`. The user's own prompt is logged as a `user_message_chunk` marked `_local`. Config option, mode, title and command changes and usage updates also update the session summary, which arrives as `session_state`.
+
+`hello` also returns `notifications` (`unreadCount`, `lastSeq`). Notification types, Web Push setup and platform limits are described in [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md).
 
 ### Resuming a session
 

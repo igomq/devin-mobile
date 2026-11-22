@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Rebranded the platform to **uniharn** (`me.gomq.uniharn`, `uniharn-gateway`, `uniharn-app`, `UNIHARN_*` env vars) with automatic migration from legacy `DEVIN_MOBILE_*` env vars, `~/.local/share/devin-mobile/token`, and `devin-mobile.*` browser storage keys.
 - Harness-agnostic ACP client (`AcpConnection`), `HarnessAdapter` / `HarnessRegistry` foundation, `DevinHarnessAdapter`, and `WorkspaceStore` persistence in the gateway.
 - Additive WebSocket RPCs (`harnesses.list`, `harnesses.probe`, `harnesses.configure`, `harnesses.registerCustom`, `harnesses.removeCustom`, `workspaces.list`, `workspaces.create`, `workspaces.get`).
+- Notifications: in-app banners and a notification center, plus Web Push for browsers and Home Screen PWAs, for approval requests, finished and failed runs, subagent results, Git conflicts, gateway disconnects and long waits. Per-event settings, duplicate suppression, catch-up after reconnects, and lock-screen-safe text by default. Native FCM/APNs push is not included; see `docs/NOTIFICATIONS.md`.
 - Automated `node:test` test suite for gateway config migration, ACP JSON-RPC, harness registry, workspace persistence, and Devin adapter regression, wired into CI.
 
 ## [0.2.0] - 2026-11-22
