@@ -90,6 +90,8 @@
 
   function searchKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
+      // Handled here, so the open chat beside the sidebar does not treat it as "stop".
+      e.preventDefault();
       query = '';
       searchInput?.blur();
     } else if (e.key === 'Enter' && visible[0]) {

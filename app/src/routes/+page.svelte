@@ -19,7 +19,7 @@
 {:else}
   <div class="shell" class:split>
     {#if split}
-      <aside class="side glass"><Home embedded /></aside>
+      <aside class="side"><Home embedded /></aside>
     {/if}
     <div class="pane">
       {#if route.name === 'session' && route.id && route.tab === 'changes'}
@@ -29,7 +29,7 @@
       {:else if route.name === 'session' && route.id}
         {#key route.id}<Chat id={route.id} />{/key}
       {:else if route.name === 'terminal'}
-        <Terminal login={route.login} />
+        {#key route.login}<Terminal login={route.login} />{/key}
       {:else if route.name === 'settings'}
         <Settings />
       {:else if split}
@@ -60,8 +60,10 @@
     margin: calc(var(--safe-top) + 10px) 0 calc(var(--safe-bottom) + 10px) calc(var(--safe-left) + 10px);
     border-radius: var(--r-xl);
     overflow: hidden;
-    /* The sidebar is a resting surface: a heavier, quieter glass than floating controls. */
+    /* A resting surface with a glass rim. No backdrop-filter here: it would make the sidebar the containing
+       block for the fixed-position sheets opened from it and clip them. */
     background: color-mix(in srgb, var(--bg-elev) 72%, transparent);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-rim), var(--glass-shadow);
     animation: side-in 0.32s var(--ease-out);
   }
   /* Inside the floating sidebar the safe area is already cleared by its margin. */

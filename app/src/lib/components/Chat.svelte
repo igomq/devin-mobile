@@ -75,7 +75,12 @@
     const timer = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(timer);
   });
-  let turnStart = $derived(view?.items.findLast((i) => i.kind === 'user')?.ts ?? null);
+  // A backwards loop: Array.prototype.findLast needs iOS 15.4, and the app supports 15.0.
+  let turnStart = $derived.by(() => {
+    const items = view?.items ?? [];
+    for (let i = items.length - 1; i >= 0; i--) if (items[i].kind === 'user') return items[i].ts;
+    return null;
+  });
   let elapsed = $derived(busy && turnStart ? duration(now - turnStart) : '');
 
   // Working-tree summary for the header, refreshed whenever a tool call finishes.
@@ -99,7 +104,7 @@
 
   function summary(g: Steps) {
     const tools = g.items.filter((i) => i.kind === 'tool');
-    const active = tools.findLast((t) => t.status === 'pending' || t.status === 'in_progress');
+    const active = tools.filter((t) => t.status === 'pending' || t.status === 'in_progress').pop();
     if (active) return active.title;
     if (!tools.length) return 'Thought';
     const failed = tools.filter((t) => t.status === 'failed').length;
@@ -107,6 +112,12 @@
   }
   const working = (g: Steps) => g.items.some((i) => i.kind === 'tool' && (i.status === 'pending' || i.status === 'in_progress'));
   const isOpen = (g: Steps, last: boolean) => openGroups[g.id] ?? (last && busy);
+  /** A reply gets a Copy button once its turn is over: the next block, skipping notices such as "stopped", is a prompt or nothing. */
+  function endsTurn(i: number) {
+    let j = i + 1;
+    while (blocks[j]?.kind === 'notice') j++;
+    return blocks[j] ? blocks[j].kind === 'user' : !busy;
+  }
 
   function onScroll() {
     if (scroller) pinned = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
@@ -307,10 +318,9 @@
               </div>
             </div>
           {:else if b.kind === 'assistant'}
-            {@const next = blocks[i + 1]}
             <div class="msg assistant">
               <div class="md">{@html markdown(b.text)}</div>
-              {#if next ? next.kind === 'user' : !busy}
+              {#if endsTurn(i)}
                 <div class="msgbar">
                   <button class="copy press" onclick={(e) => copyReply(b.text, e)} aria-label="Copy reply"><Icon name="copy" size={15} /><Icon name="check" size={15} /></button>
                 </div>
