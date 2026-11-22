@@ -1,25 +1,26 @@
-# Devin Mobile
+# uniharn
 
 [![CI](https://github.com/igomq/devin-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/igomq/devin-mobile/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-An iPhone, Android and iPad app for controlling [Devin CLI](https://docs.devin.ai/cli) on your own Linux VM over Tailscale.
+An open-source multi-harness coding agent platform for iPhone, Android, iPad, and web browsers — control coding agent CLIs on your own Linux VM over Tailscale.
 
-Devin Mobile is an unofficial community project. It is not affiliated with, endorsed by or supported by Cognition or Devin.
+uniharn is an unofficial community open-source project (formerly Devin Mobile). It is not affiliated with, endorsed by, or supported by Cognition/Devin, OpenAI, Anthropic, AWS/Kiro, Google, or any other AI provider.
 
-The phone is a chat-first remote control. All AI work and all file changes are done by Devin CLI on the VM. A small gateway runs next to Devin CLI, talks to it through its official Agent Client Protocol (ACP) interface, and keeps sessions running while the phone is away.
+The client is a chat-first remote control. All AI work and file changes are executed by the coding harnesses installed on your VM. A lightweight gateway runs on the VM, connects to harnesses through Agent Client Protocol (ACP) and structured adapters, and keeps sessions running while your device is away.
 
 ```
- phone (Tauri v2 + SvelteKit)  ──WebSocket over Tailscale──▶  gateway (Node)  ──ACP JSON-RPC (stdio)──▶  devin acp
-                                                               ├─ git status / diff
-                                                               ├─ test runner
-                                                               └─ PTY terminals (shell, devin TUI)
+ client (Tauri v2 + SvelteKit)  ──WebSocket over Tailscale──▶  uniharn gateway (Node)  ──HarnessRegistry──▶  ACP / CLI Harnesses
+                                                                ├─ Workspaces & Unified Sessions
+                                                                ├─ Git status / diff
+                                                                ├─ Test runner
+                                                                └─ PTY terminals
 ```
 
 The repository has two packages:
 
-- [`gateway/`](gateway/README.md) is the VM-side service. It wraps `devin acp` (no TUI scraping), keeps sessions alive while the phone is disconnected, replays history on reconnect, and serves the web UI.
-- [`app/`](app/README.md) is the SvelteKit user interface, packaged for iOS, iPadOS and Android with Tauri v2. The app identifier is `me.gomq.devinmobile`.
+- [`gateway/`](gateway/README.md) (`uniharn-gateway`) is the VM-side service. It provides a harness-agnostic ACP/adapter layer (`HarnessRegistry`, `DevinHarnessAdapter`, `WorkspaceStore`), keeps sessions alive while clients disconnect, replays history on reconnect, and serves the web UI.
+- [`app/`](app/README.md) (`uniharn-app`) is the SvelteKit user interface, packaged for iOS, iPadOS and Android with Tauri v2. The app identifier is `me.gomq.uniharn`.
 
 ## Features
 
@@ -261,6 +262,14 @@ Your Devin credentials stay on the VM. See [SECURITY.md](SECURITY.md) for the th
 
 Bug reports, fixes and improvements are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, conventions and pull request process, and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Migrating from Devin Mobile (v0.2.x → v0.3.0 / uniharn)
+
+- **Environment variables**: All `UNIHARN_*` variables (`UNIHARN_HOST`, `UNIHARN_PORT`, `UNIHARN_TOKEN`, `UNIHARN_ROOTS`, `UNIHARN_STATIC`, `UNIHARN_DATA_DIR`) automatically fall back to legacy `DEVIN_MOBILE_*` variables.
+- **Gateway token & data directory**: On first start, `uniharn gateway` automatically copies `~/.local/share/devin-mobile/token` to `~/.local/share/uniharn/token` (mode `0600`) if the new token does not exist yet.
+- **CLI binary**: Both `uniharn gateway` / `uniharn-gateway` and the legacy `devin-mobile-gateway` alias are provided.
+- **Web UI storage**: Existing `devin-mobile.*` `localStorage` keys (connection URL/token, theme, accent, sidebar, drafts) migrate transparently to `uniharn.*`.
+- **Native mobile app**: Because the Tauri app identifier changed from `me.gomq.devinmobile` to `me.gomq.uniharn`, the new APK/IPA installs alongside the legacy app. Remove the old app and re-pair once after installing `uniharn`.
+
 ## License
 
-Devin Mobile is released under the [MIT License](LICENSE). Copyright (c) 2026 GomQ.
+uniharn is released under the [MIT License](LICENSE). Copyright (c) 2026 GomQ.

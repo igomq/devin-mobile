@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Rebranded the platform to **uniharn** (`me.gomq.uniharn`, `uniharn-gateway`, `uniharn-app`, `UNIHARN_*` env vars) with automatic migration from legacy `DEVIN_MOBILE_*` env vars, `~/.local/share/devin-mobile/token`, and `devin-mobile.*` browser storage keys.
+- Harness-agnostic ACP client (`AcpConnection`), `HarnessAdapter` / `HarnessRegistry` foundation, `DevinHarnessAdapter`, and `WorkspaceStore` persistence in the gateway.
+- Additive WebSocket RPCs (`harnesses.list`, `harnesses.probe`, `harnesses.configure`, `harnesses.registerCustom`, `harnesses.removeCustom`, `workspaces.list`, `workspaces.create`, `workspaces.get`).
+- Automated `node:test` test suite for gateway config migration, ACP JSON-RPC, harness registry, workspace persistence, and Devin adapter regression, wired into CI.
+
 ## [0.2.0] - 2026-11-22
 
 ### Added
