@@ -7,11 +7,18 @@
   import { notif } from '#lib/notifications.svelte.ts';
   import Sheet from './Sheet.svelte';
   import DirPicker from './DirPicker.svelte';
+  import { getStorageItem, setStorageItem } from '#lib/storage.ts';
 
   // embedded: rendered in the tablet sidebar next to the open session.
   let { embedded = false }: { embedded?: boolean } = $props();
 
   let picking = $state(false);
+  let harnessId = $state(getStorageItem('harness') ?? 'devin');
+  let usableHarnesses = $derived(app.harnesses.filter((h) => h.enabled && (h.installed || h.id === 'devin')));
+  let harnessName = (id?: string) => app.harnesses.find((h) => h.id === id)?.name ?? id ?? '';
+  $effect(() => {
+    if (usableHarnesses.length && !usableHarnesses.some((h) => h.id === harnessId)) harnessId = usableHarnesses[0].id;
+  });
   let creating = $state(false);
   let actionsFor = $state<SessionRow | null>(null);
   let actionsOpen = $state(false);
@@ -56,7 +63,8 @@
   async function create(cwd: string) {
     creating = true;
     try {
-      const r = await rpc('sessions.create', { cwd });
+      setStorageItem('harness', harnessId);
+      const r = await rpc('sessions.create', { cwd, harnessId });
       await openSession(r.id, r.cwd);
       query = '';
       go('#/s/' + encodeURIComponent(r.id));
@@ -113,7 +121,7 @@
   >
     <span class="dot {s.status}"></span>
     <span class="stext">
-      <span class="stitle">{s.title || 'New session'}</span>
+      <span class="stitle">{#if s.harnessId && s.harnessId !== 'devin'}<span class="hbadge">{harnessName(s.harnessId)}</span>{/if}{s.title || 'New session'}</span>
       {#if showFolder}<span class="sfolder">{basename(s.cwd) || 'No folder'}</span>{/if}
     </span>
     <span class="smeta">
@@ -196,6 +204,11 @@
   </main>
 
   <div class="dock">
+    {#if usableHarnesses.length > 1}
+      <select class="hsel glass" bind:value={harnessId} aria-label="Harness" title="Harness for new sessions">
+        {#each usableHarnesses as h (h.id)}<option value={h.id}>{h.name}</option>{/each}
+      </select>
+    {/if}
     <button class="btn primary newbtn" onclick={() => (picking = true)} disabled={creating || conn.status !== 'online'} title="New session (⌘N)">
       {#if creating}<span class="spinner"></span>{:else}<Icon name="compose" size={18} />{/if} New session
     </button>
@@ -465,6 +478,24 @@
     min-width: 200px;
     min-height: 50px;
     font-size: 16px;
+  }
+  .hsel {
+    pointer-events: auto;
+    min-height: 50px;
+    margin-right: 8px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 0;
+    color: var(--text);
+    font: inherit;
+  }
+  .hbadge {
+    font-size: 11px;
+    padding: 1px 6px;
+    margin-right: 6px;
+    border-radius: 6px;
+    background: var(--fill);
+    color: var(--text-2, inherit);
   }
   .embedded .newbtn {
     width: 100%;

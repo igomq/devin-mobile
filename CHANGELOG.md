@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Rebranded the platform to **uniharn** (`me.gomq.uniharn`, `uniharn-gateway`, `uniharn-app`, `UNIHARN_*` env vars) with automatic migration from legacy `DEVIN_MOBILE_*` env vars, `~/.local/share/devin-mobile/token`, and `devin-mobile.*` browser storage keys.
 - Harness-agnostic ACP client (`AcpConnection`), `HarnessAdapter` / `HarnessRegistry` foundation, `DevinHarnessAdapter`, and `WorkspaceStore` persistence in the gateway.
 - Additive WebSocket RPCs (`harnesses.list`, `harnesses.probe`, `harnesses.configure`, `harnesses.registerCustom`, `harnesses.removeCustom`, `workspaces.list`, `workspaces.create`, `workspaces.get`).
+- Generic ACP harness adapter with built-in Codex (`codex-acp`), Claude Code (`claude-code-acp`), OpenCode (`opencode acp`) and Kiro (`kiro-cli acp`) harnesses; Command Code and Antigravity are listed but disabled until pointed at an ACP command. Custom ACP definitions now start real adapters. Per-harness env allowlists.
+- Harness picker for new sessions and a harness badge on non-Devin session rows.
 - Notifications: in-app banners and a notification center, plus Web Push for browsers and Home Screen PWAs, for approval requests, finished and failed runs, subagent results, Git conflicts, gateway disconnects and long waits. Per-event settings, duplicate suppression, catch-up after reconnects, and lock-screen-safe text by default. Native FCM/APNs push is not included; see `docs/NOTIFICATIONS.md`.
 - Automated `node:test` test suite for gateway config migration, ACP JSON-RPC, harness registry, workspace persistence, and Devin adapter regression, wired into CI.
 
