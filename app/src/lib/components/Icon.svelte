@@ -29,7 +29,13 @@
     keyboard: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8',
     sidebar: 'M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2zM9 4v16M5.5 8h1M5.5 11h1',
     copy: 'M9 9h9a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1v-9a1 1 0 011-1zM5 15H4a1 1 0 01-1-1V5a1 1 0 011-1h9a1 1 0 011 1v1',
-    compose: 'M12 20h8M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z'
+    compose: 'M12 20h8M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+    minus: 'M5 12h14',
+    upload: 'M12 16V4M7 9l5-5 5 5M5 20h14',
+    download: 'M12 4v12M7 11l5 5 5-5M5 20h14',
+    external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5',
+    link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
+    merge: 'M6 8a2 2 0 100-4 2 2 0 000 4zM6 8v12M18 18a2 2 0 100-4 2 2 0 000 4zM6 8c0 5 6 6 10 7'
   };
   let { name, size = 22 }: { name: keyof typeof paths; size?: number } = $props();
 </script>

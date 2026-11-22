@@ -90,7 +90,11 @@ export interface ChangedFile {
 	additions: number;
 	deletions: number;
 	binary: boolean;
+	staged?: boolean;
+	unstaged?: boolean;
 }
+
+export type GitOperation = 'merge' | 'rebase' | 'cherry-pick';
 
 export interface GitStatus {
 	isRepo: boolean;
@@ -100,6 +104,206 @@ export interface GitStatus {
 	behind: number;
 	head: string | null;
 	files: ChangedFile[];
+	repoRoot?: string | null;
+	detached?: boolean;
+	hasConflicts?: boolean;
+	operation?: GitOperation | null;
+}
+
+/** `git.status` as the screens see it: the chat's summary fields plus the full working-tree state. */
+export interface GitStatusView {
+	repo: boolean;
+	branch: string | null;
+	files: ChangedFileView[];
+	upstream: string | null;
+	ahead: number;
+	behind: number;
+	head: string | null;
+	repoRoot: string | null;
+	detached: boolean;
+	hasConflicts: boolean;
+	operation: GitOperation | null;
+	/** Every changed path as the gateway reports it. */
+	entries: ChangedFile[];
+	/** Paths with changes in the index (conflicts excluded). */
+	staged: ChangedFile[];
+	/** Paths with working-tree changes, including untracked files (conflicts excluded). */
+	unstaged: ChangedFile[];
+	conflicted: ChangedFile[];
+}
+
+export interface FileStat {
+	path: string;
+	additions: number;
+	deletions: number;
+	binary: boolean;
+}
+
+export interface GitCommit {
+	hash: string;
+	fullHash: string;
+	subject: string;
+	author: string;
+	time: number;
+	refs: string[];
+}
+
+export interface GitCommitDetail {
+	hash: string;
+	subject: string;
+	author: string;
+	time: number;
+	body: string;
+	files: FileStat[];
+	diff: string;
+	truncated: boolean;
+}
+
+export interface GitBranch {
+	name: string;
+	current: boolean;
+	remote: boolean;
+	upstream: string | null;
+	ahead: number;
+	behind: number;
+	head: string;
+	subject: string;
+}
+
+export interface GitPullResult {
+	ok: boolean;
+	conflicts: boolean;
+	output: string;
+	status: GitStatus;
+}
+
+export interface ConflictHunk {
+	index: number;
+	startLine: number;
+	endLine: number;
+	ours: string;
+	theirs: string;
+	base?: string;
+}
+
+export interface ConflictFile {
+	path: string;
+	content: string;
+	hunks: ConflictHunk[];
+}
+
+export interface GitConflicts {
+	files: ConflictFile[];
+	operation: GitOperation | null;
+}
+
+export interface GitWorktree {
+	path: string;
+	head: string | null;
+	branch: string | null;
+	detached: boolean;
+	bare: boolean;
+	locked: boolean;
+	prunable: boolean;
+	isMain: boolean;
+	dirtyCount: number;
+	hasUncommittedChanges: boolean;
+}
+
+export interface WorktreeCompare {
+	worktreePath: string;
+	branch: string | null;
+	baseBranch: string;
+	ahead: number;
+	behind: number;
+	uncommittedFiles: ChangedFile[];
+	committedFiles: FileStat[];
+	diff: string;
+	truncated: boolean;
+}
+
+export interface WorktreeMergePreview {
+	preview: true;
+	canFastForward: boolean;
+	hasConflicts: boolean;
+	conflictFiles: string[];
+	ahead: number;
+	branch: string | null;
+	targetBranch: string;
+	conflictCheckSupported?: false;
+}
+
+export interface WorktreeMergeResult {
+	merged: boolean;
+	conflicts: boolean;
+	conflictFiles: string[];
+	status: GitStatus;
+}
+
+export interface GhStatus {
+	ghInstalled: boolean;
+	authenticated: boolean;
+	isGitHubRepo: boolean;
+	repoSlug: string | null;
+	remoteUrl: string | null;
+	error?: string;
+}
+
+export type PrStateFilter = 'open' | 'closed' | 'merged' | 'all';
+
+export interface PullRequestSummary {
+	number: number;
+	title: string;
+	state: string;
+	isDraft: boolean;
+	url: string;
+	headRefName: string;
+	baseRefName: string;
+	author: { login?: string; name?: string } | null;
+	createdAt: string;
+	updatedAt: string;
+	additions: number;
+	deletions: number;
+	changedFiles: number;
+	reviewDecision: string | null;
+	mergeable: string;
+}
+
+export interface PullRequestCheck {
+	__typename?: string;
+	name?: string;
+	context?: string;
+	status?: string;
+	conclusion?: string;
+	state?: string;
+}
+
+export interface PullRequestView extends PullRequestSummary {
+	body: string;
+	statusCheckRollup: PullRequestCheck[] | null;
+	files: { path: string; additions: number; deletions: number }[] | null;
+}
+
+export interface CreatedPullRequest {
+	url: string;
+	number: number;
+	title: string;
+	state: string;
+	isDraft: boolean;
+	headRefName: string;
+	baseRefName: string;
+}
+
+export interface SessionPrLink {
+	sessionId: string;
+	cwd: string;
+	number: number;
+	url: string;
+	title: string;
+	state?: string;
+	headRefName?: string;
+	baseRefName?: string;
+	linkedAt: number;
 }
 
 export interface TaskRun {

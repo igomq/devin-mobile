@@ -1,0 +1,406 @@
+/* Shared building blocks for the Changes screen's git panels. Built on the app tokens in app.css. */
+
+.g-plus {
+  color: var(--green);
+}
+.g-minus {
+  color: var(--red);
+}
+.g-nums {
+  flex: none;
+  font: 12px var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Section header: label on the left, small actions on the right. */
+.g-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 22px 2px 8px 6px;
+}
+.g-head .label {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.g-head:first-child {
+  margin-top: 4px;
+}
+
+/* Grouped rows inside a .card */
+.g-list {
+  overflow: hidden;
+}
+.g-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 12px 8px 16px;
+  text-align: left;
+}
+.g-item + .g-item::before,
+.g-row + .g-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 0;
+  height: 1px;
+  background: var(--line);
+}
+.g-item {
+  position: relative;
+}
+.g-main {
+  flex: 1;
+  min-width: 0;
+}
+.g-main b,
+.g-main .t {
+  display: block;
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.g-main small {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  min-width: 0;
+}
+.g-main small .path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  max-width: 100%;
+}
+
+/* File status letter */
+.g-k {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  font: 600 11px var(--mono);
+  background: var(--fill-2);
+  color: var(--amber);
+}
+.g-k.added {
+  color: var(--green);
+}
+.g-k.deleted,
+.g-k.conflict {
+  color: var(--red);
+}
+.g-k.renamed {
+  color: var(--blue);
+}
+
+/* Small pill buttons for row and section actions. */
+.g-mini {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  min-width: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.g-mini.icon {
+  padding: 0;
+  width: 36px;
+}
+.g-mini.danger {
+  color: var(--red);
+}
+.g-mini.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.g-mini svg {
+  flex: none;
+}
+.g-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Tags: refs, drafts, states. */
+.g-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--fill-2);
+  color: var(--text-2);
+  font: 500 11px var(--sans);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.g-badge.green {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+.g-badge.red {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+.g-badge.amber {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+}
+.g-badge.blue {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+}
+.g-badge.violet {
+  color: #a58bff;
+  background: color-mix(in srgb, #8b6cff 16%, transparent);
+}
+
+/* Expanded diff / detail area under a row. */
+.g-diffbox {
+  margin: 0 10px 10px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  overflow: hidden;
+}
+.g-pad {
+  padding: 14px 16px;
+  font-size: 13.5px;
+}
+.g-err {
+  color: var(--red);
+}
+
+/* Form controls */
+.g-input,
+.g-textarea,
+.g-select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg-input);
+  outline: none;
+  /* 16px keeps iOS from zooming into the field. */
+  font-size: 16px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.g-textarea {
+  display: block;
+  padding: 12px 16px;
+  min-height: 92px;
+  resize: vertical;
+  line-height: 1.45;
+}
+.g-textarea.code {
+  font-family: var(--mono);
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 46vh;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+.g-input:focus,
+.g-textarea:focus,
+.g-select:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.g-select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%), linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 36px;
+}
+.g-field {
+  display: block;
+  margin-bottom: 14px;
+}
+.g-field > span {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin: 0 4px 6px;
+}
+.g-hint {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin: 6px 4px 0;
+  overflow-wrap: anywhere;
+}
+
+/* On/off switch row */
+.g-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 4px 4px 4px 4px;
+  margin-bottom: 8px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.g-switch input {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 46px;
+  height: 28px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--fill-2);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.g-switch input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--glass-solid);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s var(--ease-out);
+}
+.g-switch input:checked {
+  background: var(--green);
+}
+.g-switch input:checked::after {
+  transform: translateX(18px);
+}
+.g-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--r-md);
+  background: var(--fill);
+  font-size: 14px;
+  cursor: pointer;
+}
+.g-check.warn {
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+}
+.g-check input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--amber);
+}
+
+/* Command output */
+.g-pre {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 30vh;
+  overflow: auto;
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  border-radius: var(--r-md);
+  background: var(--fill);
+}
+
+/* Explanation card for an unavailable feature. */
+.g-note {
+  padding: 18px 18px 16px;
+  font-size: 14.5px;
+  color: var(--text-2);
+}
+.g-note h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text);
+}
+.g-note p {
+  margin: 0 0 10px;
+}
+.g-note code {
+  font: 0.9em var(--mono);
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: var(--fill-2);
+}
+.g-note .btn {
+  min-height: 40px;
+  background: var(--fill);
+}
+
+.g-banner {
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.g-banner .txt {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-weight: 600;
+}
+.g-banner.info {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 9%, var(--bg-elev));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 26%, transparent);
+}
+
+.g-loading {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+.g-more {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-text);
+}
+.g-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
