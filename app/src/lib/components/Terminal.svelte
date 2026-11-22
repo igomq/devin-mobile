@@ -5,6 +5,7 @@
   import '@xterm/xterm/css/xterm.css';
   import { conn, rpc, onTerminal, views, app, errorText, refreshSessions } from '#lib/api.svelte.ts';
   import { basename } from '#lib/format.ts';
+  import { activeTheme } from '#lib/ui.svelte.ts';
   import BackButton from './BackButton.svelte';
 
   let { sessionId = null, login = false }: { sessionId?: string | null; login?: boolean } = $props();
@@ -145,7 +146,7 @@
         cursorBlink: true,
         scrollback: 5000,
         allowProposedApi: false,
-        theme: { background: v('--bg'), foreground: v('--text'), cursor: v('--text'), selectionBackground: v('--line-strong') }
+        theme: activeTheme().ansi
       });
       fit = new FitAddon();
       term.loadAddon(fit);
@@ -163,6 +164,11 @@
       if (termId) rpc('term.detach', { id: termId }).catch(() => {});
       term?.dispose();
     };
+  });
+
+  $effect(() => {
+    const { ansi } = activeTheme();
+    if (ready) term.options.theme = ansi;
   });
 
   $effect(() => {
@@ -222,7 +228,7 @@
     flex: 1;
     min-height: 0;
     padding: 4px 4px 0 10px;
-    background: var(--bg);
+    background: var(--ansi-background);
     overflow: hidden;
   }
   .term :global(.xterm) {

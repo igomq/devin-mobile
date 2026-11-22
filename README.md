@@ -67,7 +67,7 @@ The repository has two packages:
 ### Interface
 
 - Layouts for iPhone, Android phones and iPad or Android tablets. On wide screens the session list stays in a collapsible sidebar next to the open session.
-- A translucent Liquid Glass-style interface with light, dark and dim themes and a choice of accent colors. It respects the system Reduce Transparency and Reduce Motion settings.
+- A translucent Liquid Glass-style interface with code-editor themes: uniharn, Absolutely, Ayu, Catppuccin, Dracula, Everforest, GitHub, Gruvbox and Linear. Themes cover the terminal and syntax colors too. You can search the themes, follow the system light/dark setting and pick any accent color. It respects the system Reduce Transparency, Reduce Motion and Increase Contrast settings. See [docs/themes.md](docs/themes.md).
 - Hardware keyboard shortcuts on tablets:
 
   | Shortcut | Action |

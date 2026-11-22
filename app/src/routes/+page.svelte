@@ -60,7 +60,7 @@
     overflow: hidden;
     /* A resting surface with a glass rim. No backdrop-filter here: it would make the sidebar the containing
        block for the fixed-position sheets opened from it and clip them. */
-    background: color-mix(in srgb, var(--bg-elev) 72%, transparent);
+    background: color-mix(in srgb, var(--sidebar) 72%, transparent);
     box-shadow: inset 0 0 0 1px var(--line);
     animation: side-in 0.32s var(--ease-out);
   }
@@ -74,7 +74,7 @@
     animation: none;
   }
   .side :global(.topbar::before) {
-    background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-elev) 96%, transparent) 0%, color-mix(in srgb, var(--bg-elev) 70%, transparent) 55%, transparent 100%);
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--sidebar) 96%, transparent) 0%, color-mix(in srgb, var(--sidebar) 70%, transparent) 55%, transparent 100%);
   }
   .split .pane :global(.screen) {
     --safe-left: 0px;

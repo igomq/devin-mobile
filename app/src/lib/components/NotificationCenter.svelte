@@ -42,7 +42,7 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: 64; background: rgba(0, 0, 0, 0.25); }
+  .scrim { position: fixed; inset: 0; z-index: 64; background: var(--scrim); }
   .center {
     position: fixed;
     z-index: 65;
@@ -55,18 +55,18 @@
     border-radius: 20px;
     overflow: hidden;
   }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.2)); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
   .actions { display: flex; gap: 10px; }
   .link { background: none; border: 0; color: var(--accent-text, var(--text)); font: inherit; font-size: 0.85em; cursor: pointer; padding: 0; opacity: 0.85; }
   .link:disabled { opacity: 0.35; cursor: default; }
   .empty { padding: 18px; color: var(--muted); margin: 0; }
   ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
-  li + li { border-top: 1px solid var(--border, rgba(127, 127, 127, 0.15)); }
+  li + li { border-top: 1px solid var(--line); }
   .item { position: relative; width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 10px 14px 10px 18px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
-  li.unread .item::before { content: ''; position: absolute; left: 6px; top: 16px; width: 6px; height: 6px; border-radius: 50%; background: #4c8dff; }
-  .item.error .kind { color: #ff5c5c; }
-  .item.warning .kind { color: #e09b00; }
-  .item.success .kind { color: #2fbf71; }
+  li.unread .item::before { content: ''; position: absolute; left: 6px; top: 16px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .item.error .kind { color: var(--red); }
+  .item.warning .kind { color: var(--amber); }
+  .item.success .kind { color: var(--green); }
   .kind { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .body { color: var(--muted); font-size: 0.9em; overflow-wrap: anywhere; }
   time { position: absolute; right: 14px; top: 10px; font-size: 0.75em; color: var(--muted); }

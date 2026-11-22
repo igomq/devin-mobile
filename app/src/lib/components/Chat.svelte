@@ -716,10 +716,10 @@
     transition: box-shadow 0.2s ease;
   }
   .box:focus-within {
-    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--glass-rim)), var(--glass-shadow);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--glass-rim)), var(--glass-drop-shadow);
   }
   .box.dropping {
-    box-shadow: inset 0 0 0 2px var(--accent), var(--glass-shadow);
+    box-shadow: inset 0 0 0 2px var(--accent), var(--glass-drop-shadow);
   }
   textarea {
     display: block;

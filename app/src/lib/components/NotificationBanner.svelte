@@ -26,12 +26,12 @@
     gap: 8px;
     padding: 12px 10px 12px 14px;
     border-radius: 18px;
-    border-left: 4px solid var(--accent, #4c8dff);
+    border-left: 4px solid var(--accent);
     animation: drop 0.34s var(--ease-spring, ease-out);
   }
-  .banner.success { border-left-color: #2fbf71; }
-  .banner.warning { border-left-color: #ffb020; }
-  .banner.error { border-left-color: #ff5c5c; }
+  .banner.success { border-left-color: var(--green); }
+  .banner.warning { border-left-color: var(--amber); }
+  .banner.error { border-left-color: var(--red); }
   .main {
     flex: 1;
     min-width: 0;

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { conn, forgetConnection, rpc } from '#lib/api.svelte.ts';
-  import { go, prefs, setTheme, setAccent, THEMES, ACCENTS, toast } from '#lib/ui.svelte.ts';
+  import { go, toast } from '#lib/ui.svelte.ts';
   import BackButton from './BackButton.svelte';
+  import ThemePicker from './ThemePicker.svelte';
   import { USAGE_URL } from '#lib/usage.ts';
   import type { Json, NotificationEventType, NotificationPrefs } from '#lib/types.ts';
   import { notif, EVENT_LABELS, savePrefs, sendTest, enablePush, disablePush, enableSystemNotifications, pushUnavailableReason } from '#lib/notifications.svelte.ts';
@@ -92,18 +93,7 @@
   </header>
   <main class="scroller">
     <div class="column">
-      <div class="label">Appearance</div>
-      <div class="segmented">
-        {#each THEMES as t}
-          <button class:on={prefs.theme === t} onclick={() => setTheme(t)}>{t[0].toUpperCase() + t.slice(1)}</button>
-        {/each}
-      </div>
-      <div class="label">Accent</div>
-      <div class="card accents">
-        {#each ACCENTS as a}
-          <button class="swatch" class:on={prefs.accent === a.id} style:--sw={a.color} onclick={() => setAccent(a.id)} aria-label={a.id} title={a.id}></button>
-        {/each}
-      </div>
+      <ThemePicker />
 
       <div class="label">Notifications</div>
       <div class="card notif">
@@ -201,7 +191,7 @@
   .notif input[type='checkbox'] {
     width: 20px;
     height: 20px;
-    accent-color: var(--accent-solid, #4c8dff);
+    accent-color: var(--accent);
   }
   .notif label.kv {
     cursor: pointer;
@@ -218,29 +208,8 @@
     margin-inline: auto;
     padding: 0 calc(var(--safe-right) + 16px) calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 16px);
   }
-  .column > .label:first-child {
-    margin-top: 8px;
-  }
   .card {
     padding: 0 16px;
-  }
-  .accents {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    padding: 14px 16px;
-  }
-  .swatch {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    background: var(--sw);
-    box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 2px transparent;
-    transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
-  }
-  .swatch.on {
-    box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 4px var(--sw);
-    transform: scale(1.06);
   }
   .kv {
     display: flex;

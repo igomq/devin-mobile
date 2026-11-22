@@ -2,33 +2,65 @@
    Content sits on a quiet canvas; navigation and controls float above it as translucent glass. */
 :root {
   color-scheme: dark;
-  --bg: #111214;
-  --bg-elev: #1b1c1f;
-  --bg-elev2: #26272b;
-  --bg-input: #1d1e22;
+  --code-bg: #1b1c1f;
+  --sidebar: #1b1c1f;
+  --on-accent: #111214;
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.15);
-  --text: #f2f2f4;
-  --text-2: #abadb4;
-  --text-3: #767980;
-  --accent: #f2f2f4;
-  --on-accent: #111214;
-  --green: #3ecf8e;
-  --red: #ff6b6b;
-  --amber: #f5b73d;
-  --blue: #6ea8fe;
   --add-bg: rgba(62, 207, 142, 0.13);
   --del-bg: rgba(255, 107, 107, 0.13);
-
-  /* Glass: chrome (bars, buttons, composer) and the heavier sheet material. */
   --glass: rgba(36, 37, 42, 0.56);
   --glass-heavy: rgba(30, 31, 35, 0.8);
   --glass-solid: #24252a;
   --glass-rim: rgba(255, 255, 255, 0.1);
   --glass-hi: rgba(255, 255, 255, 0.16);
-  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
-  --glass-blur: 22px;
+  --glass-shadow: rgba(0, 0, 0, 0.24);
   --scrim: rgba(0, 0, 0, 0.46);
+  --bg: #111214;
+  --bg-elev: #1b1c1f;
+  --bg-elev2: #26272b;
+  --bg-input: #1d1e22;
+  --text: #f2f2f4;
+  --text-2: #abadb4;
+  --text-3: #767980;
+  --accent: #f2f2f4;
+  --green: #3ecf8e;
+  --red: #ff6b6b;
+  --amber: #f5b73d;
+  --blue: #6ea8fe;
+  --ansi-black: #26272b;
+  --ansi-red: #ff6b6b;
+  --ansi-green: #3ecf8e;
+  --ansi-yellow: #f5b73d;
+  --ansi-blue: #6ea8fe;
+  --ansi-magenta: #c792ea;
+  --ansi-cyan: #1fb5b0;
+  --ansi-white: #abadb4;
+  --ansi-bright-black: #767980;
+  --ansi-bright-red: #ff6b6b;
+  --ansi-bright-green: #3ecf8e;
+  --ansi-bright-yellow: #f5b73d;
+  --ansi-bright-blue: #6ea8fe;
+  --ansi-bright-magenta: #c792ea;
+  --ansi-bright-cyan: #1fb5b0;
+  --ansi-bright-white: #f2f2f4;
+  --ansi-foreground: #f2f2f4;
+  --ansi-background: #111214;
+  --ansi-cursor: #f2f2f4;
+  --ansi-selection-background: rgba(255, 255, 255, 0.15);
+  --syn-comment: #767980;
+  --syn-keyword: #c792ea;
+  --syn-string: #3ecf8e;
+  --syn-number: #f5b73d;
+  --syn-title: #6ea8fe;
+  --syn-type: #c792ea;
+  --syn-variable: #ff6b6b;
+  --syn-attr: #3ecf8e;
+  --syn-meta: #f2f2f4;
+  --accent-soft-weight: 9%;
+  --accent-text-weight: 0%;
+  --glass-blur: 22px;
+  --glass-drop-shadow: 0 1px 2px var(--glass-shadow);
 
   --radius: 16px;
   --r-sm: 10px;
@@ -50,101 +82,12 @@
   /* Readable column for chat and settings on wide screens. */
   --column: 760px;
 }
-:root[data-theme='light'] {
-  color-scheme: light;
-  --bg: #f2f2f6;
-  --bg-elev: #ffffff;
-  --bg-elev2: #e8e8ed;
-  --bg-input: #ffffff;
-  --line: rgba(0, 0, 0, 0.08);
-  --line-strong: rgba(0, 0, 0, 0.15);
-  --text: #111113;
-  --text-2: #5b5c62;
-  --text-3: #8a8b91;
-  --accent: #111113;
-  --on-accent: #ffffff;
-  --green: #12925b;
-  --red: #d63b3b;
-  --amber: #b27500;
-  --blue: #2a6fdb;
-  --add-bg: rgba(18, 146, 91, 0.12);
-  --del-bg: rgba(214, 59, 59, 0.1);
-  --glass: rgba(255, 255, 255, 0.62);
-  --glass-heavy: rgba(250, 250, 252, 0.86);
-  --glass-solid: #ffffff;
-  --glass-rim: rgba(0, 0, 0, 0.07);
-  --glass-hi: rgba(255, 255, 255, 0.95);
-  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --scrim: rgba(0, 0, 0, 0.22);
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme]) {
-    color-scheme: light;
-    --bg: #f2f2f6;
-    --bg-elev: #ffffff;
-    --bg-elev2: #e8e8ed;
-    --bg-input: #ffffff;
-    --line: rgba(0, 0, 0, 0.08);
-    --line-strong: rgba(0, 0, 0, 0.15);
-    --text: #111113;
-    --text-2: #5b5c62;
-    --text-3: #8a8b91;
-    --accent: #111113;
-    --on-accent: #ffffff;
-    --green: #12925b;
-    --red: #d63b3b;
-    --amber: #b27500;
-    --blue: #2a6fdb;
-    --add-bg: rgba(18, 146, 91, 0.12);
-    --del-bg: rgba(214, 59, 59, 0.1);
-    --glass: rgba(255, 255, 255, 0.62);
-    --glass-heavy: rgba(250, 250, 252, 0.86);
-    --glass-solid: #ffffff;
-    --glass-rim: rgba(0, 0, 0, 0.07);
-    --glass-hi: rgba(255, 255, 255, 0.95);
-    --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-    --scrim: rgba(0, 0, 0, 0.22);
-  }
-}
-:root[data-theme='dim'] {
-  color-scheme: dark;
-  --bg: #161b26;
-  --bg-elev: #1f2534;
-  --bg-elev2: #2a3244;
-  --bg-input: #1c2230;
-  --line: rgba(200, 215, 255, 0.09);
-  --line-strong: rgba(200, 215, 255, 0.16);
-  --text: #e8ecf4;
-  --text-2: #aab3c5;
-  --text-3: #7b8499;
-  --accent: #e8ecf4;
-  --on-accent: #161b26;
-  --glass: rgba(34, 41, 56, 0.58);
-  --glass-heavy: rgba(29, 35, 48, 0.82);
-  --glass-solid: #222a3a;
-  --glass-rim: rgba(200, 215, 255, 0.1);
-  --glass-hi: rgba(220, 230, 255, 0.16);
-}
-
-/* Accent colors; "mono" keeps the theme's own black/white accent. */
-:root[data-accent='blue'] { --accent: #4c8dff; --on-accent: #ffffff; }
-:root[data-accent='violet'] { --accent: #8b6cff; --on-accent: #ffffff; }
-:root[data-accent='green'] { --accent: #2fbf71; --on-accent: #08200f; }
-:root[data-accent='orange'] { --accent: #ff8a3d; --on-accent: #2a1200; }
-:root[data-accent='pink'] { --accent: #ff5c9a; --on-accent: #ffffff; }
-:root[data-accent='teal'] { --accent: #1fb5b0; --on-accent: #ffffff; }
 :root {
-  /* Accent as a fill behind text, and as text: mixed toward the text color so it stays readable on light and dark. */
-  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
-  --accent-text: color-mix(in srgb, var(--accent) 80%, var(--text));
-  /* Neutral fills that work on any surface, including translucent sheets (grouped rows, inputs, chips). */
+  --accent-soft: color-mix(in srgb, var(--accent) var(--accent-soft-weight), transparent);
+  --accent-text: color-mix(in srgb, var(--accent) var(--accent-text-weight), var(--text));
+  /* Neutral fills for grouped rows, inputs and chips, including translucent sheets. */
   --fill: color-mix(in srgb, var(--text) 6%, transparent);
   --fill-2: color-mix(in srgb, var(--text) 10%, transparent);
-}
-:root[data-accent='mono'],
-:root:not([data-accent]) {
-  --accent-soft: color-mix(in srgb, var(--text) 9%, transparent);
-  --accent-text: var(--text);
 }
 
 * {
@@ -223,7 +166,7 @@ a {
   background: var(--glass);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
   backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-  box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-rim), var(--glass-shadow);
+  box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-rim), var(--glass-drop-shadow);
 }
 .glass-heavy {
   background: var(--glass-heavy);
@@ -578,8 +521,7 @@ a {
   text-decoration-color: color-mix(in srgb, var(--accent-text) 40%, transparent);
   text-underline-offset: 2px;
 }
-:root[data-accent='mono'] .md a,
-:root:not([data-accent]) .md a {
+:root:not([data-accent='customized']) .md a {
   color: var(--blue);
   text-decoration-color: color-mix(in srgb, var(--blue) 40%, transparent);
 }
@@ -658,7 +600,7 @@ a {
   margin: 0 0 0.75em;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: var(--bg-elev);
+  background: var(--code-bg);
   box-shadow: 0 0 0 1px var(--line);
 }
 .codehead {
@@ -695,49 +637,47 @@ a {
 /* highlight.js tokens */
 .hljs-comment,
 .hljs-quote {
-  color: var(--text-3);
+  color: var(--syn-comment);
   font-style: italic;
 }
 .hljs-keyword,
-.hljs-selector-tag,
-.hljs-built_in,
-.hljs-type {
-  color: #c792ea;
+.hljs-selector-tag {
+  color: var(--syn-keyword);
 }
-.hljs-string,
-.hljs-attr,
+.hljs-string {
+  color: var(--syn-string);
+}
 .hljs-addition {
   color: var(--green);
 }
 .hljs-number,
 .hljs-literal,
 .hljs-symbol {
-  color: var(--amber);
+  color: var(--syn-number);
 }
 .hljs-title,
 .hljs-section,
 .hljs-name,
 .hljs-function {
-  color: var(--blue);
+  color: var(--syn-title);
+}
+.hljs-built_in,
+.hljs-type {
+  color: var(--syn-type);
 }
 .hljs-deletion,
 .hljs-variable,
 .hljs-template-variable {
-  color: var(--red);
+  color: var(--syn-variable);
 }
-:root[data-theme='light'] .hljs-keyword,
-:root[data-theme='light'] .hljs-selector-tag,
-:root[data-theme='light'] .hljs-built_in,
-:root[data-theme='light'] .hljs-type {
-  color: #8a3fc7;
+.hljs-attr,
+.hljs-attribute {
+  color: var(--syn-attr);
 }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme]) .hljs-keyword,
-  :root:not([data-theme]) .hljs-selector-tag,
-  :root:not([data-theme]) .hljs-built_in,
-  :root:not([data-theme]) .hljs-type {
-    color: #8a3fc7;
-  }
+.hljs-meta,
+.hljs-punctuation,
+.hljs-operator {
+  color: var(--syn-meta);
 }
 
 /* Motion: feedback on press, short entrances, nothing that loops except live status. */
@@ -816,8 +756,8 @@ body,
 }
 @media (prefers-contrast: more) {
   :root {
-    --glass-rim: var(--line-strong);
-    --line: var(--line-strong);
+    --glass-rim: var(--line-strong) !important;
+    --line: var(--line-strong) !important;
   }
   .glass,
   .glass-heavy {

@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Harness picker for new sessions and a harness badge on non-Devin session rows.
 - Notifications: in-app banners and a notification center, plus Web Push for browsers and Home Screen PWAs, for approval requests, finished and failed runs, subagent results, Git conflicts, gateway disconnects and long waits. Per-event settings, duplicate suppression, catch-up after reconnects, and lock-screen-safe text by default. Native FCM/APNs push is not included; see `docs/NOTIFICATIONS.md`.
 - Automated `node:test` test suite for gateway config migration, ACP JSON-RPC, harness registry, workspace persistence, and Devin adapter regression, wired into CI.
+- Theme engine built on design tokens, with 21 variants across uniharn, Absolutely, Ayu, Catppuccin, Dracula, Everforest, GitHub, Gruvbox and Linear. Themes cover surfaces, Liquid Glass, chat, code blocks, diffs, approvals, the terminal's ANSI colors and syntax highlighting. Settings → Appearance adds theme search, light and dark themes that follow the system, and custom accent colors. Existing Light/Dark/Dim and accent settings migrate automatically. App tests cover theme registration, contrast, migration and persistence. See [docs/themes.md](docs/themes.md).
 
 ## [0.2.0] - 2026-11-22
 
