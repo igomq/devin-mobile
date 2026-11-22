@@ -64,11 +64,14 @@ function manageService(action: string | undefined, config: Config, argv: string[
       if (getArg(argv, 'static') ?? process.env.UNIHARN_STATIC ?? process.env.DEVIN_MOBILE_STATIC) args.push('--static', config.staticDir ?? 'none');
       args.push(...config.devinArgs);
       // A master token from the environment isn't persisted by loadConfig; hand it to the service via a private env file.
-      const envToken = process.env.UNIHARN_TOKEN || process.env.DEVIN_MOBILE_TOKEN;
+      // Same precedence as loadConfig, so the service keeps exactly the token this install resolved.
+      const tokenFromEnv = !!(process.env.UNIHARN_TOKEN ?? process.env.DEVIN_MOBILE_TOKEN);
       let environmentFile: string | undefined;
-      if (envToken) {
+      if (tokenFromEnv) {
+        if (/[\r\n]/.test(config.token)) throw new Error('The master token must not contain line breaks.');
         environmentFile = join(config.dataDir, 'service.env');
-        writeFileSync(environmentFile, `UNIHARN_TOKEN=${envToken}\n`, { mode: 0o600 });
+        const quoted = config.token.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+        writeFileSync(environmentFile, `UNIHARN_TOKEN="${quoted}"\n`, { mode: 0o600 });
         chmodSync(environmentFile, 0o600);
       }
       const file = installSystemdService({
