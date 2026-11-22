@@ -54,7 +54,7 @@
     padding: 14px;
     border-radius: var(--r-lg);
     /* Glass material with an amber ring in place of the neutral rim. */
-    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px color-mix(in srgb, var(--amber) 55%, transparent), var(--glass-shadow);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px color-mix(in srgb, var(--amber) 55%, transparent), var(--glass-drop-shadow);
   }
   .head {
     display: flex;

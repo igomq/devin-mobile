@@ -1,4 +1,6 @@
 import { getStorageItem, setStorageItem } from './storage.ts';
+import { readThemePrefs, writeThemePrefs, normalizeAccent } from './theme-prefs.ts';
+import { DEFAULT_THEME_PREFS, getTheme, resolveThemeId, themeVars } from './themes.ts';
 
 // Tiny hash router and UI preferences.
 export interface Route {
@@ -19,17 +21,19 @@ function parse(): Route {
 }
 
 export const route = $state<Route>(parse());
-export const THEMES = ['system', 'dark', 'dim', 'light'] as const;
-export const ACCENTS = [
-  { id: 'mono', color: 'var(--text)' },
-  { id: 'blue', color: '#4c8dff' },
-  { id: 'violet', color: '#8b6cff' },
-  { id: 'teal', color: '#1fb5b0' },
-  { id: 'green', color: '#2fbf71' },
-  { id: 'orange', color: '#ff8a3d' },
-  { id: 'pink', color: '#ff5c9a' }
-] as const;
-export const prefs = $state({ theme: getStorageItem('theme') || 'system', accent: getStorageItem('accent') || 'mono' });
+function loadThemePrefs() {
+  try {
+    return readThemePrefs({ getItem: getStorageItem });
+  } catch {
+    return { ...DEFAULT_THEME_PREFS };
+  }
+}
+
+const systemAppearance = typeof window === 'undefined' ? null : matchMedia('(prefers-color-scheme: dark)');
+export const prefs = $state(loadThemePrefs());
+let systemDark = $state(systemAppearance?.matches ?? true);
+const resolvedTheme = $derived(getTheme(resolveThemeId(prefs, systemDark)));
+export const activeTheme = () => resolvedTheme;
 
 // Tablet layout: at this width the session list stays in a sidebar next to the open session.
 const WIDE = '(min-width: 768px)';
@@ -68,48 +72,66 @@ export function back(fallback = '#/') {
   else go(fallback, true);
 }
 
-export function setTheme(theme: string) {
-  prefs.theme = theme;
-  setStorageItem('theme', theme);
+function saveTheme() {
+  try {
+    writeThemePrefs({ setItem: setStorageItem }, prefs);
+  } catch {
+    // Appearance still works if localStorage is unavailable.
+  }
   applyTheme();
 }
 
+export function setTheme(id: string) {
+  const theme = getTheme(id);
+  if (prefs.followSystem) {
+    if (theme.appearance === 'light') prefs.lightTheme = theme.id;
+    else prefs.darkTheme = theme.id;
+  } else {
+    prefs.theme = theme.id;
+  }
+  saveTheme();
+}
+
+export function setFollowSystem(follow: boolean) {
+  if (!follow) prefs.theme = activeTheme().id;
+  prefs.followSystem = follow;
+  saveTheme();
+}
+
 export function setAccent(accent: string) {
-  prefs.accent = accent;
-  setStorageItem('accent', accent);
-  applyTheme();
+  prefs.accent = normalizeAccent(accent);
+  saveTheme();
 }
 
 export function applyTheme() {
   const root = document.documentElement;
-  if (prefs.theme === 'system') root.removeAttribute('data-theme');
-  else root.setAttribute('data-theme', prefs.theme);
-  root.setAttribute('data-accent', prefs.accent);
-  // Match the status bar to the page background.
-  requestAnimationFrame(() => {
-    const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
-    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', bg));
-    // Resolve --bg on a probe: the body's own background is mid-transition right after a theme switch.
-    const probe = document.createElement('i');
-    probe.style.cssText = 'display:none;transition:none;background-color:var(--bg)';
-    document.body.append(probe);
-    const rgb = getComputedStyle(probe).backgroundColor.match(/\d+/g)?.slice(0, 3).map(Number);
-    probe.remove();
-    if (!rgb || rgb.length < 3) return;
-    const hex = '#' + rgb.map((n) => n.toString(16).padStart(2, '0')).join('');
-    const dark = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 140;
-    // Android shell only (src-tauri/android/MainActivity.kt).
-    const androidWin = window as {
-      UniharnAndroid?: { setBars(color: string, dark: boolean): void };
-      DevinMobileAndroid?: { setBars(color: string, dark: boolean): void };
-    };
-    (androidWin.UniharnAndroid ?? androidWin.DevinMobileAndroid)?.setBars(hex, dark);
-  });
+  const theme = activeTheme();
+  const { bg } = theme.tokens;
+  const vars = themeVars(theme, prefs.accent);
+  for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+  try {
+    setStorageItem('themeBoot', JSON.stringify({ vars, appearance: theme.appearance }));
+  } catch {
+    // Only the pre-paint cache is lost; the theme itself is already applied.
+  }
+  root.dataset.theme = theme.id;
+  root.dataset.appearance = theme.appearance;
+  root.dataset.accent = prefs.accent === 'theme' ? 'theme' : 'customized';
+  root.style.colorScheme = theme.appearance;
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', bg));
+
+  // Android shell only (src-tauri/android/MainActivity.kt). Keep the legacy bridge name working.
+  const androidWin = window as {
+    UniharnAndroid?: { setBars(color: string, dark: boolean): void };
+    DevinMobileAndroid?: { setBars(color: string, dark: boolean): void };
+  };
+  (androidWin.UniharnAndroid ?? androidWin.DevinMobileAndroid)?.setBars(bg, theme.appearance === 'dark');
 }
 
-if (typeof window !== 'undefined') {
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
-}
+systemAppearance?.addEventListener('change', (event) => {
+  systemDark = event.matches;
+  if (prefs.followSystem) applyTheme();
+});
 
 export const toasts = $state<{ id: number; text: string; kind: 'info' | 'error' }[]>([]);
 export function toast(text: string, kind: 'info' | 'error' = 'info') {

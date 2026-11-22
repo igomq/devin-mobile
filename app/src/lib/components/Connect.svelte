@@ -23,7 +23,7 @@
   <div class="scroller pairing">
     <form class="wrap" onsubmit={submit}>
       <div class="logo" aria-hidden="true">
-        <svg viewBox="0 0 512 512" width="64" height="64"><rect width="512" height="512" rx="112" fill="var(--text)" /><path d="M150 190l90 66-90 66" fill="none" stroke="var(--bg)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round" /><path d="M276 330h90" stroke="#3ecf8e" stroke-width="40" stroke-linecap="round" /></svg>
+        <svg viewBox="0 0 512 512" width="64" height="64"><rect width="512" height="512" rx="112" fill="var(--text)" /><path d="M150 190l90 66-90 66" fill="none" stroke="var(--bg)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round" /><path d="M276 330h90" stroke="var(--green)" stroke-width="40" stroke-linecap="round" /></svg>
       </div>
       <h1>uniharn</h1>
       <p class="intro">Connect to the uniharn gateway running on your VM. Get its token with <code>uniharn gateway --print-token</code>.</p>

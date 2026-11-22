@@ -30,7 +30,8 @@ The user interface of [Devin Mobile](../README.md): a SvelteKit single-page app 
 | --- | --- |
 | `api.svelte.ts` | The WebSocket connection to the gateway: requests, pushed events, automatic reconnect and per-session resume from the last seen sequence number. Also holds the reactive app and session state. |
 | `timeline.ts` | Folds the gateway's ACP session updates into the list of items the chat renders (user, assistant, thought, tool, plan and notice). |
-| `ui.svelte.ts` | The hash router (`#/s/<id>`, `#/settings`, `#/terminal`) and UI preferences such as theme and accent color. |
+| `ui.svelte.ts` | The hash router (`#/s/<id>`, `#/settings`, `#/terminal`) and UI preferences; `applyTheme()` writes the active theme's tokens to `:root`. |
+| `themes.ts`, `theme-prefs.ts` | The theme registry (tokens, ANSI and syntax colors per variant), contrast helpers, and stored theme preferences with migration. See [docs/themes.md](../docs/themes.md). |
 | `format.ts` | Markdown rendering, syntax highlighting, diff parsing and path helpers. |
 | `models.ts` | Splits Devin CLI's model option into single models and Fusion (main plus sidekick) pairs. |
 | `usage.ts` | Token count formatting and the link to the Devin usage page. |
@@ -45,7 +46,7 @@ The user interface of [Devin Mobile](../README.md): a SvelteKit single-page app 
 | `Chat.svelte` | The conversation, composer and turn controls for one session. |
 | `Changes.svelte` | Changed files, per-file diffs and command runs for a session's project. |
 | `Terminal.svelte` | xterm.js view of a PTY on the VM (shell or `devin` TUI). |
-| `Settings.svelte` | Connection, account and usage, theme, accent color and notifications. |
+| `Settings.svelte` | Connection, account and usage, appearance (`ThemePicker.svelte`) and notifications. |
 | `Permission.svelte` | Approval card for a permission request. |
 | `ToolCall.svelte` | A tool call in the chat, with its command, output or diff. |
 | `SessionControls.svelte` | Mode, model, thinking level and speed for a session. |
