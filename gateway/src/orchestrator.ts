@@ -118,6 +118,12 @@ export async function createWorktree(repoCwd: string, id: string): Promise<{ pat
   return { path, branch };
 }
 
+/** Removes a worktree and its branch created by {@link createWorktree}. */
+export async function removeWorktree(repoCwd: string, wt: { path: string; branch: string }) {
+  await execFileAsync('git', ['-C', repoCwd, 'worktree', 'remove', '--force', wt.path], { timeout: 60000 }).catch(() => undefined);
+  await execFileAsync('git', ['-C', repoCwd, 'branch', '-D', wt.branch], { timeout: 10000 }).catch(() => undefined);
+}
+
 /**
  * Cross-harness coordination: hands a session's context to another harness and runs
  * subagent tasks on any harness, optionally isolated in a git worktree.
@@ -231,6 +237,11 @@ export class Orchestrator extends EventEmitter {
     if (!cwd) throw new Error('sessionId or cwd is required');
     const wt = opts.worktree ? await createWorktree(cwd, randomUUID().slice(0, 8)) : null;
     const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, task) : task;
-    return this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt);
+    try {
+      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt);
+    } catch (e) {
+      if (wt) await removeWorktree(cwd, wt);
+      throw e;
+    }
   }
 }
