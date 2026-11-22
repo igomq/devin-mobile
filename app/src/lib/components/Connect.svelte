@@ -1,6 +1,6 @@
 <script lang="ts">
   import { conn, saveConnection, pairWithCode, isTauri } from '#lib/api.svelte.ts';
-  import { isCompleteCode, normalizeCode, parsePairingInput } from '#lib/pairing.ts';
+  import { isCompleteCode, normalizeCode, pageOrigin, parsePairingInput } from '#lib/pairing.ts';
   import Sheet from './Sheet.svelte';
   import QrScanner from './QrScanner.svelte';
   import Icon from './Icon.svelte';
@@ -9,7 +9,7 @@
   const servedByGateway = !isTauri && /^https?:$/.test(location.protocol) && location.port !== '5173';
 
   let mode = $state<'pair' | 'token'>('pair');
-  let url = $state(conn.url || (servedByGateway ? location.origin : ''));
+  let url = $state(conn.url || (servedByGateway ? pageOrigin() : ''));
   let code = $state('');
   let token = $state(conn.token || '');
   let scanning = $state(false);

@@ -34,7 +34,14 @@ export function isCompleteCode(raw: string): boolean {
 
 function stripBase(u: URL): string {
 	const path = u.pathname.replace(/\/+$/, '');
-	return u.origin + path;
+	// Keep an explicit :80 so a portless http address isn't later read as the default 8787.
+	const origin = u.protocol === 'http:' && !u.port ? `${u.origin}:80` : u.origin;
+	return origin + path;
+}
+
+/** The page's own origin as a gateway address (see `stripBase` for the http port rule). */
+export function pageOrigin(loc: { protocol: string; port: string; origin: string } = location): string {
+	return loc.protocol === 'http:' && !loc.port ? `${loc.origin}:80` : loc.origin;
 }
 
 /**

@@ -1,7 +1,7 @@
 // Connection to the uniharn gateway: one WebSocket, requests plus pushed events, with
 // automatic reconnect and per-session resume from the last seen sequence number.
 import { getStorageItem, removeStorageItem, setStorageItem } from './storage.ts';
-import { defaultDeviceName, detectPlatform, httpBase, pairDevice } from './pairing.ts';
+import { defaultDeviceName, detectPlatform, httpBase, pageOrigin, pairDevice } from './pairing.ts';
 import { applyUpdate, emptyState, permissionView, stateFromSummary } from './timeline.ts';
 import type { AppNotification, ChangedFile, ChangedFileView, ConnInfo, DeviceInfo, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
 
@@ -49,17 +49,17 @@ function initial() {
     } catch {
       code = p[1];
     }
-    pair = { url: location.origin, code };
+    pair = { url: pageOrigin(), code };
   } else if (m) {
     try {
       token = decodeURIComponent(m[1]);
     } catch {
       token = m[1];
     }
-    if (!isTauri) url = location.origin;
+    if (!isTauri) url = pageOrigin();
     meta = { gatewayId: url === saved.url ? saved.gatewayId : undefined };
   }
-  if (!url && servedByGateway && location.port !== '5173') url = location.origin;
+  if (!url && servedByGateway && location.port !== '5173') url = pageOrigin();
   return { url, token, meta, pair };
 }
 

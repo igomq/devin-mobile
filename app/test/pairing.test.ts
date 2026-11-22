@@ -14,6 +14,9 @@ test('normalizeCode uppercases and inserts the hyphen', () => {
 
 test('parsePairingInput reads pairing links, deep links, legacy token links and bare codes', () => {
 	assert.deepEqual(parsePairingInput('http://100.64.0.1:8787/#pair=ABCD-EFGH'), { url: 'http://100.64.0.1:8787', code: 'ABCD-EFGH' });
+	assert.deepEqual(parsePairingInput('http://100.64.0.1:80/#pair=ABCD-EFGH'), { url: 'http://100.64.0.1:80', code: 'ABCD-EFGH' });
+	assert.equal(httpBase(parsePairingInput('http://vm.local/#pair=ABCD-EFGH').url!), 'http://vm.local:80');
+	assert.equal(httpBase('http://vm.local'), 'http://vm.local:8787');
 	assert.deepEqual(parsePairingInput('https://vm.tail.ts.net/#x=1&pair=abcdefgh'), { url: 'https://vm.tail.ts.net', code: 'ABCD-EFGH' });
 	assert.deepEqual(parsePairingInput('https://vm.tail.ts.net/sub/#pair=ABCD-EFGH'), { url: 'https://vm.tail.ts.net/sub', code: 'ABCD-EFGH' });
 	assert.deepEqual(parsePairingInput('uniharn://pair?url=' + encodeURIComponent('http://h:8787/') + '&code=abcd-efgh'), { url: 'http://h:8787', code: 'ABCD-EFGH' });
@@ -32,7 +35,7 @@ test('httpBase follows wsUrl rules', () => {
 	assert.equal(httpBase('ws://host/ws'), 'http://host:8787');
 	assert.equal(httpBase('wss://host.ts.net/ws'), 'https://host.ts.net');
 	assert.equal(httpBase('https://host.ts.net/'), 'https://host.ts.net');
-	assert.equal(httpBase('http://host:80'), 'http://host');
+	assert.equal(httpBase('http://host:80'), 'http://host:80');
 	assert.equal(httpBase('[fd7a::1]'), 'http://[fd7a::1]:8787');
 });
 
