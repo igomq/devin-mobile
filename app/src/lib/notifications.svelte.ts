@@ -115,39 +115,30 @@ function onMessage(msg: NotificationMessage) {
   }
 }
 
-/** After every (re)connect: fetch what was missed while offline, by sequence number. */
+let reconciledUrl: string | null = null;
+
+/** After every (re)connect: resync history and read state, and surface what was missed while offline. */
 async function reconcile() {
   try {
-    const fresh = notif.lastSeq === 0;
     const [list, prefs, caps] = await Promise.all([
-      rpc('notifications.list', fresh ? { limit: 100 } : { sinceSeq: notif.lastSeq }),
+      rpc('notifications.list', { limit: 200 }),
       rpc('notifications.prefs.get'),
       notif.capabilities ? Promise.resolve(null) : rpc('notifications.capabilities')
     ]);
     setPrefsLocal(prefs.prefs);
     if (caps) notif.capabilities = caps.capabilities;
-    if (!fresh && list.lastSeq < notif.lastSeq) {
-      // The gateway restarted and its history was reset: take its list as the truth.
-      notif.items = notif.items.filter((n) => n.local);
-      notif.lastSeq = 0;
-      return reconcile();
-    }
-    const missed = (list.notifications as AppNotification[]).sort((a, b) => a.seq - b.seq);
-    for (const n of missed) {
-      if (!add(n)) continue;
-      if (fresh || n.read) shown.add(n.id);
-    }
-    notif.items.sort((a, b) => b.at - a.at);
-    notif.lastSeq = Math.max(notif.lastSeq, list.lastSeq);
-    const serverUnread = notif.items.filter((x) => !x.local && !x.read).length;
-    notif.unreadCount = serverUnread + notif.items.filter((x) => x.local && !x.read).length;
+    // A different gateway, or the same one restarted with a reset history, starts from scratch.
+    const fresh = reconciledUrl !== conn.url || list.lastSeq < notif.lastSeq;
+    const seenUpTo = fresh ? Infinity : notif.lastSeq;
+    reconciledUrl = conn.url;
+    const server = (list.notifications as AppNotification[]).sort((a, b) => b.seq - a.seq);
+    notif.items = [...server, ...notif.items.filter((n) => n.local)].sort((a, b) => b.at - a.at).slice(0, 200);
+    notif.lastSeq = list.lastSeq;
+    notif.unreadCount = notif.items.filter((x) => !x.read).length;
+    const missed = server.filter((n) => n.seq > seenUpTo && !n.read && !shown.has(n.id));
+    for (const n of server) if (n !== missed[0]) shown.add(n.id);
     // Show only the newest unseen one so a long outage does not flood the screen.
-    const latest = missed.filter((n) => !shown.has(n.id)).pop();
-    for (const n of missed) shown.add(n.id);
-    if (latest) {
-      shown.delete(latest.id);
-      present(latest);
-    }
+    if (missed[0]) present(missed[0]);
     await syncPushSubscription();
   } catch {
     // Older gateways have no notification API; the in-app list just stays empty.
