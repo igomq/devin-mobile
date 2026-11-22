@@ -317,7 +317,7 @@ export async function unstage(cwd: string, paths?: string[], all?: boolean) {
     const sources = [];
     for (const f of (await readStatus(root)).files) {
       if (!f.oldPath || !f.staged || !requested.includes(f.path)) continue;
-      const tracked = await gitResult(root, ['--literal-pathspecs', 'ls-files', '--error-unmatch', '--', f.oldPath]);
+      const tracked = await gitResult(root, ['cat-file', '-e', `:0:${f.oldPath}`]);
       if (tracked.code !== 0) sources.push(f.oldPath);
     }
     requested = [...new Set([...requested, ...sources])];
@@ -537,8 +537,13 @@ export async function push(cwd: string, opts: RemoteOptions & ForceOptions & { s
     if (opts.force === true && opts.setUpstream !== true && opts.remote === undefined) {
       // A force push names one destination: the ref a plain `git push` would update (e.g. a differently
       // named upstream), so push.default=matching cannot force other branches.
-      const [remote, pushRef, tracking] = (await git(cwd, ['for-each-ref', '--format=%(push:remotename)%00%(push:remoteref)%00%(push)', `refs/heads/${branch}`]))
-        .trimEnd().split('\0');
+      const [remote, pushRef, tracking, upstream] = (await git(cwd, [
+        'for-each-ref', '--format=%(push:remotename)%00%(push:remoteref)%00%(push)%00%(upstream)', `refs/heads/${branch}`,
+      ])).trimEnd().split('\0');
+      // The confirmation names the upstream, so refuse when push config would force a different ref.
+      if (tracking && upstream && tracking !== upstream) {
+        throw new Error(`Force push would update ${tracking.replace(/^refs\/remotes\//, '')}, not the upstream ${upstream.replace(/^refs\/remotes\//, '')}; push explicitly from a terminal`);
+      }
       const prefix = `refs/remotes/${remote}/`;
       const remoteRef = pushRef || (tracking?.startsWith(prefix) ? `refs/heads/${tracking.slice(prefix.length)}` : '');
       if (remote && remoteRef) target = ['--', await remoteName(cwd, remote), `refs/heads/${branch}:${remoteRef}`];
@@ -725,8 +730,9 @@ async function enrichWorktree(cwd: string, item: WorktreeEntry): Promise<Worktre
   return { ...item, dirtyCount, hasUncommittedChanges: dirtyCount > 0 };
 }
 
-export async function listWorktrees(cwd: string) {
-  const entries = await worktreeEntries(cwd);
+/** `include` drops worktrees (e.g. outside allowed roots) before they are inspected, so errors cannot name them. */
+export async function listWorktrees(cwd: string, include?: (path: string) => boolean) {
+  const entries = (await worktreeEntries(cwd)).filter(entry => !include || include(entry.path));
   return Promise.all(entries.map(entry => enrichWorktree(cwd, entry)));
 }
 
@@ -821,9 +827,9 @@ export async function removeWorktree(cwd: string, worktreePath: string, opts: Re
   }
 }
 
-export async function pruneWorktrees(cwd: string) {
+export async function pruneWorktrees(cwd: string, include?: (path: string) => boolean) {
   await git(cwd, ['worktree', 'prune']);
-  return listWorktrees(cwd);
+  return listWorktrees(cwd, include);
 }
 
 async function defaultBase(cwd: string, main: WorktreeEntry) {

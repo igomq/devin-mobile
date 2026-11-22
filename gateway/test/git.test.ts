@@ -724,3 +724,31 @@ test('conflict text keeps a UTF-8 BOM and unstaging a copy keeps its source stag
     assert.equal(runGit(repo, ['diff', '--cached', '--name-only']), 'README.md');
   });
 });
+
+test('force push refuses when a push refspec targets a ref other than the confirmed upstream', async () => {
+  await withRepo(async ({ repo, remote }) => {
+    runGit(repo, ['checkout', '-b', 'topic']);
+    write(repo, 't.txt', 't\n');
+    commit(repo, 't');
+    runGit(repo, ['push', 'origin', 'topic', 'topic:other']);
+    runGit(repo, ['branch', '--set-upstream-to=origin/topic']);
+    runGit(repo, ['config', 'remote.origin.push', 'refs/heads/topic:refs/heads/other']);
+    const before = runGit(remote, ['rev-parse', 'refs/heads/other']);
+    runGit(repo, ['commit', '--amend', '-m', 't amended']);
+    await assert.rejects(git.push(repo, { force: true, confirmForce: true }), /not the upstream origin\/topic/);
+    assert.equal(runGit(remote, ['rev-parse', 'refs/heads/other']), before);
+  });
+});
+
+test('unstaging a rename whose old path became a directory restores the original file', async () => {
+  await withRepo(async ({ repo }) => {
+    write(repo, 'old', 'content\n');
+    commit(repo, 'old');
+    runGit(repo, ['mv', 'old', 'new']);
+    mkdirSync(join(repo, 'old'));
+    write(repo, 'old/child.txt', 'child\n');
+    runGit(repo, ['add', '-A']);
+    await git.unstage(repo, ['new']);
+    assert.equal(runGit(repo, ['ls-files', '--stage', '--', 'old']).split('\n').some(l => l.endsWith('\told')), true);
+  });
+});

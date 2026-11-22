@@ -38,16 +38,16 @@ export function createGitRpc(dataDir: string, opts: GitRpcOptions = {}) {
     return checkPath(isAbsolute(p) ? resolve(p) : resolve(cwd, p));
   }
   /** With root checks on, linked worktrees outside the allowed roots are left out of listings. */
-  const visible = (worktrees: git.Worktree[]) => opts.checkPath
-    ? worktrees.filter((w) => {
+  const visible = opts.checkPath
+    ? (path: string) => {
       try {
-        opts.checkPath!(w.path);
+        opts.checkPath!(path);
         return true;
       } catch {
         return false;
       }
-    })
-    : worktrees;
+    }
+    : undefined;
   const worktreePath = (cwd: string, p: Json) => pathIn(cwd, p.worktreePath ?? p.path, 'worktreePath');
   const handlers: Record<string, (p: Json) => Promise<Json> | Json> = {
     'git.status': async (p) => {
@@ -74,7 +74,7 @@ export function createGitRpc(dataDir: string, opts: GitRpcOptions = {}) {
     'git.conflicts': async (p) => git.conflicts(await cwdOf(p.cwd)),
     'git.resolveConflict': async (p) => git.resolveConflict(await cwdOf(p.cwd), requireString(p.path, 'path'), p.strategy, p.content),
     'git.abortConflict': async (p) => git.abortConflict(await cwdOf(p.cwd), p.confirm),
-    'git.worktrees': async (p) => ({ worktrees: visible(await git.listWorktrees(await cwdOf(p.cwd))) }),
+    'git.worktrees': async (p) => ({ worktrees: await git.listWorktrees(await cwdOf(p.cwd), visible) }),
     'git.worktreeAdd': async (p) =>
       git.addWorktree(await cwdOf(p.cwd), { path: p.path, checkPath: opts.checkPath, branch: p.branch, newBranch: p.newBranch, baseRef: p.baseRef, taskSlug: p.taskSlug }),
     'git.worktreeRemove': async (p) => {
@@ -82,7 +82,7 @@ export function createGitRpc(dataDir: string, opts: GitRpcOptions = {}) {
       await git.removeWorktree(cwd, worktreePath(cwd, p), { force: p.force, confirmDirty: p.confirmDirty, deleteBranch: p.deleteBranch });
       return { removed: true };
     },
-    'git.worktreePrune': async (p) => ({ worktrees: visible(await git.pruneWorktrees(await cwdOf(p.cwd))) }),
+    'git.worktreePrune': async (p) => ({ worktrees: await git.pruneWorktrees(await cwdOf(p.cwd), visible) }),
     'git.worktreeCompare': async (p) => {
       const cwd = await cwdOf(p.cwd);
       return git.compareWorktree(cwd, worktreePath(cwd, p), p.baseBranch);
