@@ -22,6 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Theme engine built on design tokens, with 21 variants across uniharn, Absolutely, Ayu, Catppuccin, Dracula, Everforest, GitHub, Gruvbox and Linear. Themes cover surfaces, Liquid Glass, chat, code blocks, diffs, approvals, the terminal's ANSI colors and syntax highlighting. Settings → Appearance adds theme search, light and dark themes that follow the system, and custom accent colors. Existing Light/Dark/Dim and accent settings migrate automatically. App tests cover theme registration, contrast, migration and persistence. See [docs/themes.md](docs/themes.md).
 - Git and worktree management: the Changes screen now stages and unstages files, shows staged and unstaged diffs, commits (with amend), fetches, pulls and pushes (force push behind a typed confirmation), lists history with commit details, switches, creates and deletes branches, resolves merge, rebase and cherry-pick conflicts (ours, theirs or edit), and creates, compares, merges and removes worktrees. A PRs tab lists, views, diffs and creates GitHub pull requests through the host's `gh` login and links one to the session. Destructive actions need explicit confirmation on both the app and the gateway.
 
+### Fixed
+
+- Chat composer placeholder now shows the active session's harness name instead of always saying "Message Devin".
+
 ### Security
 
 - The gateway removes `UNIHARN_TOKEN` from its environment at startup, so harnesses, terminals and tasks no longer inherit the master token. SECURITY.md describes the uniharn threat model (pairing, harnesses, MCP server, worktrees, Web Push).

@@ -28,6 +28,11 @@
     else removeStorageItem(draftSuffix);
   });
   let model = $derived(modelLabel(st.configOptions?.find(isModelOption)));
+  let harnessLabel = $derived.by(() => {
+    const known = app.sessions.find((s) => s.id === id);
+    const hid = known?.harnessId ?? (id.includes(':') ? id.slice(0, id.indexOf(':')) : 'devin');
+    return app.harnesses.find((h) => h.id === hid)?.name ?? (hid === 'devin' ? 'Devin' : hid);
+  });
   let sending = $state(false);
   let controls = $state(false);
   let scroller = $state<HTMLElement>();
@@ -407,7 +412,7 @@
           onkeydown={keydown}
           {onpaste}
           rows="1"
-          placeholder={dropping ? 'Drop images to attach' : busy ? 'Add instructions while Devin works…' : 'Message Devin'}
+          placeholder={dropping ? 'Drop images to attach' : busy ? `Add instructions while ${harnessLabel} works…` : `Message ${harnessLabel}`}
           aria-label="Message"
           disabled={!view?.ready}
         ></textarea>
