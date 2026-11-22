@@ -14,6 +14,7 @@ import type { Session } from './sessions.js';
 import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
+import { Orchestrator } from './orchestrator.js';
 import { WorkspaceStore } from './workspaces.js';
 
 const VERSION = '0.3.0';
@@ -26,6 +27,7 @@ registry.setCustomFactory(createCustomAcpAdapter);
 void registry.probeAll();
 const manager = devinHarness.manager;
 const workspaces = new WorkspaceStore(config.dataDir);
+const orchestrator = new Orchestrator(registry, config.dataDir);
 const tasks = new TaskRunner();
 const terminals = new TerminalManager(config.devinBin);
 
@@ -93,6 +95,7 @@ registry.on('permission_resolved', (s: Session, requestId, optionId) => {
   const sid = formatScopedSessionId(s.harnessId, s.sessionId);
   broadcast({ type: 'permission_resolved', sessionId: sid, harnessId: s.harnessId, requestId, optionId });
 });
+orchestrator.on('link', (link) => broadcast({ type: 'orchestration_link', link }));
 tasks.on('output', (run, chunk) => broadcast({ type: 'task_output', taskId: run.taskId, cwd: run.cwd, chunk }));
 tasks.on('done', (run) => {
   const { output: _o, ...rest } = run;
@@ -231,6 +234,26 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       }
       return { session: { ...s.summary(), sessionId: scopedId, harnessId }, epoch: s.epoch, workspaceId };
     }
+    case 'session.handoff': {
+      const id = requireString(p.sessionId, 'sessionId');
+      const target = requireString(p.harnessId, 'harnessId');
+      const { link } = await orchestrator.handoff(id, target, typeof p.instruction === 'string' ? p.instruction : undefined);
+      c.subs.add(link.childSessionId);
+      return { link };
+    }
+    case 'orchestration.delegate': {
+      const id = requireString(p.sessionId, 'sessionId');
+      const harnessId = requireString(p.harnessId, 'harnessId');
+      const task = requireString(p.task, 'task');
+      const { link, done } = await orchestrator.delegate(id, harnessId, task, { worktree: !!p.worktree, includeContext: !!p.includeContext });
+      if (p.wait) {
+        await done;
+        return { link: orchestrator.get(link.id) };
+      }
+      return { link };
+    }
+    case 'orchestration.list':
+      return { links: orchestrator.list(typeof p.sessionId === 'string' ? p.sessionId : undefined) };
     case 'session.open': {
       const id = requireString(p.sessionId, 'sessionId');
       const { adapter, harnessId, nativeId } = registry.resolveSession(id);
