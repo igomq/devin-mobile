@@ -282,12 +282,14 @@ export class SessionManager extends EventEmitter {
       .then((r) => {
         s.lastStopReason = r?.stopReason ?? null;
         const u = r?.usage;
-        s.tokens = {
-          turns: s.tokens.turns + 1,
-          inputTokens: s.tokens.inputTokens + (u?.inputTokens ?? 0),
-          outputTokens: s.tokens.outputTokens + (u?.outputTokens ?? 0),
-          cachedReadTokens: s.tokens.cachedReadTokens + (u?.cachedReadTokens ?? 0),
-        };
+        if (u) {
+          s.tokens = {
+            turns: s.tokens.turns + 1,
+            inputTokens: s.tokens.inputTokens + (u.inputTokens ?? 0),
+            outputTokens: s.tokens.outputTokens + (u.outputTokens ?? 0),
+            cachedReadTokens: s.tokens.cachedReadTokens + (u.cachedReadTokens ?? 0),
+          };
+        }
         const done = s.push({ sessionUpdate: '_turn_end', stopReason: s.lastStopReason });
         this.emit('event', s, done);
       })

@@ -77,8 +77,10 @@ let accountCache: { at: number; value: Json } | null = null;
 async function accountInfo(refresh: boolean): Promise<Json> {
   if (!refresh && accountCache && Date.now() - accountCache.at < 60_000) return accountCache.value;
   const { execFile } = await import('node:child_process');
-  const out = await new Promise<string>((res) =>
-    execFile(config.devinBin, ['auth', 'status'], { timeout: 20_000 }, (_e, stdout, stderr) => res(`${stdout}\n${stderr}`)),
+  const out = await new Promise<string>((res, rej) =>
+    execFile(config.devinBin, ['auth', 'status'], { timeout: 20_000 }, (e, stdout, stderr) =>
+      e && !stdout.trim() && !stderr.trim() ? rej(new Error(`Could not run devin auth status: ${e.message}`)) : res(`${stdout}\n${stderr}`),
+    ),
   );
   const fields: { label: string; value: string }[] = [];
   for (const m of out.matchAll(/^[ \t]+([A-Za-z][A-Za-z ]*?):[ \t]+(.+?)[ \t]*$/gm)) {

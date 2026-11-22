@@ -34,10 +34,20 @@
   async function copyUsageLink() {
     try {
       await navigator.clipboard.writeText(USAGE_URL);
-      toast('Link copied');
     } catch {
-      toast(USAGE_URL);
+      // The Clipboard API needs a secure context; a plain-HTTP Tailscale address is not one.
+      const t = document.createElement('textarea');
+      t.value = USAGE_URL;
+      t.setAttribute('readonly', '');
+      t.style.position = 'fixed';
+      t.style.opacity = '0';
+      document.body.appendChild(t);
+      t.select();
+      const ok = document.execCommand('copy');
+      t.remove();
+      if (!ok) return toast(USAGE_URL);
     }
+    toast('Link copied');
   }
 
   async function recheck() {
