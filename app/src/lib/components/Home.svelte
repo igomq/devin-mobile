@@ -243,7 +243,7 @@
     height: 16px;
     padding: 0 4px;
     border-radius: 8px;
-    background: #ff3b30;
+    background: var(--red);
     color: #fff;
     font-size: 10px;
     font-weight: 700;

@@ -191,7 +191,7 @@
   .notif input[type='checkbox'] {
     width: 20px;
     height: 20px;
-    accent-color: var(--accent-solid, #4c8dff);
+    accent-color: var(--accent);
   }
   .notif label.kv {
     cursor: pointer;
