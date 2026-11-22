@@ -8,6 +8,7 @@ import { loadConfig } from './config.js';
 import * as git from './git.js';
 import { DevinHarnessAdapter } from './harnesses/devin.js';
 import { formatScopedSessionId, HarnessRegistry } from './harnesses/registry.js';
+import { NotificationService } from './notifications.js';
 import { listDirectory, listProjects } from './projects.js';
 import type { Session } from './sessions.js';
 import { serveStatic } from './static.js';
@@ -24,6 +25,7 @@ const manager = devinHarness.manager;
 const workspaces = new WorkspaceStore(config.dataDir);
 const tasks = new TaskRunner();
 const terminals = new TerminalManager(config.devinBin);
+const notifications = new NotificationService(config.dataDir);
 
 type Json = any;
 
@@ -54,10 +56,12 @@ function tokenOk(given: unknown): boolean {
 registry.on('event', (s: Session, ev) => {
   const sid = formatScopedSessionId(s.harnessId, s.sessionId);
   broadcast({ type: 'event', sessionId: sid, harnessId: s.harnessId, epoch: s.epoch, ...ev }, (c) => c.subs.has(sid));
+  notifications.onSessionActivity(sid, s.harnessId, s.title);
 });
 registry.on('state', (summary) => {
   const sid = formatScopedSessionId(summary.harnessId, summary.sessionId);
   broadcast({ type: 'session_state', session: { ...summary, sessionId: sid } });
+  notifications.onSessionState({ ...summary, sessionId: sid });
 });
 registry.on('reset', (s: Session) => {
   const sid = formatScopedSessionId(s.harnessId, s.sessionId);
@@ -65,6 +69,7 @@ registry.on('reset', (s: Session) => {
 });
 registry.on('deleted', (sessionId) => {
   broadcast({ type: 'session_deleted', sessionId });
+  notifications.onSessionForgotten(sessionId);
   try {
     workspaces.removeSession(sessionId);
   } catch (err) {
@@ -84,15 +89,30 @@ registry.on('permission', (s: Session, p) => {
     toolCall: p.toolCall,
     options: p.options,
   });
+  notifications.onPermissionRequested({
+    sessionId: sid,
+    harnessId: s.harnessId,
+    title: s.title,
+    requestId: p.requestId,
+    toolTitle: p.toolCall?.title ?? null,
+    command: typeof p.toolCall?.rawInput?.command === 'string' ? p.toolCall.rawInput.command : null,
+  });
 });
 registry.on('permission_resolved', (s: Session, requestId, optionId) => {
   const sid = formatScopedSessionId(s.harnessId, s.sessionId);
   broadcast({ type: 'permission_resolved', sessionId: sid, harnessId: s.harnessId, requestId, optionId });
+  notifications.onPermissionResolved(sid, requestId);
 });
+// Emitted by the orchestrator when a delegated subagent task ends.
+registry.on('subagent_completed', (t: Json) => notifications.notifySubagentCompleted(t ?? {}));
+notifications.on('notification', (n) => broadcast({ type: 'notification', notification: n }));
+notifications.on('read', (ids: string[], unreadCount: number) => broadcast({ type: 'notification_read', ids, unreadCount }));
+notifications.on('cleared', () => broadcast({ type: 'notifications_cleared' }));
 tasks.on('output', (run, chunk) => broadcast({ type: 'task_output', taskId: run.taskId, cwd: run.cwd, chunk }));
 tasks.on('done', (run) => {
   const { output: _o, ...rest } = run;
   broadcast({ type: 'task_done', task: rest });
+  notifications.onTaskDone(run);
 });
 terminals.on('data', (termId, data) => broadcast({ type: 'term_data', termId, data }, (c) => c.terms.has(termId)));
 terminals.on('exit', (info) => broadcast({ type: 'term_exit', term: info }));
@@ -143,6 +163,7 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
         sessions: [...manager.sessions.values()].map((s) => s.summary()),
         terminals: terminals.list(),
         tasks: tasks.list(),
+        notifications: { unreadCount: notifications.unreadCount(), lastSeq: notifications.lastSeq() },
       };
     }
     case 'ping':
@@ -284,8 +305,38 @@ async function handle(c: Client, type: string, p: Json): Promise<Json> {
       await adapter.deleteSession(nativeId);
       return {};
     }
-    case 'git.status':
-      return git.status(absCwd(p.cwd));
+    case 'git.status': {
+      const st = await git.status(absCwd(p.cwd));
+      if (st.isRepo) notifications.notifyGitConflict(absCwd(p.cwd), st.files.filter((f) => f.status === 'conflict').map((f) => f.path));
+      return st;
+    }
+    case 'notifications.list':
+      return notifications.list({ sinceSeq: typeof p.sinceSeq === 'number' ? p.sinceSeq : undefined, limit: typeof p.limit === 'number' ? p.limit : undefined, unreadOnly: !!p.unreadOnly });
+    case 'notifications.read':
+      return { ids: notifications.markRead(Array.isArray(p.ids) ? p.ids.map(String) : null), unreadCount: notifications.unreadCount() };
+    case 'notifications.clear':
+      notifications.clear();
+      return {};
+    case 'notifications.prefs.get':
+      return { prefs: notifications.getPrefs() };
+    case 'notifications.prefs.set':
+      return { prefs: notifications.setPrefs(typeof p.prefs === 'object' && p.prefs ? p.prefs : {}) };
+    case 'notifications.capabilities':
+      return { capabilities: notifications.getCapabilities() };
+    case 'notifications.push.publicKey':
+      return { publicKey: notifications.publicKey() };
+    case 'notifications.push.subscribe':
+      return notifications.subscribe(p.subscription, typeof p.label === 'string' ? p.label : null);
+    case 'notifications.push.unsubscribe':
+      return notifications.unsubscribe(requireString(p.endpoint, 'endpoint'));
+    case 'notifications.push.list':
+      return { subscriptions: notifications.listSubscriptions(), subscribed: typeof p.endpoint === 'string' ? notifications.hasSubscription(p.endpoint) : undefined };
+    case 'notifications.test': {
+      const n = notifications.notify({ type: 'task_completed', title: 'Test notification', body: 'Notifications from this gateway are working.', safeBody: 'Notifications from this gateway are working.', route: '#/settings', dedupKey: `test:${Date.now()}` });
+      if (!n) return { delivered: false, reason: 'Notifications or the task-completed event are turned off' };
+      const push = await notifications.waitForPush(n.id);
+      return { delivered: true, notification: n, push };
+    }
     case 'git.diff':
       return git.diff(absCwd(p.cwd), p.path);
     case 'git.log':
@@ -436,6 +487,9 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     for (const t of terminals.list()) terminals.close(t.termId);
     tasks.stopAll();
-    process.exit(0);
+    const n = notifications.notifyGatewayShutdown(`Stopped by ${sig}.`);
+    const push = n ? notifications.waitForPush(n.id) : Promise.resolve();
+    // Give the in-app broadcast and Web Push a moment to leave before exiting.
+    Promise.race([push, new Promise((r) => setTimeout(r, 1500))]).finally(() => process.exit(0));
   });
 }
