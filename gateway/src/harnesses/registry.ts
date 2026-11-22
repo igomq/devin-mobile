@@ -14,6 +14,8 @@ interface PersistedRegistry {
  * Bare session IDs without a known `<harnessId>:` prefix default to `devin`
  * for 100% backward compatibility with legacy Devin sessions.
  */
+const LIST_TIMEOUT_MS = 8000;
+
 export function parseScopedSessionId(sessionId: string, knownHarnesses: Iterable<string>): { harnessId: HarnessId; nativeId: string } {
   const idx = sessionId.indexOf(':');
   if (idx > 0) {
@@ -189,7 +191,11 @@ export class HarnessRegistry extends EventEmitter {
         .filter((a) => a.info().enabled)
         .map(async (a) => {
           try {
-            const rows = await a.listSessions(cwd);
+            let timer: NodeJS.Timeout | undefined;
+            const timeout = new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error(`${a.id} did not list sessions in time`)), LIST_TIMEOUT_MS);
+            });
+            const rows = await Promise.race([a.listSessions(cwd), timeout]).finally(() => clearTimeout(timer));
             return rows.map((r) => ({ ...r, harnessId: a.id, sessionId: formatScopedSessionId(a.id, r.sessionId) }));
           } catch {
             return [];
