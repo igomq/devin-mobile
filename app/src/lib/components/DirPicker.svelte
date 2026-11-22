@@ -145,19 +145,16 @@
     content: '';
     position: absolute;
     top: 0;
-    left: 60px;
+    left: 50px;
     right: 0;
     height: 1px;
     background: var(--line);
   }
   .ic {
     flex: none;
-    width: 32px;
-    height: 32px;
+    width: 22px;
     display: grid;
     place-items: center;
-    border-radius: 9px;
-    background: var(--fill-2);
     color: var(--text-2);
   }
   .main {

@@ -178,7 +178,7 @@
           <section>
             <div class="ghead">
               <span class="gname"><Icon name="folder" size={15} /> <b>{basename(g.cwd) || 'No folder'}</b></span>
-              <span class="gpath mono">{shortPath(g.cwd, conn.info?.home)}</span>
+              <span class="gpath" title={shortPath(g.cwd, conn.info?.home)}></span>
               <button class="gadd press" onclick={() => create(g.cwd)} disabled={creating || !g.cwd || conn.status !== 'online'} aria-label="New session in {basename(g.cwd)}"><Icon name="plus" size={18} /></button>
             </div>
             <div class="card">

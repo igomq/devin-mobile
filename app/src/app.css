@@ -26,7 +26,7 @@
   --glass-solid: #24252a;
   --glass-rim: rgba(255, 255, 255, 0.1);
   --glass-hi: rgba(255, 255, 255, 0.16);
-  --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.34), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
   --glass-blur: 22px;
   --scrim: rgba(0, 0, 0, 0.46);
 
@@ -74,7 +74,7 @@
   --glass-solid: #ffffff;
   --glass-rim: rgba(0, 0, 0, 0.07);
   --glass-hi: rgba(255, 255, 255, 0.95);
-  --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   --scrim: rgba(0, 0, 0, 0.22);
 }
 @media (prefers-color-scheme: light) {
@@ -102,7 +102,7 @@
     --glass-solid: #ffffff;
     --glass-rim: rgba(0, 0, 0, 0.07);
     --glass-hi: rgba(255, 255, 255, 0.95);
-    --glass-shadow: 0 8px 28px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+    --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
     --scrim: rgba(0, 0, 0, 0.22);
   }
 }
@@ -229,7 +229,7 @@ a {
   background: var(--glass-heavy);
   -webkit-backdrop-filter: blur(34px) saturate(180%);
   backdrop-filter: blur(34px) saturate(180%);
-  box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-rim), 0 24px 60px rgba(0, 0, 0, 0.32);
+  box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-rim), 0 4px 16px rgba(0, 0, 0, 0.14);
 }
 
 /* Floating top bar. Content scrolls underneath; the edge fades it out instead of a hard divider. */
@@ -347,7 +347,6 @@ a {
 .btn.primary {
   background: var(--accent);
   color: var(--on-accent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 6px 18px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .btn.danger {
   color: var(--red);
@@ -409,12 +408,10 @@ a {
 }
 .dot.running {
   background: var(--green);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
   animation: pulse 1.6s ease-in-out infinite;
 }
 .dot.awaiting_permission {
   background: var(--amber);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 24%, transparent);
   animation: pulse 1.6s ease-in-out infinite;
 }
 .dot.error {
@@ -515,7 +512,7 @@ a {
   background: var(--bg-elev);
   color: var(--text);
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 1px var(--line);
+  box-shadow: 0 0 0 1px var(--line);
 }
 
 /* Diff rows (shared by tool calls and the changes screen) */
