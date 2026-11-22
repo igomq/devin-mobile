@@ -682,3 +682,45 @@ test('confirmed dirty worktree removal keeps a branch with unmerged commits', as
     assert.ok((await git.branches(repo)).some((branch) => branch.name === 'feature/unmerged'));
   });
 });
+
+test('force push targets a differently named upstream instead of the same-named branch', async () => {
+  await withRepo(async ({ repo, remote }) => {
+    runGit(repo, ['config', 'push.default', 'upstream']);
+    runGit(repo, ['checkout', '-b', 'local-name']);
+    write(repo, 'x.txt', 'x\n');
+    commit(repo, 'x');
+    runGit(repo, ['push', 'origin', 'local-name:remote-name', 'local-name:local-name']);
+    runGit(repo, ['branch', '--set-upstream-to=origin/remote-name']);
+    const sameName = runGit(remote, ['rev-parse', 'refs/heads/local-name']);
+    runGit(repo, ['commit', '--amend', '-m', 'x amended']);
+    await git.push(repo, { force: true, confirmForce: true });
+    assert.equal(runGit(remote, ['rev-parse', 'refs/heads/remote-name']), runGit(repo, ['rev-parse', 'HEAD']));
+    assert.equal(runGit(remote, ['rev-parse', 'refs/heads/local-name']), sameName);
+  });
+});
+
+test('conflict text keeps a UTF-8 BOM and unstaging a copy keeps its source staged', async () => {
+  await withRepo(async ({ repo }) => {
+    write(repo, 'bom.txt', '\uFEFFheader\none\ntwo\nbase\n');
+    commit(repo, 'bom');
+    await git.createBranch(repo, 'feature/bom', { checkout: true });
+    write(repo, 'bom.txt', '\uFEFFheader\none\ntwo\nfeature\n');
+    commit(repo, 'feature bom');
+    await git.checkout(repo, 'main');
+    write(repo, 'bom.txt', '\uFEFFheader\none\ntwo\nmain\n');
+    commit(repo, 'main bom');
+    assert.throws(() => runGit(repo, ['merge', '--no-edit', 'feature/bom']));
+    const parsed = await git.conflicts(repo);
+    assert.ok(parsed.files[0]?.content.startsWith('\uFEFF'));
+    await git.resolveConflict(repo, 'bom.txt', 'manual', parsed.files[0]!.content.replace(/<<<<<<<[^]*>>>>>>> [^\n]*\n/, 'merged\n'));
+    assert.deepEqual([...readFileSync(join(repo, 'bom.txt')).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+    runGit(repo, ['commit', '--no-edit']);
+
+    runGit(repo, ['config', 'status.renames', 'copies']);
+    write(repo, 'README.md', 'base line\nstable line\nsource edit\n');
+    write(repo, 'COPY.md', 'base line\nstable line\n');
+    runGit(repo, ['add', '-A']);
+    await git.unstage(repo, ['COPY.md']);
+    assert.equal(runGit(repo, ['diff', '--cached', '--name-only']), 'README.md');
+  });
+});

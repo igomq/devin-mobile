@@ -70,3 +70,31 @@ test('git RPC handler reports git.status results to onStatus for conflict notifi
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('git RPC root checks hide linked worktrees outside the allowed roots and guard merge targets', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'uniharn-git-rpc-roots-')));
+  const repo = join(root, 'repo');
+  try {
+    run(root, ['init', '--initial-branch=main', repo]);
+    run(repo, ['config', 'user.name', 'RPC Test']);
+    run(repo, ['config', 'user.email', 'rpc-test@example.invalid']);
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    run(repo, ['add', '-A']);
+    run(repo, ['commit', '-m', 'first']);
+    const outside = join(root, 'outside-wt');
+    run(repo, ['worktree', 'add', '-b', 'outside', outside]);
+    const inside = join(repo, 'wt');
+    run(repo, ['worktree', 'add', '-b', 'inside', inside]);
+    const checkPath = (path: string) => {
+      if (path !== repo && !path.startsWith(repo + '/')) throw new Error('Path is outside allowed roots');
+      return path;
+    };
+    const rpc = createGitRpc(join(root, 'data'), { checkPath });
+    const { worktrees } = await rpc.handle('git.worktrees', { cwd: repo });
+    assert.deepEqual(worktrees.map((w: { path: string }) => w.path).sort(), [repo, inside].sort());
+    await assert.rejects(rpc.handle('git.worktreeAdd', { cwd: repo, taskSlug: 'x' })!, /outside allowed roots/);
+    await assert.rejects(rpc.handle('git.worktreeMerge', { cwd: repo, worktreePath: inside, targetBranch: 'outside' })!, /outside allowed roots/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

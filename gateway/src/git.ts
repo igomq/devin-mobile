@@ -313,8 +313,14 @@ export async function unstage(cwd: string, paths?: string[], all?: boolean) {
   let requested = all === true ? ['.'] : changePaths(paths);
   if (all !== true) {
     // Unstaging only the new side of a staged rename would leave the old path staged for deletion.
-    const renamed = (await readStatus(root)).files.filter(f => f.oldPath && f.staged && requested.includes(f.path));
-    requested = [...new Set([...requested, ...renamed.map(f => f.oldPath!)])];
+    // A copy keeps its source in the index; only a rename's source is staged as deleted.
+    const sources = [];
+    for (const f of (await readStatus(root)).files) {
+      if (!f.oldPath || !f.staged || !requested.includes(f.path)) continue;
+      const tracked = await gitResult(root, ['--literal-pathspecs', 'ls-files', '--error-unmatch', '--', f.oldPath]);
+      if (tracked.code !== 0) sources.push(f.oldPath);
+    }
+    requested = [...new Set([...requested, ...sources])];
   }
   const hasHead = (await gitResult(root, ['rev-parse', '--verify', 'HEAD'])).code === 0;
   const command = hasHead ? ['reset', 'HEAD'] : ['rm', '--cached', '-r', '-f', '--ignore-unmatch'];
@@ -524,12 +530,21 @@ export async function push(cwd: string, opts: RemoteOptions & ForceOptions & { s
   if (opts.setUpstream === true) args.push('--set-upstream');
   if (opts.force === true) args.push('--force-with-lease');
   let branch = opts.branch;
-  // A force push names the branch explicitly so push.default=matching cannot force other branches.
+  let target: string[] | undefined;
   if ((opts.setUpstream === true || opts.force === true) && branch === undefined) {
     branch = shortBranch((await git(cwd, ['symbolic-ref', '--quiet', 'HEAD'], 1)).trimEnd());
     if (!branch) throw new Error('Specify a branch to push when HEAD is detached');
+    if (opts.force === true && opts.setUpstream !== true && opts.remote === undefined) {
+      // A force push names one destination: the ref a plain `git push` would update (e.g. a differently
+      // named upstream), so push.default=matching cannot force other branches.
+      const [remote, pushRef, tracking] = (await git(cwd, ['for-each-ref', '--format=%(push:remotename)%00%(push:remoteref)%00%(push)', `refs/heads/${branch}`]))
+        .trimEnd().split('\0');
+      const prefix = `refs/remotes/${remote}/`;
+      const remoteRef = pushRef || (tracking?.startsWith(prefix) ? `refs/heads/${tracking.slice(prefix.length)}` : '');
+      if (remote && remoteRef) target = ['--', await remoteName(cwd, remote), `refs/heads/${branch}:${remoteRef}`];
+    }
   }
-  const result = await gitResult(cwd, [...args, ...await remoteArgs(cwd, { remote: opts.remote, branch }, true)]);
+  const result = await gitResult(cwd, [...args, ...target ?? await remoteArgs(cwd, { remote: opts.remote, branch }, true)]);
   if (result.code !== 0) throw gitError(result);
   return { output: commandOutput(result), status: await status(cwd) };
 }
@@ -585,7 +600,7 @@ function conflictHunks(content: string): ConflictHunk[] {
 function textContent(bytes: Buffer): string | null {
   if (bytes.includes(0)) return null;
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
     return null;
   }
@@ -670,7 +685,7 @@ interface WorktreeEntry {
   isMain: boolean;
 }
 
-interface Worktree extends WorktreeEntry {
+export interface Worktree extends WorktreeEntry {
   dirtyCount: number;
   hasUncommittedChanges: boolean;
 }
@@ -851,6 +866,8 @@ interface MergeWorktreeOptions {
   squash?: boolean;
   confirm?: boolean;
   removeAfter?: boolean;
+  /** Validates the target worktree path (e.g. against allowed roots) before it is read or changed. */
+  checkPath?: (path: string) => string;
 }
 
 function requireCleanWorktree(st: GitStatus, label: string) {
@@ -866,6 +883,7 @@ export async function mergeWorktree(cwd: string, worktreePath: string, opts: Mer
   const targetBranch = await branchName(cwd, opts.targetBranch ?? await defaultBase(cwd, entries[0]));
   const targetEntry = entries.find(w => w.branch === targetBranch) ?? entries[0];
   if (targetEntry.path === entry.path) throw new Error('Source and target must use different worktrees');
+  opts.checkPath?.(targetEntry.path);
   const targetStatus = await worktreeStatus(cwd, targetEntry);
   requireCleanWorktree(targetStatus, 'Target worktree');
   const [target, head] = await Promise.all([commitHash(cwd, `refs/heads/${targetBranch}`), commitHash(entry.path, 'HEAD')]);
