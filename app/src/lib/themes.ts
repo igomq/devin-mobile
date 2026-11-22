@@ -162,7 +162,7 @@ function theme(
   return { id, family, name, appearance, source, tokens, ansi, syntax };
 }
 
-const uniharnSource = 'https://github.com/igomq/devin-mobile';
+const uniharnSource = 'https://github.com/igomq/uniharn';
 const uniharnDarkColors = {
   bg: '#111214', bgElev: '#1b1c1f', bgElev2: '#26272b', bgInput: '#1d1e22',
   text: '#f2f2f4', text2: '#abadb4', text3: '#767980', accent: '#f2f2f4',

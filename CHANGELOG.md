@@ -81,6 +81,6 @@ First release.
 - Deleting a session on a Devin CLI version that cannot delete sessions reports an error instead of claiming success.
 - A Content-Security-Policy for the native webview that still allows inline styles.
 
-[Unreleased]: https://github.com/igomq/devin-mobile/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/igomq/devin-mobile/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/igomq/devin-mobile/releases/tag/v0.1.0
+[Unreleased]: https://github.com/igomq/uniharn/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/igomq/uniharn/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/igomq/uniharn/releases/tag/v0.1.0

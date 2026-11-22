@@ -4,7 +4,7 @@ version = "0.3.0"
 description = "uniharn — open-source multi-harness coding agent platform"
 authors = ["GomQ"]
 license = "MIT"
-repository = "https://github.com/igomq/devin-mobile"
+repository = "https://github.com/igomq/uniharn"
 edition = "2024"
 rust-version = "1.90"
 

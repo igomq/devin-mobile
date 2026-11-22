@@ -1,6 +1,6 @@
 # uniharn
 
-[![CI](https://github.com/igomq/devin-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/igomq/devin-mobile/actions/workflows/ci.yml)
+[![CI](https://github.com/igomq/uniharn/actions/workflows/ci.yml/badge.svg)](https://github.com/igomq/uniharn/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 An open-source multi-harness coding agent platform for iPhone, Android, iPad, and web browsers — control coding agent CLIs on your own Linux VM over Tailscale.
@@ -123,8 +123,8 @@ On the phone or tablet:
 3. Clone the repository, then build the web UI and the gateway. The gateway serves the built web UI from `app/build`.
 
    ```bash
-   git clone https://github.com/igomq/devin-mobile.git
-   cd devin-mobile
+   git clone https://github.com/igomq/uniharn.git
+   cd uniharn
    (cd app && npm ci && npm run build)
    (cd gateway && npm ci && npm run build)
    ```
@@ -172,7 +172,7 @@ The service runs with systemd's default `PATH`. The gateway finds `devin` in `~/
 
 ## Install the app
 
-Download the latest build from the [Releases page](https://github.com/igomq/devin-mobile/releases/latest).
+Download the latest build from the [Releases page](https://github.com/igomq/uniharn/releases/latest).
 
 - **Android**: download the APK and install it. Android asks you to allow installs from your browser or file manager the first time. The APK is built for arm64 devices.
 - **iOS and iPadOS**: the IPA is unsigned. Sign and install it with [AltStore](https://altstore.io), [SideStore](https://sidestore.io) or [Sideloadly](https://sideloadly.io), or with your own certificate. Apps signed with a free Apple ID expire after seven days and need to be refreshed.

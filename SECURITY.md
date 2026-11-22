@@ -11,7 +11,7 @@ Only the latest release receives security fixes. Update the app and the gateway 
 
 ## Reporting a vulnerability
 
-Report vulnerabilities privately through GitHub's private vulnerability reporting. Open https://github.com/igomq/devin-mobile/security/advisories/new, or go to the Security tab of the repository and choose "Report a vulnerability".
+Report vulnerabilities privately through GitHub's private vulnerability reporting. Open https://github.com/igomq/uniharn/security/advisories/new, or go to the Security tab of the repository and choose "Report a vulnerability".
 
 Do not open a public issue, pull request or discussion for a vulnerability.
 
