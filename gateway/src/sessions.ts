@@ -451,15 +451,17 @@ export class SessionManager extends EventEmitter {
    */
   async releaseIdle(isWatched: (sessionId: string) => boolean, idleMs: number): Promise<number> {
     const acp = this.acp;
-    if (!acp?.alive) return 0;
+    // Without session/load a released conversation could not be reopened.
+    if (!acp?.alive || !acp.initResult?.agentCapabilities?.loadSession) return 0;
     const loaded = [...this.sessions.values()].filter((s) => s.loaded);
     const idle = (s: Session) => !s.running && !s.permissions.size && Date.now() - s.updatedAt >= idleMs && !isWatched(s.sessionId);
     if (!acp.initResult?.agentCapabilities?.sessionCapabilities?.close) {
       // Codex has no session/close: the only way to let go is to stop the agent once every session it holds is idle.
-      if (!loaded.length || !loaded.every(idle)) return 0;
+      // Sessions ended with closeSession are already unloaded but still held, so an empty list also stops it.
+      if (!loaded.every(idle)) return 0;
       this.idleStopped = acp;
       acp.stop();
-      return loaded.length;
+      return Math.max(loaded.length, 1);
     }
     let released = 0;
     for (const s of loaded.filter(idle)) {
