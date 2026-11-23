@@ -6,7 +6,7 @@ import { AuthStore } from './auth.js';
 import { type Config, getArg, loadConfig } from './config.js';
 import { startConsole } from './console.js';
 import {
-  VERSION, checkGatewayAuth, checkGatewayPorts, collectDiagnostics, findRunningGateway, gatewayUrl, installSystemdService,
+  VERSION, checkGatewayAuth, checkGatewayPorts, collectDiagnostics, findRunningGateway, gatewayUrl, installSystemdService, readServiceLaunch,
   suggestedUrls, systemdServiceStatus, uninstallSystemdService,
 } from './diagnostics.js';
 import { redactSecrets } from './security.js';
@@ -116,10 +116,18 @@ async function main(argv: string[], config: Config): Promise<void> {
   const command = implicit ? 'gateway' : argv[2];
   if (command === 'gateway' && implicit && wantsConsole(argv)) {
     // A gateway already runs (e.g. the systemd service): show its pairing console instead of starting another.
-    const running = await findRunningGateway(config, new AuthStore(config.dataDir, config.token).gatewayId);
-    if (running) {
-      openConsole(config, true, () => process.exit(0));
-      return;
+    // The service may use its own port, data dir, public URL and token, so try its settings first.
+    const service = readServiceLaunch();
+    const candidates = [config];
+    if (service) {
+      const { UNIHARN_TOKEN: _token, DEVIN_MOBILE_TOKEN: _legacyToken, ...env } = process.env;
+      candidates.unshift(loadConfig({ argv: service.argv, env: { ...env, ...service.env } }));
+    }
+    for (const candidate of candidates) {
+      if (await findRunningGateway(candidate, new AuthStore(candidate.dataDir, candidate.token).gatewayId)) {
+        openConsole(candidate, true, () => process.exit(0));
+        return;
+      }
     }
   }
   if (command === 'gateway') {

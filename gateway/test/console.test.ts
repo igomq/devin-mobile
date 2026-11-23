@@ -61,3 +61,14 @@ test('Enter creates a fresh pairing code and hides it again; q quits', async () 
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(quit, true);
 });
+
+test('the installed service unit round-trips to its launch arguments and token', async () => {
+  const { parseServiceEnv, parseSystemdUnit, renderSystemdUnit } = await import('../src/diagnostics.js');
+  const args = ['--port', '9999', '--public-url', 'https://vm.ts.net', '--roots', '/a "b"/100%', '--devin', '/x/$HOME\\bin'];
+  const unit = renderSystemdUnit({ nodePath: '/usr/bin/node', entryPath: '/g/dist/index.js', workingDirectory: '/g/dist', args, environmentFile: '/d/service.env' });
+  const { command, environmentFile } = parseSystemdUnit(unit);
+  assert.deepEqual(command, ['/usr/bin/node', '/g/dist/index.js', 'gateway', ...args]);
+  assert.equal(environmentFile, '/d/service.env');
+  assert.deepEqual(parseServiceEnv('UNIHARN_TOKEN="a\\"b\\\\c"\n'), { UNIHARN_TOKEN: 'a"b\\c' });
+  assert.deepEqual(parseServiceEnv(''), {});
+});
