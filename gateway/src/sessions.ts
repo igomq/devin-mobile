@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { AcpConnection } from './acp.js';
+import { noteModels, sessionRefs } from './subagents.js';
 
 type Json = any;
 
@@ -89,6 +91,7 @@ export class Session {
   setConfigOptions(opts?: Json[]) {
     if (opts) this.agentConfigOptions = opts;
     this.configOptions = this.modelsFromSetModel ? [...this.agentConfigOptions, this.modelOption] : this.agentConfigOptions;
+    noteModels(this.harnessId, this.configOptions);
   }
 
   summary(): SessionSummary {
@@ -161,7 +164,7 @@ export class SessionManager extends EventEmitter {
   }
 
   /** MCP servers offered to every new or loaded session (ACP `mcpServers`). */
-  mcpServers: (cwd?: string) => Json[] = () => [];
+  mcpServers: (cwd?: string, ref?: string) => Json[] = () => [];
 
   updateLaunchConfig(bin: string, extraArgs: string[]): void {
     this.bin = bin;
@@ -273,8 +276,10 @@ export class SessionManager extends EventEmitter {
 
   async createSession(cwd: string): Promise<Session> {
     const acp = await this.ensureAgent();
-    const r = await acp.request('session/new', { cwd, mcpServers: this.mcpServers(cwd) }, 60000);
+    const ref = randomUUID();
+    const r = await acp.request('session/new', { cwd, mcpServers: this.mcpServers(cwd, ref) }, 60000);
     const s = this.getOrCreate(r.sessionId, cwd);
+    sessionRefs.set(ref, { harnessId: s.harnessId, sessionId: s.sessionId });
     s.loaded = true;
     this.applySessionResult(s, r);
     this.emit('state', s.summary());
@@ -300,7 +305,9 @@ export class SessionManager extends EventEmitter {
     this.emit('reset', s);
     s.loaded = true; // updates during replay must be accepted
     try {
-      const r = await acp.request('session/load', { sessionId: s.sessionId, cwd: s.cwd, mcpServers: this.mcpServers(s.cwd) }, 120000);
+      const ref = randomUUID();
+      sessionRefs.set(ref, { harnessId: s.harnessId, sessionId: s.sessionId });
+      const r = await acp.request('session/load', { sessionId: s.sessionId, cwd: s.cwd, mcpServers: this.mcpServers(s.cwd, ref) }, 120000);
       this.applySessionResult(s, r);
     } catch (e) {
       s.loaded = false;

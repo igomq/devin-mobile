@@ -4,7 +4,7 @@ import { DEFAULT_THEME_PREFS, getTheme, resolveThemeId, themeVars } from './them
 
 // Tiny hash router and UI preferences.
 export interface Route {
-  name: 'home' | 'session' | 'settings' | 'accounts' | 'terminal';
+  name: 'home' | 'session' | 'settings' | 'accounts' | 'subagents' | 'terminal';
   id?: string;
   tab?: string;
   login?: boolean;
@@ -17,6 +17,7 @@ function parse(): Route {
   if (name === 's' && rest[0]) return { name: 'session', id: decodeURIComponent(rest[0]), tab: rest[1] || 'chat' };
   if (name === 'settings') return { name: 'settings' };
   if (name === 'accounts') return { name: 'accounts' };
+  if (name === 'subagents') return { name: 'subagents' };
   if (name === 'terminal') return { name: 'terminal', login: query === 'login' };
   return { name: 'home' };
 }

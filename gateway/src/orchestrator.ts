@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import type { HarnessRegistry } from './harnesses/registry.js';
 import { formatScopedSessionId } from './harnesses/registry.js';
 import type { Session } from './sessions.js';
+import { modelOptionOf, type SubagentSettings } from './subagents.js';
 
 const execFileAsync = promisify(execFile);
 type Json = any;
@@ -24,6 +25,8 @@ export interface SessionLink {
   cwd: string;
   worktree: string | null;
   branch: string | null;
+  /** Model the subagent was started with; null means the harness default. */
+  model?: string | null;
   status: LinkStatus;
   output: string | null;
   stopReason: string | null;
@@ -132,7 +135,7 @@ export class Orchestrator extends EventEmitter {
   private links = new Map<string, SessionLink>();
   private file: string;
 
-  constructor(private registry: HarnessRegistry, dataDir: string) {
+  constructor(private registry: HarnessRegistry, dataDir: string, private settings: SubagentSettings | null = null) {
     super();
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     this.file = join(dataDir, 'orchestration.json');
@@ -186,8 +189,22 @@ export class Orchestrator extends EventEmitter {
     return { harnessId, session: s };
   }
 
-  private async start(kind: LinkKind, parentSessionId: string, harnessId: string, cwd: string, task: string, prompt: string, worktree: { path: string; branch: string } | null) {
+  private async start(
+    kind: LinkKind,
+    parentSessionId: string,
+    harnessId: string,
+    cwd: string,
+    task: string,
+    prompt: string,
+    worktree: { path: string; branch: string } | null,
+    model: string | null = null,
+  ) {
     const child = await this.registry.createSession(harnessId, worktree?.path ?? cwd);
+    if (model) {
+      const opt = modelOptionOf(child.configOptions);
+      if (!opt) throw new Error(`${harnessId} does not offer a model choice`);
+      await this.registry.require(harnessId).setConfigOption(child.sessionId, opt.id, model);
+    }
     const now = Date.now();
     const link: SessionLink = {
       id: randomUUID(),
@@ -199,6 +216,7 @@ export class Orchestrator extends EventEmitter {
       cwd: worktree?.path ?? cwd,
       worktree: worktree?.path ?? null,
       branch: worktree?.branch ?? null,
+      model,
       status: 'running',
       output: null,
       stopReason: null,
@@ -227,18 +245,25 @@ export class Orchestrator extends EventEmitter {
   }
 
   /**
-   * Runs `task` as a subagent on `harnessId`, in the parent's folder (or `opts.cwd` when there is no
-   * parent session) or in an isolated worktree of it.
+   * Runs `task` as a subagent on `harnessId`, in `opts.cwd` (else the parent's folder)
+   * or in an isolated worktree of it. `model: null` runs on the harness default model;
+   * omitting it uses the default subagent model.
    */
-  async delegate(parentSessionId: string | null, harnessId: string, task: string, opts: { cwd?: string; worktree?: boolean; includeContext?: boolean } = {}) {
+  async delegate(
+    parentSessionId: string | null,
+    harnessId: string,
+    task: string,
+    opts: { cwd?: string; worktree?: boolean; includeContext?: boolean; model?: string | null } = {},
+  ) {
     if (!task.trim()) throw new Error('task is required');
     const parent = parentSessionId ? await this.source(parentSessionId) : null;
-    const cwd = parent?.session.cwd ?? opts.cwd;
+    const cwd = opts.cwd ?? parent?.session.cwd;
     if (!cwd) throw new Error('sessionId or cwd is required');
     const wt = opts.worktree ? await createWorktree(cwd, randomUUID().slice(0, 8)) : null;
     const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, task) : task;
     try {
-      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt);
+      const model = opts.model === undefined ? (this.settings?.defaultModel(harnessId) ?? null) : opts.model || null;
+      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt, model);
     } catch (e) {
       if (wt) await removeWorktree(cwd, wt);
       throw e;

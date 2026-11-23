@@ -39,7 +39,8 @@ The repository has two packages:
 
 - Hand a session off to another harness. The new session starts in the same directory with the conversation transcript and an optional next instruction.
 - Delegate a task to a subagent on any harness, optionally in its own Git worktree so its edits stay off your branch. Subagents appear under their parent session with their status and result, and you get a notification when one finishes.
-- Every ACP harness gets a `uniharn` MCP server with `delegate_task`, `list_harnesses` and related tools, so agents can delegate to each other.
+- Every ACP harness gets a `uniharn` MCP server with `delegate_task`, `list_harnesses` and related tools, so agents can delegate to each other. Ask the agent in a chat ("have Codex review this") and it starts the subagent itself; the run shows up under that chat.
+- Settings › Subagents sets the model each harness uses as a subagent, separately from the model of your chat sessions. A delegation can also pick a model for one run.
 
 ### Chat
 
