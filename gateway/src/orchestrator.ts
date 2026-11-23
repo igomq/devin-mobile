@@ -183,6 +183,21 @@ export class Orchestrator extends EventEmitter {
     return this.links.get(id);
   }
 
+  /**
+   * Sessions that only exist as the child of a delegation with a live parent chat, in the scoped
+   * form the app lists them under. Delegations without a parent session, or whose parent is gone,
+   * stay in the session list so their transcripts remain reachable.
+   */
+  delegatedSessionIds(existingParents?: Set<string>): Set<string> {
+    const out = new Set<string>();
+    for (const l of this.links.values()) {
+      if (l.kind !== 'delegate' || !l.parentSessionId || !l.childSessionId) continue;
+      if (existingParents && !existingParents.has(l.parentSessionId)) continue;
+      out.add(l.childSessionId);
+    }
+    return out;
+  }
+
   private async source(sessionId: string) {
     const { adapter, harnessId, nativeId } = this.registry.resolveSession(sessionId);
     const s = await adapter.ensureLoaded(nativeId);

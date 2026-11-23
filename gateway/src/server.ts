@@ -261,7 +261,7 @@ export function createGatewayServer(input: Config) {
           agent: manager.agentStatus(),
           harnesses: registry.list(),
           workspaces: workspaces.list(),
-          sessions: [...manager.sessions.values()].map((s) => s.summary()),
+          sessions: [...manager.sessions.values()].map((s) => s.summary()).filter((s) => !orchestrator.delegatedSessionIds().has(s.sessionId)),
           terminals: terminals.list(),
           tasks: tasks.list(),
           notifications: { unreadCount: notifications.unreadCount(), lastSeq: notifications.lastSeq() },
@@ -404,7 +404,11 @@ export function createGatewayServer(input: Config) {
       }
       case 'sessions.list': {
         const sessions = await registry.listAllSessions(p.cwd ? absCwd(p.cwd) : undefined);
-        return { sessions: config.strictRoots ? sessions.filter((s: Json) => !s.cwd || isPathWithinRoots(s.cwd, sessionRoots)) : sessions };
+        const filtered = config.strictRoots ? sessions.filter((s: Json) => !s.cwd || isPathWithinRoots(s.cwd, sessionRoots)) : sessions;
+        // A delegated subagent belongs to the chat that started it, not to the session list.
+        const present = new Set(filtered.map((s: Json) => s.sessionId));
+        const delegated = orchestrator.delegatedSessionIds(present);
+        return { sessions: delegated.size ? filtered.filter((s: Json) => !delegated.has(s.sessionId)) : filtered };
       }
       case 'session.create': {
         // No project: a fresh gateway-owned scratch folder, which needs no root check and gets no workspace.
