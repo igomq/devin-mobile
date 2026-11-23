@@ -94,8 +94,22 @@ export class AcpConnection extends EventEmitter {
     return this.initResult;
   }
 
+  /**
+   * Closing stdin lets the agent and its own children exit (codex-acp ignores SIGTERM while its codex child runs,
+   * and that child holds the conversation lock). Signals follow if it is still running.
+   */
   stop() {
-    this.proc?.kill('SIGTERM');
+    const proc = this.proc;
+    if (!proc) return;
+    proc.stdin?.end();
+    const term = setTimeout(() => proc.exitCode === null && proc.signalCode === null && proc.kill('SIGTERM'), 3000);
+    const kill = setTimeout(() => proc.exitCode === null && proc.signalCode === null && proc.kill('SIGKILL'), 8000);
+    term.unref();
+    kill.unref();
+    proc.once('exit', () => {
+      clearTimeout(term);
+      clearTimeout(kill);
+    });
   }
 
   request(method: string, params: Json, timeoutMs = 0): Promise<Json> {

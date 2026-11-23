@@ -17,7 +17,7 @@ const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m })
 let n = 0;
 rl.on('line', (line) => {
   const msg = JSON.parse(line);
-  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: ${close ? '{ close: {} }' : '{}'} } } });
+  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: ${close ? '{ close: {} }' : '{}'} } } });
   else if (msg.method === 'session/new') out({ id: msg.id, result: { sessionId: 's' + ++n } });
   else if (msg.method === 'session/close') {
     fs.appendFileSync(${JSON.stringify(join(dir, 'closed.log'))}, msg.params.sessionId + '\\n');
