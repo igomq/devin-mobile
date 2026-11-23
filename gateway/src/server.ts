@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { homedir, hostname } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -177,6 +178,8 @@ export function createGatewayServer(input: Config) {
     const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
     const dir = join(scratchRoot, `${stamp.slice(0, 8)}-${stamp.slice(8)}-${randomBytes(3).toString('hex')}`);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Its own repository, so Changes never resolves to a checkout that happens to contain the data dir.
+    spawnSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore', timeout: 5000 });
     return dir;
   }
 
