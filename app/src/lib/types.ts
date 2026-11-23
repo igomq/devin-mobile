@@ -570,6 +570,8 @@ export interface ConnInfo {
 	deviceName?: string | null;
 	authKind?: 'device' | 'master' | null;
 	security?: GatewaySecurity | null;
+	/** Gateway-owned folder holding the scratch directories of sessions started without a project. */
+	scratchDir?: string | null;
 }
 
 export interface GatewaySecurity {

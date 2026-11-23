@@ -2,12 +2,14 @@
   import { app, conn, rpc, refreshSessions, openSession, errorText } from '#lib/api.svelte.ts';
   import type { SessionRow } from '#lib/types.ts';
   import { go, toast, route, requests, fresh } from '#lib/ui.svelte.ts';
-  import { ago, basename, shortPath } from '#lib/format.ts';
+  import { ago, shortPath } from '#lib/format.ts';
+  import { isScratchPath, projectLabel } from '#lib/labels.ts';
   import Icon from './Icon.svelte';
   import { notif } from '#lib/notifications.svelte.ts';
   import Sheet from './Sheet.svelte';
   import DirPicker from './DirPicker.svelte';
   import { getStorageItem, setStorageItem } from '#lib/storage.ts';
+  import { SvelteSet } from 'svelte/reactivity';
 
   // embedded: rendered in the tablet sidebar next to the open session.
   let { embedded = false }: { embedded?: boolean } = $props();
@@ -47,24 +49,43 @@
   });
   // Sessions blocked on an approval come first, whatever project they belong to.
   let waiting = $derived(visible.filter((s) => s.status === 'awaiting_permission'));
+  // Sessions without a project each get their own scratch folder; they are listed as one group.
+  const SCRATCH = ':scratch';
   let groups = $derived.by(() => {
     const by = new Map<string, SessionRow[]>();
     for (const s of visible) {
       if (s.status === 'awaiting_permission') continue;
-      const key = s.cwd || '';
+      const key = isScratchPath(s.cwd, conn.info?.scratchDir) ? SCRATCH : s.cwd || '';
       const list = by.get(key);
       if (list) list.push(s);
       else by.set(key, [s]);
     }
-    return [...by.entries()].map(([cwd, sessions]) => ({ cwd, sessions }));
+    return [...by.entries()].map(([key, sessions]) => ({ key, cwd: key === SCRATCH ? null : key, sessions }));
   });
   let running = $derived(app.sessions.filter((s) => s.status === 'running').length);
 
-  async function create(cwd: string) {
+  function readCollapsed(): string[] {
+    try {
+      const v = JSON.parse(getStorageItem('collapsedProjects') ?? '[]');
+      return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+  let collapsed = $state(readCollapsed());
+  function toggleGroup(key: string) {
+    collapsed = collapsed.includes(key) ? collapsed.filter((k) => k !== key) : [...collapsed, key];
+    setStorageItem('collapsedProjects', JSON.stringify(collapsed));
+  }
+  // A search shows every match, so groups are expanded while one is active.
+  let isCollapsed = (key: string) => !query.trim() && collapsed.includes(key);
+
+  // cwd null: no project, the gateway makes a fresh scratch folder.
+  async function create(cwd: string | null) {
     creating = true;
     try {
       setStorageItem('harness', harnessId);
-      const r = await rpc('sessions.create', { cwd, harnessId });
+      const r = await rpc('sessions.create', cwd ? { cwd, harnessId } : { harnessId, noProject: true });
       await openSession(r.id, r.cwd);
       query = '';
       go('#/s/' + encodeURIComponent(r.id));
@@ -80,6 +101,7 @@
     actionsOpen = true;
   }
   function press(s: SessionRow) {
+    if (selecting) return;
     pressTimer = setTimeout(() => showActions(s), 480);
   }
 
@@ -97,44 +119,127 @@
     }
   }
 
+  // Select mode: rows toggle a selection instead of opening, and the dock offers bulk delete.
+  let selecting = $state(false);
+  let selected = new SvelteSet<string>();
+  let bulkOpen = $state(false);
+  let bulkBusy = $state(false);
+  // Only sessions that are listed count, so hidden empty sessions or search misses are never deleted.
+  let selectedIds = $derived(visible.filter((s) => selected.has(s.id)).map((s) => s.id));
+
+  function startSelect(s?: SessionRow) {
+    selected.clear();
+    if (s) selected.add(s.id);
+    actionsOpen = false;
+    selecting = true;
+  }
+  function stopSelect() {
+    selecting = false;
+    bulkOpen = false;
+    selected.clear();
+  }
+  function toggleSelected(id: string) {
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+  }
+  let allSelected = (list: SessionRow[]) => list.length > 0 && list.every((s) => selected.has(s.id));
+  function toggleAll(list: SessionRow[]) {
+    const all = allSelected(list);
+    for (const s of list) {
+      if (all) selected.delete(s.id);
+      else selected.add(s.id);
+    }
+  }
+
+  async function deleteSelected() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    bulkBusy = true;
+    const results: PromiseSettledResult<unknown>[] = new Array(ids.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < ids.length) {
+        const i = next++;
+        [results[i]] = await Promise.allSettled([rpc('session.delete', { id: ids[i] })]);
+      }
+    };
+    await Promise.allSettled(Array.from({ length: Math.min(4, ids.length) }, worker));
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    const deleted = ids.filter((_, i) => results[i].status === 'fulfilled');
+    if (!failed.length) toast(`Deleted ${ids.length} session${ids.length === 1 ? '' : 's'}`);
+    else toast(`Deleted ${deleted.length} of ${ids.length}; ${failed.length} failed: ${errorText(failed[0].reason)}`, 'error');
+    if (route.id && deleted.includes(route.id)) go('#/', true);
+    bulkBusy = false;
+    stopSelect();
+    refreshSessions();
+  }
+
+  function selectKey(e: KeyboardEvent) {
+    // Capture phase: runs before the Sheet and search handlers, so an open sheet or a search query
+    // takes the Escape first.
+    if (e.key !== 'Escape' || !selecting || e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+    if (e.target === searchInput && query) return;
+    e.preventDefault();
+    stopSelect();
+  }
+
   function searchKey(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       // Handled here, so the open chat beside the sidebar does not treat it as "stop".
       e.preventDefault();
       query = '';
       searchInput?.blur();
-    } else if (e.key === 'Enter' && visible[0]) {
+    } else if (e.key === 'Enter' && visible[0] && !selecting) {
       go('#/s/' + encodeURIComponent((waiting[0] ?? visible[0]).id));
     }
   }
 </script>
 
-{#snippet sessionRow(s: SessionRow, showFolder: boolean)}
-  <a
-    class="srow"
-    class:on={embedded && route.id === s.id}
-    href={'#/s/' + encodeURIComponent(s.id)}
-    oncontextmenu={(e) => (e.preventDefault(), showActions(s))}
-    ontouchstart={() => press(s)}
-    ontouchend={() => clearTimeout(pressTimer)}
-    ontouchmove={() => clearTimeout(pressTimer)}
-  >
-    <span class="dot {s.status}"></span>
-    <span class="stext">
-      <span class="stitle">{#if s.harnessId && s.harnessId !== 'devin'}<span class="hbadge">{harnessName(s.harnessId)}</span>{/if}{s.title || 'New session'}</span>
-      {#if showFolder}<span class="sfolder">{basename(s.cwd) || 'No folder'}</span>{/if}
-    </span>
-    <span class="smeta">
-      {#if s.status === 'running'}Working{:else if s.status === 'awaiting_permission'}<em>Needs approval</em>{:else}{ago(s.updatedAt)}{/if}
-    </span>
-    <button class="smore" onclick={(e) => (e.preventDefault(), e.stopPropagation(), showActions(s))} aria-label="Session actions"><Icon name="more" size={18} /></button>
-  </a>
+{#snippet rowText(s: SessionRow, showFolder: boolean)}
+  <span class="stext">
+    <span class="stitle">{#if s.harnessId && s.harnessId !== 'devin'}<span class="hbadge">{harnessName(s.harnessId)}</span>{/if}{s.title || 'New session'}</span>
+    {#if showFolder}<span class="sfolder">{projectLabel(s.cwd, conn.info?.scratchDir) || 'No folder'}</span>{/if}
+  </span>
+  <span class="smeta">
+    {#if s.status === 'running'}Working{:else if s.status === 'awaiting_permission'}<em>Needs approval</em>{:else}{ago(s.updatedAt)}{/if}
+  </span>
 {/snippet}
+
+{#snippet sessionRow(s: SessionRow, showFolder: boolean)}
+  {#if selecting}
+    {@const on = selected.has(s.id)}
+    <button class="srow selrow" class:picked={on} role="checkbox" aria-checked={on} onclick={() => toggleSelected(s.id)} oncontextmenu={(e) => e.preventDefault()}>
+      <span class="tick" class:on aria-hidden="true">{#if on}<Icon name="check" size={14} />{/if}</span>
+      {@render rowText(s, showFolder)}
+    </button>
+  {:else}
+    <a
+      class="srow"
+      class:on={embedded && route.id === s.id}
+      href={'#/s/' + encodeURIComponent(s.id)}
+      oncontextmenu={(e) => (e.preventDefault(), showActions(s))}
+      ontouchstart={() => press(s)}
+      ontouchend={() => clearTimeout(pressTimer)}
+      ontouchmove={() => clearTimeout(pressTimer)}
+    >
+      <span class="dot {s.status}"></span>
+      {@render rowText(s, showFolder)}
+      <button class="smore" onclick={(e) => (e.preventDefault(), e.stopPropagation(), showActions(s))} aria-label="Session actions"><Icon name="more" size={18} /></button>
+    </a>
+  {/if}
+{/snippet}
+
+{#snippet selectAll(list: SessionRow[], name: string)}
+  {@const all = allSelected(list)}
+  <button class="gsel press" onclick={() => toggleAll(list)} disabled={!list.length} aria-label="{all ? 'Deselect' : 'Select'} all in {name}">{all ? 'Deselect all' : 'Select all'}</button>
+{/snippet}
+
+<svelte:window onkeydowncapture={selectKey} />
 
 <div class="screen" class:embedded>
   <header class="topbar">
     <div class="title">
-      <b>{conn.info?.host ?? 'Devin'}</b>
+      <b>{conn.info?.host ?? 'uniharn'}</b>
       <small>
         <span class="dot" class:running={conn.status === 'online'} class:error={conn.status !== 'online'}></span>
         {conn.status === 'online' ? (running ? running + ' working' : 'Connected') : 'Reconnecting…'}
@@ -142,6 +247,7 @@
     </div>
     <div class="glass-group glass">
       <button class="iconbtn bell" onclick={() => (notif.centerOpen = !notif.centerOpen)} aria-label={notif.unreadCount ? `Notifications, ${notif.unreadCount} unread` : 'Notifications'} title="Notifications"><Icon name="bell" />{#if notif.unreadCount}<span class="badge">{notif.unreadCount > 99 ? '99+' : notif.unreadCount}</span>{/if}</button>
+      {#if app.sessions.length}<button class="iconbtn" class:active={selecting} onclick={() => (selecting ? stopSelect() : startSelect())} aria-pressed={selecting} aria-label="Select sessions" title="Select"><Icon name="checkSquare" /></button>{/if}
       <button class="iconbtn" onclick={() => go('#/terminal')} aria-label="Terminal" title="Terminal"><Icon name="terminal" /></button>
       <button class="iconbtn" onclick={() => go('#/settings')} aria-label="Settings" title="Settings (⌘,)"><Icon name="settings" /></button>
     </div>
@@ -172,28 +278,40 @@
             <p>Nothing has “{query.trim()}” in its title or folder.</p>
           {:else}
             <h2>No sessions yet</h2>
-            <p>Pick a project folder on the VM and tell Devin what to do.</p>
+            <p>Pick a project folder on the VM, or start without one, and tell the agent what to do.</p>
           {/if}
         </div>
       {:else}
         {#if waiting.length}
           <section>
-            <div class="ghead"><span class="gname attention"><Icon name="shield" size={15} /> <b>Waiting for you</b></span></div>
+            <div class="ghead"><span class="gname attention"><Icon name="shield" size={15} /> <b>Waiting for you</b></span>{#if selecting}<span class="gpath"></span>{@render selectAll(waiting, 'Waiting for you')}{/if}</div>
             <div class="card">
               {#each waiting as s (s.id)}{@render sessionRow(s, true)}{/each}
             </div>
           </section>
         {/if}
-        {#each groups as g (g.cwd)}
+        {#each groups as g (g.key)}
+          {@const name = g.cwd === null ? 'No project' : projectLabel(g.cwd, conn.info?.scratchDir) || 'No folder'}
+          {@const shut = isCollapsed(g.key)}
           <section>
             <div class="ghead">
-              <span class="gname"><Icon name="folder" size={15} /> <b>{basename(g.cwd) || 'No folder'}</b></span>
-              <span class="gpath" title={shortPath(g.cwd, conn.info?.home)}></span>
-              <button class="gadd press" onclick={() => create(g.cwd)} disabled={creating || !g.cwd || conn.status !== 'online'} aria-label="New session in {basename(g.cwd)}"><Icon name="plus" size={18} /></button>
+              <button class="gname gtoggle" onclick={() => toggleGroup(g.key)} aria-expanded={!shut} title={g.cwd ? shortPath(g.cwd, conn.info?.home) : undefined}>
+                <span class="chev" class:open={!shut}><Icon name="chevron" size={14} /></span>
+                <Icon name={g.cwd === null ? 'compose' : 'folder'} size={15} /> <b>{name}</b>
+                {#if shut}<span class="gcount">{g.sessions.length}</span>{/if}
+              </button>
+              <span class="gpath"></span>
+              {#if selecting}
+                {@render selectAll(g.sessions, name)}
+              {:else}
+                <button class="gadd press" onclick={() => create(g.cwd)} disabled={creating || g.cwd === '' || conn.status !== 'online'} aria-label="New session in {name}"><Icon name="plus" size={18} /></button>
+              {/if}
             </div>
-            <div class="card">
-              {#each g.sessions as s (s.id)}{@render sessionRow(s, false)}{/each}
-            </div>
+            {#if !shut}
+              <div class="card">
+                {#each g.sessions as s (s.id)}{@render sessionRow(s, false)}{/each}
+              </div>
+            {/if}
           </section>
         {/each}
       {/if}
@@ -204,6 +322,12 @@
   </main>
 
   <div class="dock">
+    {#if selecting}
+      <button class="btn glass dockbtn" onclick={stopSelect}>Cancel</button>
+      <button class="btn danger dockbtn" onclick={() => (bulkOpen = true)} disabled={!selectedIds.length || bulkBusy}>
+        {#if bulkBusy}<span class="spinner"></span>{:else}<Icon name="trash" size={18} />{/if} Delete ({selectedIds.length})
+      </button>
+    {:else}
     {#if usableHarnesses.length > 1}
       <select class="hsel glass" bind:value={harnessId} aria-label="Harness" title="Harness for new sessions">
         {#each usableHarnesses as h (h.id)}<option value={h.id}>{h.name}</option>{/each}
@@ -212,22 +336,31 @@
     <button class="btn primary newbtn" onclick={() => (picking = true)} disabled={creating || conn.status !== 'online'} title="New session (⌘N)">
       {#if creating}<span class="spinner"></span>{:else}<Icon name="compose" size={18} />{/if} New session
     </button>
+    {/if}
   </div>
 </div>
 
-<DirPicker bind:open={picking} onpick={create} />
+<DirPicker bind:open={picking} onpick={create} onnoproject={() => create(null)} />
 
 <Sheet bind:open={actionsOpen} title={actionsFor?.title || 'Session'}>
   <p class="muted mono idline">{actionsFor?.id} · {shortPath(actionsFor?.cwd, conn.info?.home)}</p>
   <div class="actions">
     <button class="btn block" onclick={() => ((actionsOpen = false), go('#/s/' + encodeURIComponent(actionsFor?.id ?? '')))}>Resume</button>
     <button class="btn block" onclick={() => act('session.close')}>End session</button>
+    <button class="btn block" onclick={() => actionsFor && startSelect(actionsFor)}>Select</button>
     {#if confirmDelete}
       <button class="btn block danger" onclick={() => act('session.delete')}>Delete permanently</button>
       <button class="btn block" onclick={() => (confirmDelete = false)}>Keep session</button>
     {:else}
       <button class="btn block danger" onclick={() => (confirmDelete = true)}>Delete session</button>
     {/if}
+  </div>
+</Sheet>
+
+<Sheet bind:open={bulkOpen} title="Delete {selectedIds.length} session{selectedIds.length === 1 ? '' : 's'} permanently?">
+  <div class="actions">
+    <button class="btn block danger" onclick={() => ((bulkOpen = false), deleteSelected())} disabled={bulkBusy || !selectedIds.length}>Delete</button>
+    <button class="btn block" onclick={() => (bulkOpen = false)}>Keep</button>
   </div>
 </Sheet>
 
@@ -345,6 +478,31 @@
   .gname.attention {
     color: var(--amber);
   }
+  .gtoggle {
+    min-height: 36px;
+    margin-left: -6px;
+    padding: 0 8px 0 4px;
+    border-radius: 10px;
+    text-align: left;
+  }
+  .gtoggle:active {
+    background: var(--fill);
+  }
+  .chev {
+    flex: none;
+    display: grid;
+    color: var(--text-3);
+    transition: rotate 0.2s var(--ease-out);
+  }
+  .chev.open {
+    rotate: 90deg;
+  }
+  .gcount {
+    flex: none;
+    font-size: 12.5px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
   .gpath {
     flex: 1;
     min-width: 0;
@@ -445,6 +603,50 @@
     place-items: center;
     color: var(--text-3);
     border-radius: 12px;
+  }
+  .selrow {
+    width: 100%;
+    text-align: left;
+    padding-right: 16px;
+  }
+  .srow.picked {
+    background: var(--accent-soft);
+  }
+  .tick {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-left: -6px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1.5px solid var(--line-strong);
+    color: var(--on-accent);
+  }
+  .tick.on {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .gsel {
+    flex: none;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--accent-text);
+  }
+  .gsel:active:not(:disabled) {
+    background: var(--fill);
+  }
+  .iconbtn.active {
+    color: var(--accent-text);
+  }
+  .dockbtn {
+    pointer-events: auto;
+    min-height: 50px;
+    min-width: 120px;
+    font-size: 16px;
   }
   .toggle {
     margin: 16px auto 0;

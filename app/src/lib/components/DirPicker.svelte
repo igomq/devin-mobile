@@ -2,10 +2,12 @@
   import { untrack } from 'svelte';
   import { rpc, conn, app, errorText } from '#lib/api.svelte.ts';
   import { shortPath, basename } from '#lib/format.ts';
+  import { isScratchPath } from '#lib/labels.ts';
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
 
-  let { open = $bindable(false), onpick }: { open?: boolean; onpick?: (path: string) => void } = $props();
+  // onnoproject: offered first; starts the session in a fresh scratch folder the gateway creates.
+  let { open = $bindable(false), onpick, onnoproject }: { open?: boolean; onpick?: (path: string) => void; onnoproject?: () => void } = $props();
   let listing = $state<{ path: string; parent: string | null; dirs: { name: string; git: boolean }[] } | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -13,7 +15,7 @@
 
   let recents = $derived.by(() => {
     const seen = new Map<string, unknown>();
-    for (const s of app.sessions) if (s.cwd && !seen.has(s.cwd)) seen.set(s.cwd, s.updatedAt);
+    for (const s of app.sessions) if (s.cwd && !seen.has(s.cwd) && !isScratchPath(s.cwd, conn.info?.scratchDir)) seen.set(s.cwd, s.updatedAt);
     return [...seen.keys()].slice(0, 8);
   });
   let projects = $state<{ path: string; name: string; isGit: boolean }[]>([]);
@@ -29,7 +31,8 @@
           projects = (await rpc('projects.list')).projects ?? [];
         } catch {}
         loading = false;
-        if (!recents.length && !others.length) {
+        // With nothing to offer but browsing, open the browser directly (unless "No project" is on offer).
+        if (!recents.length && !others.length && !onnoproject) {
           browsing = true;
           if (!listing) load('~');
         }
@@ -53,10 +56,23 @@
     open = false;
     onpick?.(path);
   }
+
+  function noProject() {
+    open = false;
+    onnoproject?.();
+  }
 </script>
 
 <Sheet bind:open title="Choose a project" tall>
   {#if !browsing}
+    {#if onnoproject}
+      <div class="group noproject">
+        <button class="row" onclick={noProject}>
+          <span class="ic"><Icon name="compose" size={18} /></span>
+          <span class="main"><b>No project</b><small>Start in an empty scratch folder</small></span>
+        </button>
+      </div>
+    {/if}
     {#if recents.length}
       <div class="label">Recent</div>
       <div class="group">
@@ -118,6 +134,9 @@
     border-radius: var(--r-lg);
     background: var(--fill);
     overflow: hidden;
+  }
+  .noproject {
+    margin-top: 4px;
   }
   .browse {
     margin-top: 22px;

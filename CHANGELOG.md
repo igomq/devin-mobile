@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Work without a project: "No project" in the project picker starts a session in a fresh, empty folder under `<data dir>/scratch` that the gateway creates (`session.create` with `noProject: true`, or with no `cwd`). Scratch folders pass the strict-roots checks, get no workspace, and are listed together on the home screen as "No project". `hello` returns the folder as `scratchDir`.
+- Project groups on the home screen collapse and expand from their header; a collapsed group shows its session count. The choice is remembered on the device, and a search shows every group expanded.
+- Bulk delete on the home screen: "Select" in the top bar or a session's actions sheet turns rows into checkboxes, each group (and "Waiting for you") gets "Select all", and the dock offers Cancel and "Delete (N)" with a confirmation. Only listed sessions are deleted (hidden empty sessions are not), four at a time; Escape leaves select mode.
+
+### Changed
+
+- Status and connection dots no longer blink.
+- The new-session empty state names the session's harness ("What should Codex work on?") and the home screen copy no longer assumes Devin.
+
 ## [0.3.1] - 2026-11-23
 
 ### Fixed

@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { homedir, hostname } from 'node:os';
-import { chmodSync, existsSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -164,14 +165,25 @@ export function createGatewayServer(input: Config) {
     if (typeof v !== 'string' || !v) throw new Error(`${name} is required`);
     return v;
   }
+  // Sessions started without a project run in gateway-owned folders under the data dir.
+  const scratchRoot = join(config.dataDir, 'scratch');
+  const sessionRoots = [...config.roots, scratchRoot];
+  const isScratchPath = (path: string) => isPathWithinRoots(path, [scratchRoot]);
+  function newScratchDir(): string {
+    const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
+    const dir = join(scratchRoot, `${stamp.slice(0, 8)}-${stamp.slice(8)}-${randomBytes(3).toString('hex')}`);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return dir;
+  }
+
   function absCwd(v: unknown): string {
     const p = requireString(v, 'cwd');
-    return assertAllowedPath(resolve(p.startsWith('~') ? homedir() + p.slice(1) : p), config.roots, config.strictRoots);
+    return assertAllowedPath(resolve(p.startsWith('~') ? homedir() + p.slice(1) : p), sessionRoots, config.strictRoots);
   }
 
   const gitRpc = createGitRpc(config.dataDir, {
     onStatus: (cwd, st) => notifications.notifyGitConflict(cwd, st.files.filter((f) => f.status === 'conflict').map((f) => f.path)),
-    checkPath: config.strictRoots ? (path) => assertAllowedPath(path, config.roots, true) : undefined,
+    checkPath: config.strictRoots ? (path) => assertAllowedPath(path, sessionRoots, true) : undefined,
   });
 
   let accountCache: { at: number; value: Json } | null = null;
@@ -220,6 +232,7 @@ export function createGatewayServer(input: Config) {
           deviceName: auth.deviceName,
           security,
           home: homedir(),
+          scratchDir: scratchRoot,
           agent: manager.agentStatus(),
           harnesses: registry.list(),
           workspaces: workspaces.list(),
@@ -334,7 +347,7 @@ export function createGatewayServer(input: Config) {
       case 'agent.authenticate':
         return manager.authenticate(requireString(p.methodId, 'methodId'));
       case 'projects.list': {
-        const paths = [...new Set([...manager.sessions.values()].map((s) => s.cwd))];
+        const paths = [...new Set([...manager.sessions.values()].map((s) => s.cwd))].filter((path) => !isScratchPath(path));
         const projects = listProjects(config.roots, paths)
           .filter((project) => !config.strictRoots || isPathWithinRoots(project.path, config.roots));
         return { projects, roots: config.roots };
@@ -350,17 +363,19 @@ export function createGatewayServer(input: Config) {
       }
       case 'sessions.list': {
         const sessions = await registry.listAllSessions(p.cwd ? absCwd(p.cwd) : undefined);
-        return { sessions: config.strictRoots ? sessions.filter((s: Json) => !s.cwd || isPathWithinRoots(s.cwd, config.roots)) : sessions };
+        return { sessions: config.strictRoots ? sessions.filter((s: Json) => !s.cwd || isPathWithinRoots(s.cwd, sessionRoots)) : sessions };
       }
       case 'session.create': {
-        const cwd = absCwd(p.cwd);
+        // No project: a fresh gateway-owned scratch folder, which needs no root check and gets no workspace.
+        const scratch = p.noProject === true || typeof p.cwd !== 'string' || !p.cwd;
+        const cwd = scratch ? newScratchDir() : absCwd(p.cwd);
         const harnessId = typeof p.harnessId === 'string' && p.harnessId ? p.harnessId : 'devin';
         const s = await registry.createSession(harnessId, cwd, { model: p.model, mode: p.mode });
         const scopedId = formatScopedSessionId(harnessId, s.sessionId);
         c.subs.add(scopedId);
         let workspaceId: string | null = null;
         try {
-          const ws = p.workspaceId ? workspaces.get(p.workspaceId) : workspaces.createOrGet(cwd, { harnessId });
+          const ws = scratch ? null : p.workspaceId ? workspaces.get(p.workspaceId) : workspaces.createOrGet(cwd, { harnessId });
           if (ws) {
             workspaces.attachSession(ws.workspaceId, { harnessId, sessionId: scopedId, title: s.title, updatedAt: s.updatedAt });
             workspaceId = ws.workspaceId;
@@ -399,7 +414,7 @@ export function createGatewayServer(input: Config) {
         const id = requireString(p.sessionId, 'sessionId');
         const { adapter, harnessId, nativeId } = registry.resolveSession(id);
         const s = await adapter.ensureLoaded(nativeId, p.cwd ? absCwd(p.cwd) : undefined);
-        if (config.strictRoots) assertAllowedPath(s.cwd, config.roots, true);
+        if (config.strictRoots) assertAllowedPath(s.cwd, sessionRoots, true);
         c.subs.add(id);
         const firstSeq = s.events[0]?.seq ?? s.seq + 1;
         let since = p.epoch === s.epoch && typeof p.sinceSeq === 'number' ? p.sinceSeq : 0;
