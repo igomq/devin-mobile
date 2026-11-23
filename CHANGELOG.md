@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-23
+
+### Added
+
+- Delegated subagents no longer appear as separate sessions. The parent chat shows a Subagents panel with each child's harness, task, live status, elapsed time and branch, and expands an inline read-only transcript, including nested subagents.
+- The home harness picker is a themed glass menu instead of a native select, and session rows show the harness badge for Devin too.
+- The composer shows quick reasoning-effort and fast-mode controls when the harness exposes them, plus an always-visible context-window meter.
+
 ## [0.4.0] - 2026-11-23
 
 ### Added

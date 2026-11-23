@@ -1,6 +1,6 @@
 {
   "name": "uniharn-gateway",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "VM-side multi-harness gateway for uniharn (ACP + coding agent bridge)",
   "main": "dist/index.js",
   "scripts": {
