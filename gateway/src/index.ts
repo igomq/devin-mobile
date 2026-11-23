@@ -17,11 +17,25 @@ function printJson(value: object): void {
   console.log(JSON.stringify(value, null, 2));
 }
 
-async function doctor(config: Config, authStore: AuthStore, json: boolean): Promise<void> {
+/** Settings of the installed systemd service (its own port, data dir and token), when it exists. */
+function serviceConfig(): Config | null {
+  const service = readServiceLaunch();
+  if (!service) return null;
+  const { UNIHARN_TOKEN: _token, DEVIN_MOBILE_TOKEN: _legacyToken, ...env } = process.env;
+  return loadConfig({ argv: service.argv, env: { ...env, ...service.env } });
+}
+
+async function findGateway(config: Config, useService: boolean) {
+  const service = useService ? serviceConfig() : null;
+  return (await runningGateway(config, new AuthStore(config.dataDir, config.token).gatewayId))
+    ?? (service && (await runningGateway(service, new AuthStore(service.dataDir, service.token).gatewayId)));
+}
+
+async function doctor(config: Config, authStore: AuthStore, json: boolean, useService: boolean): Promise<void> {
   const { registry } = createGatewayRegistry(config);
   const [, ports, { gatewayAuth, activeDeviceCount }, running] = await Promise.all([
     registry.probeAll(), checkGatewayPorts(config), checkGatewayAuth(config, authStore.gatewayId),
-    runningGateway(config, authStore.gatewayId),
+    findGateway(config, useService),
   ]);
   const report = {
     gatewayId: authStore.gatewayId,
@@ -128,12 +142,9 @@ async function main(argv: string[], config: Config): Promise<void> {
     // A gateway already runs (e.g. the systemd service): show its pairing console instead of starting another.
     // The service may use its own port, data dir, public URL and token, so try its settings first.
     // Explicit flags ask for a specific gateway, not whatever the service runs.
-    const service = argv.length === 2 ? readServiceLaunch() : null;
+    const service = argv.length === 2 ? serviceConfig() : null;
     const candidates = [config];
-    if (service) {
-      const { UNIHARN_TOKEN: _token, DEVIN_MOBILE_TOKEN: _legacyToken, ...env } = process.env;
-      candidates.unshift(loadConfig({ argv: service.argv, env: { ...env, ...service.env } }));
-    }
+    if (service) candidates.unshift(service);
     for (const candidate of candidates) {
       if (await findRunningGateway(candidate, new AuthStore(candidate.dataDir, candidate.token).gatewayId)) {
         openConsole(candidate, true, () => process.exit(0));
@@ -189,7 +200,8 @@ async function main(argv: string[], config: Config): Promise<void> {
     }
     case 'doctor':
     case 'status':
-      await doctor(config, authStore, json);
+      // Explicit flags ask about a specific gateway; otherwise also look for the installed service.
+      await doctor(config, authStore, json, argv.slice(3).every((arg) => arg === '--json'));
       break;
     case 'devices':
       switch (argv[3]) {
