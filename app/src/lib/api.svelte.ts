@@ -224,6 +224,7 @@ export function connect(force = false) {
         gatewayId,
         protocolVersion: hello.protocolVersion ?? null,
         minAppVersion: hello.minAppVersion ?? null,
+        outdated: hello.outdated ?? null,
         deviceId: hello.deviceId ?? null,
         deviceName: hello.deviceName ?? null,
         authKind: hello.authKind ?? null,

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AuthStore, MIN_APP_VERSION, PROTOCOL_VERSION } from './auth.js';
 import type { Config } from './config.js';
-import { collectDiagnostics, gatewaySecurity, suggestedUrls, VERSION } from './diagnostics.js';
+import { BUILD, collectDiagnostics, gatewaySecurity, installedBuild, suggestedUrls, VERSION } from './diagnostics.js';
 import { createGitRpc } from './git-rpc.js';
 import { createBuiltinAcpAdapters, createCustomAcpAdapter } from './harnesses/builtins.js';
 import { DevinHarnessAdapter } from './harnesses/devin.js';
@@ -79,6 +79,8 @@ export function createGatewayServer(input: Config) {
     gatewayId: authStore.gatewayId,
     hostname: hostname(),
     version: VERSION,
+    build: BUILD,
+    startedAt: new Date().toISOString(),
     protocolVersion: PROTOCOL_VERSION,
     minAppVersion: MIN_APP_VERSION,
   };
@@ -212,6 +214,7 @@ export function createGatewayServer(input: Config) {
         manager.ensureAgent().catch(() => undefined);
         return {
           ...gatewayInfo,
+          outdated: installedBuild() !== BUILD,
           deviceId: auth.deviceId,
           authKind: auth.authKind,
           deviceName: auth.deviceName,

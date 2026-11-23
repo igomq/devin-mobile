@@ -563,6 +563,8 @@ export interface ConnInfo {
 	gatewayId?: string | null;
 	protocolVersion?: number | null;
 	minAppVersion?: string | null;
+	/** The gateway's code on disk was updated after this process started; restart it to load the update. */
+	outdated?: boolean | null;
 	/** This device's id when signed in with a per-device token; null with the master token. */
 	deviceId?: string | null;
 	deviceName?: string | null;
