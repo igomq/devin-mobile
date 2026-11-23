@@ -356,7 +356,7 @@ function upsertLink(l: SessionLink) {
   if (i >= 0) app.links[i] = l;
   else app.links.unshift(l);
   // A delegated child can race into the list before its link arrives; keep it out.
-  if (l.kind === 'delegate' && l.parentSessionId) {
+  if (l.kind === 'delegate' && l.parentSessionId && delegatedIds().has(l.childSessionId)) {
     const j = app.sessions.findIndex((s) => s.id === l.childSessionId);
     if (j >= 0) app.sessions.splice(j, 1);
   }
@@ -366,8 +366,11 @@ function upsertLink(l: SessionLink) {
  * Sessions that only exist as the child of a delegation with a live parent chat: they live inside
  * that chat, not in the session list. Delegations without a parent, or whose parent is gone, stay listed.
  */
-function delegatedIds(present: Set<string> = new Set(app.sessions.map((s) => s.id))) {
-  return new Set(app.links.filter((l) => l.kind === 'delegate' && l.parentSessionId && l.childSessionId && present.has(l.parentSessionId)).map((l) => l.childSessionId));
+function delegatedIds(visibleIds: Set<string> = new Set(app.sessions.map((s) => s.id))) {
+  // A delegate child is hidden while its parent is a listed session or itself a delegated child;
+  // parent-less delegations and orphans whose parent is gone stay in the session list.
+  const children = new Set(app.links.filter((l) => l.kind === 'delegate' && l.childSessionId).map((l) => l.childSessionId));
+  return new Set(app.links.filter((l) => l.kind === 'delegate' && l.parentSessionId && l.childSessionId && (visibleIds.has(l.parentSessionId) || children.has(l.parentSessionId))).map((l) => l.childSessionId));
 }
 
 /** The gateway's git status, plus the summary fields the chat header reads (`repo`, `files` with `kind/added/removed`). */

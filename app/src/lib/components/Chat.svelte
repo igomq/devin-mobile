@@ -384,6 +384,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="log scroller" bind:this={scroller} onscroll={onScroll} onclick={copyCode} style:padding-bottom={dockHeight + 20 + 'px'}>
     <div class="column">
+      <SubagentsPanel sessionId={id} />
       {#if view?.ready && st.folderMissing}
         <div class="notice warn">This session's folder had been deleted. Its conversation is shown, and the folder was recreated empty, so the agent no longer has the old files.</div>
       {/if}
@@ -468,7 +469,6 @@
           <div class="typing" aria-label="{harnessShort} is working"><span></span><span></span><span></span></div>
         {/if}
       {/if}
-      <SubagentsPanel sessionId={id} />
     </div>
   </div>
 
