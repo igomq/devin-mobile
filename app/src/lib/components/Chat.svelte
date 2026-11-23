@@ -17,6 +17,8 @@
   import Permission from './Permission.svelte';
   import SessionControls from './SessionControls.svelte';
   import { isModelOption, modelLabel } from '#lib/models.ts';
+  import { effortControl, fastControl } from '#lib/quickControls.ts';
+  import { compact } from '#lib/usage.ts';
 
   type Steps = { kind: 'steps'; id: string; items: (TextItem | ToolItem)[] };
 
@@ -96,6 +98,51 @@
     return null;
   });
   let elapsed = $derived(busy && turnStart ? duration(now - turnStart) : '');
+
+  // Quick composer controls: reasoning effort and fast mode, when the agent exposes them.
+  let effort = $derived(effortControl(st.configOptions));
+  let effortOpt = $derived(effort?.option);
+  let levels = $derived(effort?.levels ?? []);
+  let effortDraft = $state<number | null>(null);
+  let effortShown = $derived(effortDraft ?? effort?.index ?? -1);
+  // "Medium (default)" reads as "Medium" in the composer.
+  let effortText = $derived(levels[effortShown] ? levels[effortShown].name.replace(/\s*\(.*\)\s*$/, '').trim() || levels[effortShown].value : String(effortOpt?.currentValue ?? 'Default'));
+  let effortPct = $derived(levels.length > 1 && effortShown >= 0 ? (effortShown / (levels.length - 1)) * 100 : 0);
+  let fast = $derived(fastControl(st.configOptions, effortOpt));
+  let fastPending = $state<boolean | null>(null);
+  let fastOn = $derived(fastPending ?? fast?.on ?? false);
+  let quickBusy = $state(false);
+  let quickDisabled = $derived(quickBusy || !view?.ready || conn.status !== 'online');
+
+  async function setOption(configId: string, value: string | boolean) {
+    quickBusy = true;
+    try {
+      await rpc('session.setConfig', { id, configId, value });
+    } catch (e) {
+      toast(errorText(e), 'error');
+    } finally {
+      quickBusy = false;
+    }
+  }
+  async function commitEffort(i: number) {
+    const o = effortOpt;
+    const v = levels[i];
+    if (!o || !v || v.value === o.currentValue) return (effortDraft = null);
+    effortDraft = i;
+    await setOption(o.id, v.value);
+    effortDraft = null;
+  }
+  async function toggleFast() {
+    if (!fast) return;
+    const next = !fastOn;
+    fastPending = next;
+    await setOption(fast.option.id, next ? fast.onValue : fast.offValue);
+    fastPending = null;
+  }
+
+  // Context window meter above the composer.
+  let ctx = $derived(st.context && st.context.size > 0 ? st.context : null);
+  let ctxPct = $derived(ctx ? Math.min(100, Math.round((ctx.used / ctx.size) * 100)) : 0);
 
   // Working-tree summary for the header, refreshed whenever a tool call finishes.
   let changes = $state<{ files: number; added: number; removed: number } | null>(null);
@@ -443,6 +490,19 @@
           {/each}
         </div>
       {/if}
+      {#if ctx}
+        <button
+          class="ctxm glass"
+          class:warn={ctxPct >= 80 && ctxPct < 95}
+          class:full={ctxPct >= 95}
+          onclick={() => (controls = true)}
+          aria-label="Context window: {compact(ctx.used)} of {compact(ctx.size)} tokens used, {ctxPct}%. Open session settings"
+          title="Context window"
+        >
+          <span class="ctxbar" aria-hidden="true"><i style:width={ctxPct + '%'}></i></span>
+          <span class="ctxt">{compact(ctx.used)}/{compact(ctx.size)} · {ctxPct}%</span>
+        </button>
+      {/if}
       <div class="box glass" class:dropping>
         {#if images.length || docs.length}
           <div class="thumbs">
@@ -471,6 +531,37 @@
           aria-label="Message"
           disabled={!view?.ready}
         ></textarea>
+        {#if (effortOpt && levels.length > 1) || fast}
+          <div class="quick">
+            {#if effortOpt && levels.length > 1}
+              <div class="effort" class:busy={effortDraft !== null} title={effortOpt.name}>
+                <Icon name="brain" size={14} />
+                <span class="track" style:--pct={effortPct + '%'}>
+                  <span class="rail" aria-hidden="true"><i></i></span>
+                  <span class="ticks" aria-hidden="true">{#each levels as lv, i (lv.value)}<i class:lit={i <= effortShown}></i>{/each}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max={levels.length - 1}
+                    step="1"
+                    value={Math.max(0, effortShown)}
+                    disabled={quickDisabled}
+                    aria-label={effortOpt.name || 'Reasoning effort'}
+                    aria-valuetext={effortText}
+                    oninput={(e) => (effortDraft = +e.currentTarget.value)}
+                    onchange={(e) => commitEffort(+e.currentTarget.value)}
+                  />
+                </span>
+                <span class="elabel" aria-hidden="true">{effortText}</span>
+              </div>
+            {/if}
+            {#if fast}
+              <button class="chip fast" class:on={fastOn} role="switch" aria-checked={fastOn} aria-label={fast.option.name || 'Fast mode'} title={fast.option.name} disabled={quickDisabled} onclick={toggleFast}>
+                <Icon name="bolt" size={14} />Fast<span class="sw" aria-hidden="true"><i></i></span>
+              </button>
+            {/if}
+          </div>
+        {/if}
         <div class="bar">
           <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image or text file"><Icon name="plus" size={18} /></button>
           <input bind:this={fileInput} type="file" accept="image/*,text/*,.md,.markdown,.txt,.log,.csv,.json,.yaml,.yml,.toml" multiple hidden onchange={onfiles} />
@@ -879,6 +970,219 @@
   }
   .grow {
     flex: 1;
+  }
+  /* Context window meter: a slim glass pill above the composer. */
+  .ctxm {
+    align-self: flex-end;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    margin-bottom: -2px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font: 500 11.5px var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-2);
+    box-shadow: inset 0 0 0 1px var(--glass-rim);
+  }
+  .ctxbar {
+    width: 44px;
+    height: 3px;
+    border-radius: 99px;
+    background: var(--fill-2);
+    overflow: hidden;
+  }
+  .ctxbar i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--text-2);
+    transition: width 0.4s var(--ease-out), background-color 0.2s ease;
+  }
+  .ctxm.warn {
+    color: var(--amber);
+  }
+  .ctxm.warn .ctxbar i {
+    background: var(--amber);
+  }
+  .ctxm.full {
+    color: var(--red);
+  }
+  .ctxm.full .ctxbar i {
+    background: var(--red);
+  }
+  /* Quick controls: reasoning effort slider and fast switch. */
+  .quick {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 6px -8px;
+    min-width: 0;
+  }
+  .effort {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 320px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 12px 0 10px;
+    border-radius: 999px;
+    background: var(--fill);
+    color: var(--text-2);
+  }
+  .effort > :global(svg) {
+    flex: none;
+  }
+  .track {
+    position: relative;
+    flex: 1;
+    min-width: 64px;
+    height: 32px;
+  }
+  .rail {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 50%;
+    height: 4px;
+    margin-top: -2px;
+    border-radius: 99px;
+    background: var(--fill-2);
+  }
+  .rail i {
+    display: block;
+    height: 100%;
+    width: var(--pct);
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width 0.2s var(--ease-out);
+  }
+  .ticks {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 50%;
+    height: 4px;
+    margin-top: -2px;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+  .ticks i {
+    width: 4px;
+    height: 4px;
+    margin: 0 -2px;
+    border-radius: 50%;
+    background: var(--text-3);
+  }
+  .ticks i.lit {
+    background: var(--on-accent);
+  }
+  .track input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    touch-action: pan-y;
+  }
+  .track input:disabled {
+    cursor: default;
+  }
+  .track input::-webkit-slider-runnable-track {
+    height: 32px;
+    background: transparent;
+  }
+  .track input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: 8px;
+    border-radius: 50%;
+    background: var(--text);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
+    transition: transform 0.2s var(--ease-spring);
+  }
+  .track input:active::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
+  .track input:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px var(--accent-soft), 0 0 0 1px var(--line-strong);
+  }
+  .track input::-moz-range-track {
+    background: transparent;
+  }
+  .track input::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--text);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
+  }
+  .track input:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 4px var(--accent-soft), 0 0 0 1px var(--line-strong);
+  }
+  .elabel {
+    flex: none;
+    min-width: 3.4em;
+    max-width: 6.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+    text-align: right;
+  }
+  .effort.busy .elabel {
+    color: var(--text-2);
+  }
+  .fast {
+    flex: none;
+    height: 32px;
+    padding: 0 8px 0 10px;
+    background: var(--fill);
+  }
+  .fast.on {
+    color: var(--text);
+  }
+  .fast.on > :global(svg) {
+    color: var(--amber);
+  }
+  .sw {
+    position: relative;
+    width: 26px;
+    height: 16px;
+    margin-left: 2px;
+    border-radius: 99px;
+    background: var(--fill-2);
+    transition: background-color 0.2s ease;
+  }
+  .sw i {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-3);
+    transition: translate 0.25s var(--ease-spring), background-color 0.2s ease;
+  }
+  .fast.on .sw {
+    background: var(--accent);
+  }
+  .fast.on .sw i {
+    translate: 10px 0;
+    background: var(--on-accent);
   }
   .chip {
     height: 32px;
