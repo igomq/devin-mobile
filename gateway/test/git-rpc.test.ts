@@ -98,3 +98,20 @@ test('git RPC root checks hide linked worktrees outside the allowed roots and gu
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('git RPC refuses a recreated session folder instead of reaching the enclosing repository', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'uniharn-git-rpc-')));
+  const repo = join(root, 'repo');
+  try {
+    run(root, ['init', '--initial-branch=main', repo]);
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    const gone = join(repo, 'worktree');
+    execFileSync('mkdir', [gone]);
+    const rpc = createGitRpc(join(root, 'data'), { isRecreated: (p) => p === gone });
+    await assert.rejects(rpc.handle('git.status', { cwd: gone }), /recreated empty/);
+    await assert.rejects(rpc.handle('git.discard', { cwd: gone, all: true, confirm: true }), /recreated empty/);
+    assert.ok(existsSync(join(repo, 'a.txt')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
