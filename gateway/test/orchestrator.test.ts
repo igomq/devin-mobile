@@ -132,6 +132,27 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
   }
 });
 
+test('delegatedSessionIds lists only delegate children in their scoped form', async () => {
+  const { dir, registry, orchestrator, cleanup } = setup();
+  try {
+    const parent = await registry.createSession('alpha', dir);
+    assert.equal(orchestrator.delegatedSessionIds().size, 0);
+
+    const { link, done } = await orchestrator.delegate(`alpha:${parent.sessionId}`, 'beta', 'research');
+    await done;
+    assert.equal(link.childSessionId, 'beta:beta-1');
+    assert.deepEqual([...orchestrator.delegatedSessionIds()], [link.childSessionId]);
+    assert.ok(!orchestrator.delegatedSessionIds().has(`alpha:${parent.sessionId}`));
+
+    // Handoffs are full sessions and stay in the session list.
+    const handoff = await orchestrator.handoff(`alpha:${parent.sessionId}`, 'beta', 'continue');
+    await handoff.done;
+    assert.equal(orchestrator.delegatedSessionIds().size, 1);
+  } finally {
+    cleanup();
+  }
+});
+
 test('registry offers its MCP servers to every adapter and marks subagent support', async () => {
   const { registry, cleanup } = setup();
   try {
