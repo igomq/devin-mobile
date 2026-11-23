@@ -110,7 +110,8 @@ The first request must be `hello` with a device token or the master token (or `p
 | `workspaces.create` | `cwd`, `name?`, `harnessId?`, `repoRoot?`, `branch?` | Creates or returns the workspace for `cwd`. |
 | `workspaces.get` | `workspaceId` | Returns a single workspace by ID. |
 | `agent.status` | | Agent status and ACP capabilities. Starts `devin acp` if it is not running. |
-| `agent.account` | `refresh?` | Login state and account fields from `devin auth status`, cached for 60 seconds. |
+| `agent.account` | `refresh?` | Login state and account fields from `devin auth status`, plus `auth` and the Devin plan quota (`usage`, or `usageError`), cached for 60 seconds. |
+| `harnesses.accounts` | `refresh?` | `{ harnesses, devinUsage, devinUsageError }`: every harness with its `auth` state (`status`, `method`, `account`, `expiresAt`, `detail`); `refresh` re-runs the login checks. |
 | `agent.authenticate` | `methodId` | Result of ACP `authenticate`. |
 | `projects.list` | | Candidate project directories under the roots, plus the directories of known sessions. |
 | `fs.listDirs` | `path?` | Subdirectories of `path` (default: home directory). |

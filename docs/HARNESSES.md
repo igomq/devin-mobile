@@ -27,4 +27,19 @@ Capabilities reported by the agents' `initialize`:
 - uniharn does not use `session/resume` or `session/fork` yet; resuming uses `session/load`.
 - Reasoning levels and token usage are only shown for harnesses that send them as config options or Devin's turn stats.
 - Codex and Claude Code sign-in happens in their own CLIs (`codex login`, `claude /login`); the gateway's `agent.authenticate` only covers Devin.
+
+## Login state
+
+The gateway checks each login with the harness's own CLI, separately from whether its ACP process runs:
+
+| Harness | Command | Notes |
+|---|---|---|
+| Devin | `devin auth status` | Account name, email, plan and tier are shown. Plan quota comes from the user-status call the Devin CLI makes with its stored login. |
+| Codex | `codex login status` | Needs the `codex` CLI next to `codex-acp`. Only the method (ChatGPT or API key) is kept, never the key. |
+| Claude Code | `claude auth status` | Expired when `loginExpiresAt` has passed. An API key from the environment is `unknown`, because Claude reports any key as logged in without checking it. |
+| OpenCode | `opencode auth list` | Stored credentials count as logged in; keys found only in the environment are `unknown`. |
+| Kiro | `kiro-cli whoami --format json` | Logged-out output verified with kiro-cli 3.5.0; the logged-in format has not been tested. |
+| Custom ACP | none | `unknown` until the agent rejects a request with an authentication error. |
+
+When the status command is missing or prints something unexpected the state is `unknown`, never `authenticated`.
 - Command Code and Antigravity can be used by pointing `bin`/`args` at an ACP-compatible command with `harnesses.configure`, or by registering a custom ACP harness.

@@ -41,7 +41,9 @@ async function doctor(config: Config, authStore: AuthStore, json: boolean): Prom
   for (const port of ports) console.log(`${gatewayUrl(port.host, report.port)} · ${port.reachable ? 'reachable' : 'unreachable'}`);
   console.log(`Strict roots: ${report.strictRoots ? 'enabled' : 'disabled (discovery mode)'} · ${report.roots.join(', ')}`);
   for (const harness of report.harnesses) {
-    console.log(`${harness.name}: ${harness.installed ? harness.version ?? harness.status : 'unavailable'} · auth ${harness.authStatus}`);
+    const auth = harness.authMethod && harness.authStatus === 'authenticated' ? `${harness.authStatus} (${harness.authMethod})` : harness.authStatus;
+    console.log(`${harness.name}: ${harness.installed ? harness.version ?? 'installed' : 'not installed'} · process ${harness.status} · auth ${auth}`);
+    if (harness.authStatus !== 'authenticated' && harness.authDetail) console.log(`  ${harness.authDetail}`);
   }
   console.log(`Devices: ${report.pairedDeviceCount} paired · ${report.activeDeviceCount} connected`);
   if (report.suggestedUrls.length) console.log(`Gateway URLs: ${report.suggestedUrls.join(', ')}`);

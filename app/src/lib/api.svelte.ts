@@ -471,6 +471,7 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'agent.status': async () => (await request('agent.status')).agent,
   'agent.account': (p) => request('agent.account', { refresh: !!p.refresh }),
   'harnesses.list': async () => (await request('harnesses.list')).harnesses,
+  'harnesses.accounts': (p) => request('harnesses.accounts', { refresh: !!p.refresh }),
   'harnesses.probe': async (p) => (await request('harnesses.probe', { harnessId: p.harnessId })).harnesses,
   'harnesses.configure': (p) => request('harnesses.configure', p),
   'workspaces.list': async () => (await request('workspaces.list')).workspaces,

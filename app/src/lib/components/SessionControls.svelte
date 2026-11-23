@@ -8,6 +8,8 @@
   import ModelPicker from './ModelPicker.svelte';
   import { isModelOption } from '#lib/models.ts';
   import { compact, USAGE_URL } from '#lib/usage.ts';
+  import { usageLine } from '#lib/accounts.ts';
+  import type { DevinUsage } from '#lib/types.ts';
 
   let { open = $bindable(false), sessionId, view }: { open?: boolean; sessionId: string; view: SessionView | undefined } = $props();
   let busy = $state<string | null>(null);
@@ -37,6 +39,10 @@
   });
   $effect(() => {
     if (targets.length && !targets.some((h) => h.id === target)) target = (targets.find((h) => h.id !== currentHarness) ?? targets[0]).id;
+  });
+  let devinUsage = $state<DevinUsage | null>(null);
+  $effect(() => {
+    if (open && currentHarness === 'devin') rpc('agent.account').then((a: Json) => (devinUsage = a?.usage ?? null), () => {});
   });
   const harnessName = (id: string) => app.harnesses.find((h) => h.id === id)?.name ?? id;
 
@@ -131,6 +137,10 @@
     {:else if !ctx}
       <p class="muted note">Shown after the first reply in this session.</p>
     {/if}
+    {#each devinUsage?.windows ?? [] as w (w.id)}
+      <div class="ctx"><span>{devinUsage?.plan ? `${devinUsage.plan} · ` : ''}{w.label} quota</span><b>{usageLine(w)}</b></div>
+      <div class="bar" class:warn={w.remainingPercent <= 20}><i style="width: {w.remainingPercent}%"></i></div>
+    {/each}
     <a class="more" href={USAGE_URL} target="_blank" rel="noreferrer">Plan quota and credits <Icon name="chevron" size={14} /></a>
   </div>
 

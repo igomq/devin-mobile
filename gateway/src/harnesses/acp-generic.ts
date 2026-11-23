@@ -5,7 +5,8 @@ import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import { SessionManager, type Session, type SessionSummary } from '../sessions.js';
-import type { AuthStatus, CreateSessionOptions, HarnessAdapter, HarnessCapabilities, HarnessConfig, HarnessInfo, Json } from './types.js';
+import { authState, type CommandResult, type CommandRunner, isAuthError, notInstalled, runCommand } from './auth.js';
+import type { AuthState, CreateSessionOptions, HarnessAdapter, HarnessCapabilities, HarnessConfig, HarnessInfo, Json } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +25,8 @@ export interface AcpHarnessSpec {
   versionArgs?: string[];
   installHint?: string | null;
   authMethod?: string | null;
+  /** The harness CLI's own login-status command; without one the login state stays `unknown`. */
+  authCheck?: { bin: string; args: string[]; parse: (r: CommandResult) => AuthState };
   custom?: boolean;
   cwd?: string;
   envAllowlist?: string[];
@@ -78,8 +81,11 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
   private installed = false;
   private resolvedBin: string | null = null;
   private version: string | null = null;
+  private probedAuth: AuthState = authState('unknown', { checkedAt: null, detail: 'Not checked yet.' });
+  /** Set when the agent itself rejects a request for lack of a login; cleared by the next probe. */
+  private runtimeAuth: AuthState | null = null;
 
-  constructor(private readonly spec: AcpHarnessSpec) {
+  constructor(private readonly spec: AcpHarnessSpec, private readonly run: CommandRunner = runCommand) {
     super();
     this.id = spec.id;
     this.name = spec.name;
@@ -132,7 +138,28 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
         // Version probing is best effort; some ACP shims do not support --version.
       }
     }
+    this.probedAuth = await this.checkAuth();
+    this.runtimeAuth = null;
     return this.info();
+  }
+
+  private async checkAuth(): Promise<AuthState> {
+    if (!this.resolvedBin) return notInstalled(this.bin);
+    const check = this.spec.authCheck;
+    if (!check) return authState('unknown', { detail: 'This harness has no login status command; its login is checked when a session starts.' });
+    const bin = check.bin === this.spec.bin ? this.resolvedBin : resolveBin(check.bin);
+    if (!bin) return authState('unknown', { detail: `\`${check.bin}\` was not found, so the login could not be checked.` });
+    try {
+      return check.parse(await this.run(bin, check.args, { timeout: 10_000, env: filterEnv(this.envAllowlist) }));
+    } catch (e) {
+      return authState('error', { detail: `Login check failed: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
+
+  private noteAuthFailure(e: unknown) {
+    if (!isAuthError(e)) return;
+    this.runtimeAuth = authState('unauthenticated', { method: this.probedAuth.method, detail: `The agent asked for a login: ${e instanceof Error ? e.message : String(e)}` });
+    this.emit('status', this.info());
   }
 
   info(): HarnessInfo {
@@ -159,7 +186,7 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     const unverified = this.spec.verified === false;
     let error = st.error;
     if (!error && unverified && !this.installed) error = this.spec.note ?? 'No documented ACP entrypoint; configure bin/args.';
-    const authStatus: AuthStatus = st.running ? 'authenticated' : 'unknown';
+    const auth = this.runtimeAuth ?? (this.installed || !st.running ? this.probedAuth : authState('unknown', { detail: 'Not checked yet.' }));
     return {
       id: this.id,
       name: this.name,
@@ -168,7 +195,8 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
       installed: this.installed || st.running,
       enabled: this.enabled,
       custom: this.custom,
-      authStatus,
+      authStatus: auth.status,
+      auth,
       authMethod: this.spec.authMethod ?? null,
       acpSupported: !unverified || this.custom,
       acpVersion: init?.protocolVersion ?? null,
@@ -195,6 +223,7 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     try {
       return await this.manager.createSession(cwd);
     } catch (e) {
+      this.noteAuthFailure(e);
       throw this.withAuthHint(e);
     }
   }
@@ -211,8 +240,13 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     if (vars.length) hints.push(`set ${vars.join(' or ')} (add it to envAllowlist if one is set)`);
     return hints.length ? new Error(`${msg}: ${hints.join(', or ')}`) : e;
   }
-  ensureLoaded(sessionId: string, cwd?: string): Promise<Session> {
-    return this.manager.ensureLoaded(sessionId, cwd);
+  async ensureLoaded(sessionId: string, cwd?: string): Promise<Session> {
+    try {
+      return await this.manager.ensureLoaded(sessionId, cwd);
+    } catch (e) {
+      this.noteAuthFailure(e);
+      throw e;
+    }
   }
   prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = []): Promise<void> {
     return this.manager.prompt(sessionId, text, images);

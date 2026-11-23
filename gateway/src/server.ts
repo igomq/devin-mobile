@@ -11,6 +11,7 @@ import { collectDiagnostics, gatewaySecurity, suggestedUrls, VERSION } from './d
 import { createGitRpc } from './git-rpc.js';
 import { createBuiltinAcpAdapters, createCustomAcpAdapter } from './harnesses/builtins.js';
 import { DevinHarnessAdapter } from './harnesses/devin.js';
+import { type DevinUsage, fetchDevinUsage } from './harnesses/devin-usage.js';
 import { formatScopedSessionId, HarnessRegistry } from './harnesses/registry.js';
 import { checkRateLimit, clientIp, exchangePairingCode, handlePairRequest, RequestError, sendJson } from './pairing.js';
 import { NotificationService } from './notifications.js';
@@ -171,23 +172,25 @@ export function createGatewayServer(input: Config) {
     checkPath: config.strictRoots ? (path) => assertAllowedPath(path, config.roots, true) : undefined,
   });
 
-  const ACCOUNT_FIELDS = ['Name', 'Email', 'Plan', 'Tier', 'Team membership', 'Enterprise'];
   let accountCache: { at: number; value: Json } | null = null;
 
-  /** Account and plan details as reported by `devin auth status` (the CLI has no credit-balance query). */
-  async function accountInfo(refresh: boolean): Promise<Json> {
+  /** Devin login and plan quota; the quota comes from the same user-status call the Devin CLI makes. */
+  async function accountInfo(refresh: boolean, probe = refresh): Promise<Json> {
     if (!refresh && accountCache && Date.now() - accountCache.at < 60_000) return accountCache.value;
-    const { execFile } = await import('node:child_process');
-    const out = await new Promise<string>((res, rej) =>
-      execFile(config.devinBin, ['auth', 'status'], { timeout: 20_000 }, (e, stdout, stderr) =>
-        e && !stdout.trim() && !stderr.trim() ? rej(new Error(`Could not run devin auth status: ${e.message}`)) : res(`${stdout}\n${stderr}`),
-      ),
-    );
-    const fields: { label: string; value: string }[] = [];
-    for (const m of out.matchAll(/^[ \t]+([A-Za-z][A-Za-z ]*?):[ \t]+(.+?)[ \t]*$/gm)) {
-      if (ACCOUNT_FIELDS.includes(m[1])) fields.push({ label: m[1], value: m[2] });
+    const devin = registry.require('devin');
+    const checkedAt = devin.info().auth.checkedAt;
+    const stale = !checkedAt || Date.now() - Date.parse(checkedAt) >= 60_000;
+    const info = probe || stale ? await devin.probe() : devin.info();
+    let usage: DevinUsage | null = null;
+    let usageError: string | null = null;
+    if (info.auth.status === 'authenticated') {
+      try {
+        usage = await fetchDevinUsage({ version: VERSION });
+      } catch (e) {
+        usageError = redactSecrets(e instanceof Error ? e.message : String(e), [config.token]);
+      }
     }
-    const value = { loggedIn: /Logged in/i.test(out) && !/Not logged in/i.test(out), fields };
+    const value = { loggedIn: info.auth.status === 'authenticated', fields: info.auth.account, auth: info.auth, usage, usageError };
     accountCache = { at: Date.now(), value };
     return value;
   }
@@ -313,6 +316,11 @@ export function createGatewayServer(input: Config) {
       }
       case 'agent.account':
         return accountInfo(!!p.refresh);
+      case 'harnesses.accounts': {
+        const harnesses = p.refresh ? await registry.probeAll() : registry.list();
+        const devin = await accountInfo(!!p.refresh, false);
+        return { harnesses, devinUsage: devin.usage, devinUsageError: devin.usageError };
+      }
       case 'agent.status':
         try {
           await manager.ensureAgent();

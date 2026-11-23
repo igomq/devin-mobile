@@ -1,4 +1,5 @@
 import { AcpHarnessAdapter, type AcpHarnessSpec } from './acp-generic.js';
+import { parseClaudeAuthStatus, parseCodexLoginStatus, parseKiroWhoami, parseOpenCodeAuthList } from './auth.js';
 import type { CustomAcpHarnessSpec } from './types.js';
 
 /**
@@ -14,6 +15,7 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     acpArgs: [],
     installHint: 'npm i -g @openai/codex @agentclientprotocol/codex-acp',
     authMethod: 'codex login',
+    authCheck: { bin: 'codex', args: ['login', 'status'], parse: parseCodexLoginStatus },
   },
   {
     id: 'claude',
@@ -23,6 +25,7 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     acpArgs: [],
     installHint: 'npm i -g @agentclientprotocol/claude-agent-acp',
     authMethod: 'claude /login',
+    authCheck: { bin: 'claude', args: ['auth', 'status'], parse: (r) => parseClaudeAuthStatus(r) },
   },
   {
     id: 'opencode',
@@ -31,6 +34,7 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     acpArgs: ['acp'],
     installHint: 'curl -fsSL https://opencode.ai/install | bash',
     authMethod: 'opencode auth login',
+    authCheck: { bin: 'opencode', args: ['auth', 'list'], parse: parseOpenCodeAuthList },
   },
   {
     id: 'kiro',
@@ -39,6 +43,7 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     acpArgs: ['acp'],
     installHint: 'curl -fsSL https://cli.kiro.dev/install | bash',
     authMethod: 'kiro-cli login',
+    authCheck: { bin: 'kiro-cli', args: ['whoami', '--format', 'json'], parse: parseKiroWhoami },
   },
   {
     id: 'command-code',

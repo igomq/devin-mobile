@@ -6,7 +6,6 @@
   import ThemePicker from './ThemePicker.svelte';
   import Devices from './Devices.svelte';
   import { compareVersions } from '#lib/pairing.ts';
-  import { USAGE_URL } from '#lib/usage.ts';
   import type { Json, NotificationEventType, NotificationPrefs } from '#lib/types.ts';
   import { notif, EVENT_LABELS, savePrefs, sendTest, enablePush, disablePush, enableSystemNotifications, pushUnavailableReason } from '#lib/notifications.svelte.ts';
 
@@ -59,41 +58,6 @@
     if (info.minAppVersion && compareVersions(__APP_VERSION__, info.minAppVersion) < 0) return `This gateway needs app version ${info.minAppVersion} or newer. Update the app.`;
     return null;
   });
-
-  let account = $state<{ loggedIn: boolean; fields: { label: string; value: string }[] } | null>(null);
-  let accountError = $state<string | null>(null);
-  let loadingAccount = $state(false);
-  async function loadAccount(refresh = false) {
-    loadingAccount = true;
-    try {
-      account = (await rpc('agent.account', { refresh })) as Json;
-      accountError = null;
-    } catch (e) {
-      accountError = String((e as Error)?.message ?? e);
-    }
-    loadingAccount = false;
-  }
-  $effect(() => {
-    if (conn.status === 'online' && !account && !loadingAccount && !accountError) loadAccount();
-  });
-  async function copyUsageLink() {
-    try {
-      await navigator.clipboard.writeText(USAGE_URL);
-    } catch {
-      // The Clipboard API needs a secure context; a plain-HTTP Tailscale address is not one.
-      const t = document.createElement('textarea');
-      t.value = USAGE_URL;
-      t.setAttribute('readonly', '');
-      t.style.position = 'fixed';
-      t.style.opacity = '0';
-      document.body.appendChild(t);
-      t.select();
-      const ok = document.execCommand('copy');
-      t.remove();
-      if (!ok) return toast(USAGE_URL);
-    }
-    toast('Link copied');
-  }
 
   async function recheck() {
     checking = true;
@@ -181,39 +145,11 @@
 
       <Devices />
 
-      <div class="label">Devin CLI</div>
-      <div class="card">
-        <div class="kv">
-          <span>Agent process</span>
-          <b class:bad={agent && !agent.running}>{!agent ? 'Checking…' : agent.running ? 'Running' : 'Not running'}</b>
-        </div>
-        {#if agent?.error}<p class="muted detail">{agent.error}</p>{/if}
-        <div class="row2">
-          <button class="btn" onclick={() => go('#/terminal?login')}>Log in on the VM</button>
-          <button class="btn" onclick={recheck} disabled={checking}>Re-check</button>
-        </div>
-        <p class="muted detail">Login runs <span class="mono">devin auth login</span> in a terminal on the VM. Credentials are stored there, never on this phone.</p>
-      </div>
-
-      <div class="label">Devin account</div>
-      <div class="card">
-        {#if account?.loggedIn}
-          {#each account.fields as f}
-            <div class="kv"><span>{f.label}</span><b>{f.value}</b></div>
-          {/each}
-        {:else if account}
-          <div class="kv"><span>Status</span><b class="bad">Not logged in</b></div>
-        {:else}
-          <div class="kv"><span>Status</span><b class:bad={!!accountError}>{accountError ? 'Unavailable' : 'Checking…'}</b></div>
-        {/if}
-        {#if accountError}<p class="muted detail">{accountError}</p>{/if}
-        <p class="muted detail">Devin CLI doesn't report remaining quota or credits. Check them, and when they reset, under Usage &amp; limits on app.devin.ai. Per-session token and context use is in each session's controls.</p>
-        <div class="row2">
-          <a class="btn" href={USAGE_URL} target="_blank" rel="noreferrer">Usage &amp; limits</a>
-          <button class="btn" onclick={copyUsageLink}>Copy link</button>
-          <button class="btn" onclick={() => loadAccount(true)} disabled={loadingAccount}>Refresh</button>
-        </div>
-      </div>
+      <div class="label">Harness accounts</div>
+      <button class="card linkrow press" onclick={() => go('#/accounts')}>
+        <span>Logins, plans and Devin usage limits</span>
+        <Icon name="chevron" size={16} />
+      </button>
 
       <button class="btn block danger disconnect" onclick={() => (forgetConnection(), go('#/'))}>Disconnect and forget this server</button>
     </div>
@@ -312,6 +248,22 @@
     min-height: 34px;
     padding: 0 14px;
     font-size: 14px;
+  }
+  .linkrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 52px;
+    font: inherit;
+    font-size: 15px;
+    color: var(--text);
+    text-align: left;
+    border: 0;
+  }
+  .linkrow :global(svg) {
+    color: var(--text-2);
   }
   .disconnect {
     margin-top: 28px;

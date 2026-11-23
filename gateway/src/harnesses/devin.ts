@@ -3,7 +3,8 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { SessionManager, type Session, type SessionSummary } from '../sessions.js';
-import type { AuthStatus, CreateSessionOptions, HarnessAdapter, HarnessCapabilities, HarnessConfig, HarnessInfo, Json } from './types.js';
+import { authState, type CommandRunner, isAuthError, notInstalled, parseDevinAuthStatus, runCommand } from './auth.js';
+import type { AuthState, CreateSessionOptions, HarnessAdapter, HarnessCapabilities, HarnessConfig, HarnessInfo, Json } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -38,9 +39,10 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
   private enabled = true;
   private installed = false;
   private version: string | null = null;
-  private authStatus: AuthStatus = 'unknown';
+  private probedAuth: AuthState = authState('unknown', { checkedAt: null, detail: 'Not checked yet.' });
+  private runtimeAuth: AuthState | null = null;
 
-  constructor(bin: string, extraArgs: string[] = []) {
+  constructor(bin: string, extraArgs: string[] = [], private readonly run: CommandRunner = runCommand) {
     super();
     this.bin = bin;
     this.args = [...extraArgs];
@@ -71,20 +73,15 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
     } catch {
       if (!this.installed) this.version = null;
     }
-    if (this.installed) {
-      try {
-        const { stdout, stderr } = await execFileAsync(this.bin, ['auth', 'status'], { timeout: 10000 });
-        const out = `${stdout}\n${stderr}`;
-        if (/Logged in/i.test(out) && !/Not logged in/i.test(out)) this.authStatus = 'authenticated';
-        else if (/Not logged in/i.test(out)) this.authStatus = 'unauthenticated';
-        else this.authStatus = 'unknown';
-      } catch {
-        this.authStatus = 'unknown';
-      }
-    } else {
-      this.authStatus = 'unauthenticated';
-    }
+    this.probedAuth = this.installed ? parseDevinAuthStatus(await this.run(this.bin, ['auth', 'status'], { timeout: 10_000 })) : notInstalled(this.bin);
+    this.runtimeAuth = null;
     return this.info();
+  }
+
+  private noteAuthFailure(e: unknown) {
+    if (!isAuthError(e)) return;
+    this.runtimeAuth = authState('unauthenticated', { method: this.probedAuth.method, detail: `Devin asked for a login: ${e instanceof Error ? e.message : String(e)}` });
+    this.emit('status', this.info());
   }
 
   info(): HarnessInfo {
@@ -97,6 +94,7 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
       sessionDelete: Boolean(sessionCaps?.delete ?? false),
       subagents: this.manager.mcpServers().length > 0,
     };
+    const auth = this.runtimeAuth ?? this.probedAuth;
     const status = !this.installed && !st.running ? 'unavailable' : st.error && !st.running ? 'error' : st.running ? 'running' : 'idle';
     return {
       id: this.id,
@@ -106,7 +104,8 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
       installed: this.installed || st.running,
       enabled: this.enabled,
       custom: false,
-      authStatus: this.authStatus,
+      authStatus: auth.status,
+      auth,
       authMethod: 'devin auth login',
       acpSupported: true,
       acpVersion: 1,
@@ -131,11 +130,21 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
   }
 
   async createSession(cwd: string, _opts?: CreateSessionOptions): Promise<Session> {
-    return this.manager.createSession(cwd);
+    try {
+      return await this.manager.createSession(cwd);
+    } catch (e) {
+      this.noteAuthFailure(e);
+      throw e;
+    }
   }
 
-  ensureLoaded(sessionId: string, cwd?: string): Promise<Session> {
-    return this.manager.ensureLoaded(sessionId, cwd);
+  async ensureLoaded(sessionId: string, cwd?: string): Promise<Session> {
+    try {
+      return await this.manager.ensureLoaded(sessionId, cwd);
+    } catch (e) {
+      this.noteAuthFailure(e);
+      throw e;
+    }
   }
 
   prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = []): Promise<void> {

@@ -60,8 +60,10 @@ export function collectDiagnostics(config: Config, registry: HarnessRegistry, au
     port: config.port,
     suggestedUrls: suggestedUrls(config),
     roots: config.roots,
-    harnesses: registry.list().map(({ id, name, version, installed, enabled, authStatus, status, error }) => ({
+    harnesses: registry.list().map(({ id, name, version, installed, enabled, authStatus, auth, status, error }) => ({
       id, name, version, installed, enabled, authStatus, status,
+      authMethod: auth.method,
+      authDetail: auth.detail ? redactSecrets(auth.detail, [config.token]) : null,
       error: error ? redactSecrets(error, [config.token]) : null,
     })),
     pairedDeviceCount: authStore.listDevices().filter((device) => device.revokedAt === null).length,

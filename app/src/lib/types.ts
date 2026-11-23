@@ -461,6 +461,37 @@ export interface HarnessCapabilities {
 	usage: boolean;
 }
 
+export type AuthStatus = 'authenticated' | 'unauthenticated' | 'expired' | 'not_installed' | 'error' | 'unknown';
+
+export interface AuthState {
+	status: AuthStatus;
+	method: string | null;
+	account: { label: string; value: string }[];
+	expiresAt: string | null;
+	detail: string | null;
+	checkedAt: string | null;
+}
+
+export interface UsageWindow {
+	id: 'daily' | 'weekly';
+	label: string;
+	remainingPercent: number;
+	resetsAt: string | null;
+}
+
+export interface DevinUsage {
+	plan: string | null;
+	windows: UsageWindow[];
+	overageBalance: number | null;
+	planEndsAt: string | null;
+}
+
+export interface HarnessAccounts {
+	harnesses: HarnessInfo[];
+	devinUsage: DevinUsage | null;
+	devinUsageError: string | null;
+}
+
 export interface HarnessInfo {
 	id: string;
 	name: string;
@@ -469,7 +500,9 @@ export interface HarnessInfo {
 	installed: boolean;
 	enabled: boolean;
 	custom: boolean;
-	authStatus: 'authenticated' | 'unauthenticated' | 'unknown';
+	authStatus: AuthStatus;
+	/** Missing from gateways older than 0.3.1. */
+	auth?: AuthState;
 	authMethod: string | null;
 	acpSupported: boolean;
 	acpVersion: number | null;

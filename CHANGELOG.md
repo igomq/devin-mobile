@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Harness login state checked with each CLI's own status command (`devin auth status`, `codex login status`, `claude auth status`, `opencode auth list`, `kiro-cli whoami`) and kept apart from the ACP process state. States are `authenticated`, `unauthenticated`, `expired`, `not_installed`, `error` and `unknown`; a running agent or an unverified API key is never reported as logged in, and an agent's "Authentication required" error marks the harness logged out until the next check. `uniharn doctor` prints the process and login state of each harness, with the reason when it is not logged in.
+- Harness accounts screen (Settings › Harness accounts, RPC `harnesses.accounts`) with each harness's login, account, plan and agent process, replacing the Devin CLI and Devin account cards in Settings.
+- Devin plan quota (weekly and, where the plan shows it, daily remaining share and reset time) in Harness accounts and in a Devin session's controls, read from the same user-status call the Devin CLI makes with its stored login.
+
 - uniharn logo as the app icon on iOS, Android, desktop, the PWA manifest, favicon, Apple touch icon and Web Push notifications, generated from `app/app-icon.png` with `npx tauri icon`.
 - Rebranded the platform to **uniharn** (`me.gomq.uniharn`, `uniharn-gateway`, `uniharn-app`, `UNIHARN_*` env vars) with automatic migration from legacy `DEVIN_MOBILE_*` env vars, `~/.local/share/devin-mobile/token`, and `devin-mobile.*` browser storage keys.
 - Harness-agnostic ACP client (`AcpConnection`), `HarnessAdapter` / `HarnessRegistry` foundation, `DevinHarnessAdapter`, and `WorkspaceStore` persistence in the gateway.

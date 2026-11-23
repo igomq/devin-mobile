@@ -6,7 +6,23 @@ export type Json = any;
 export type BuiltinHarnessId = 'devin' | 'codex' | 'claude' | 'kiro' | 'opencode' | 'command-code' | 'antigravity';
 export type HarnessId = BuiltinHarnessId | string;
 
-export type AuthStatus = 'authenticated' | 'unauthenticated' | 'unknown';
+/**
+ * Login state of a harness, checked with its own CLI where it has a status command. Kept apart
+ * from the ACP process state: a running agent says nothing about whether its login works.
+ */
+export type AuthStatus = 'authenticated' | 'unauthenticated' | 'expired' | 'not_installed' | 'error' | 'unknown';
+
+export interface AuthState {
+  status: AuthStatus;
+  /** How it is logged in (e.g. "ChatGPT", "Claude account"), when known. */
+  method: string | null;
+  /** Account fields safe to show (email, plan); never tokens or keys. */
+  account: { label: string; value: string }[];
+  expiresAt: string | null;
+  /** Why the status is not `authenticated`, or what could not be verified. */
+  detail: string | null;
+  checkedAt: string | null;
+}
 export type HarnessRunStatus = 'idle' | 'running' | 'error' | 'unavailable';
 
 export interface HarnessCapabilities {
@@ -64,7 +80,10 @@ export interface HarnessInfo {
   installed: boolean;
   enabled: boolean;
   custom: boolean;
+  /** Same as `auth.status`; kept for older clients. */
   authStatus: AuthStatus;
+  auth: AuthState;
+  /** Command that logs the harness in. */
   authMethod: string | null;
   acpSupported: boolean;
   acpVersion: number | null;
