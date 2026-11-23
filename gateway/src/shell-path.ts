@@ -41,9 +41,11 @@ export function loginShellPath(env: NodeJS.ProcessEnv = process.env): string | n
   if (process.platform === 'win32' || env.UNIHARN_LOGIN_SHELL_PATH === '0') return null;
   const shell = env.SHELL || '/bin/sh';
   const marker = '__UNIHARN_PATH__';
+  // Profile scripts and anything they start must not see the master token.
+  const { UNIHARN_TOKEN: _token, DEVIN_MOBILE_TOKEN: _legacyToken, ...shellEnv } = env;
   try {
     const result = spawnSync(shell, ['-lc', `printf '${marker}%s${marker}' "$PATH"`], {
-      encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], env,
+      encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'], env: shellEnv,
     });
     const match = result.stdout?.match(new RegExp(`${marker}(.*)${marker}`, 's'));
     return match?.[1].trim() || null;

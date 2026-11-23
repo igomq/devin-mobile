@@ -56,3 +56,16 @@ test('the login shell PATH is merged after the current PATH', { skip: process.pl
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('the login shell does not inherit the master token', { skip: process.platform === 'win32' }, () => {
+  const home = mkdtempSync(join(tmpdir(), 'uniharn-home-'));
+  try {
+    const shell = join(home, 'fake-shell');
+    writeFileSync(shell, '#!/bin/sh\nPATH="/token-${UNIHARN_TOKEN:-none}-${DEVIN_MOBILE_TOKEN:-none}"\nexport PATH\nexec /bin/sh "$@"\n');
+    chmodSync(shell, 0o755);
+    const path = loginShellPath({ PATH: '/usr/bin:/bin', SHELL: shell, HOME: home, UNIHARN_TOKEN: 'secret', DEVIN_MOBILE_TOKEN: 'old' });
+    assert.match(path ?? '', /^\/token-none-none/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
