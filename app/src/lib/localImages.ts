@@ -2,6 +2,9 @@ import { rpc } from './api.svelte.ts';
 
 const isRemote = (src: string) => /^(https?:|data:|blob:)/i.test(src);
 
+/** `file:` URLs would be stripped by the sanitizer, so turn `](file:///tmp/x.png)` into a plain path first. */
+export const fileUrlsToPaths = (md: string) => md.replace(/\]\(file:\/\//gi, '](');
+
 /**
  * Svelte action for rendered agent Markdown: images given as a path on the gateway machine are loaded
  * through the gateway, and tapping any image calls `open`.
