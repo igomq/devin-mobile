@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { accessSync, constants, statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
+import { fallbackBinDirs, mergePath } from '../shell-path.js';
 import { SessionManager, type Session, type SessionSummary } from '../sessions.js';
 import type { AuthStatus, CreateSessionOptions, HarnessAdapter, HarnessCapabilities, HarnessConfig, HarnessInfo, Json } from './types.js';
 
@@ -35,7 +35,7 @@ export interface AcpHarnessSpec {
 
 export function resolveBin(bin: string, env: NodeJS.ProcessEnv = process.env): string | null {
   if (isAbsolute(bin)) return isExecutable(bin) ? bin : null;
-  const dirs = [...(env.PATH ?? '').split(delimiter), join(homedir(), '.local', 'bin')].filter(Boolean);
+  const dirs = mergePath(env.PATH, fallbackBinDirs().join(delimiter)).split(delimiter);
   for (const d of dirs) {
     const p = join(d, bin);
     if (isExecutable(p)) return p;

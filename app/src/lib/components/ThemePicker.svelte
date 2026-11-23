@@ -1,30 +1,18 @@
 <script lang="ts">
-  import { ACCENTS, FAMILIES, getTheme, isCustomAccent } from '#lib/themes.ts';
-  import type { Theme } from '#lib/themes.ts';
+  import { ACCENTS, FAMILIES, isCustomAccent } from '#lib/themes.ts';
+  import type { Appearance, Theme } from '#lib/themes.ts';
   import { activeTheme, prefs, setAccent, setFollowSystem, setTheme } from '#lib/ui.svelte.ts';
   import Icon from './Icon.svelte';
 
-  let query = $state('');
-  const fold = (value: string) => value.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
-  const families = $derived.by(() => {
-    const words = fold(query).trim().split(/\s+/).filter(Boolean);
+  function groups(appearance?: Appearance) {
     return FAMILIES.map(({ name, variants }) => ({
-      name,
-      variants: variants.filter((variant) => {
-        const searchable = fold(`${name} ${variant.name} ${variant.appearance}`);
-        return words.every((word) => searchable.includes(word));
-      })
+      name, variants: variants.filter((theme) => !appearance || theme.appearance === appearance)
     })).filter(({ variants }) => variants.length);
-  });
-
-  function selected(theme: Theme) {
-    if (!prefs.followSystem) return theme.id === prefs.theme;
-    return theme.id === (theme.appearance === 'light' ? prefs.lightTheme : prefs.darkTheme);
   }
 
-  function themeName(id: string) {
-    const { family, name } = getTheme(id);
-    return `${family} ${name}`;
+  function optionName(theme: Theme, appearance?: Appearance) {
+    if (appearance || theme.name.toLowerCase() === theme.appearance) return theme.name;
+    return `${theme.name} (${theme.appearance})`;
   }
 
   const custom = $derived(isCustomAccent(prefs.accent));
@@ -39,8 +27,10 @@
       onchange={(event) => setFollowSystem(event.currentTarget.checked)} />
   </label>
   {#if prefs.followSystem}
-    <div class="row slot"><span>Light</span><span>{themeName(prefs.lightTheme)}</span></div>
-    <div class="row slot"><span>Dark</span><span>{themeName(prefs.darkTheme)}</span></div>
+    {@render picker('Light theme', prefs.lightTheme, 'light')}
+    {@render picker('Dark theme', prefs.darkTheme, 'dark')}
+  {:else}
+    {@render picker('Theme', prefs.theme)}
   {/if}
 </div>
 <p class="muted system-note">Reduce Transparency, Reduce Motion, and Increase Contrast follow your system settings.</p>
@@ -66,33 +56,20 @@
   </label>
 </div>
 
-<div class="label">Themes</div>
-<label class="search">
-  <Icon name="search" size={19} />
-  <input type="search" placeholder="Search themes" aria-label="Search themes" bind:value={query} />
-</label>
-{#each families as { name, variants } (name)}
-  <h3 class="label family">{name}</h3>
-  <div class="card family-card" role="group" aria-label={name}>
-    {#each variants as theme (theme.id)}
-      <button class="row theme" aria-pressed={selected(theme)}
-        aria-label={`${theme.family} ${theme.name}${theme.name.toLowerCase() === theme.appearance ? '' : `, ${theme.appearance}`}`}
-        onclick={() => setTheme(theme.id)}>
-        <span class="preview" aria-hidden="true"
-          style:--preview-bg={theme.tokens.bg} style:--preview-text={theme.tokens.text} style:--preview-accent={theme.tokens.accent}>
-          Aa
-        </span>
-        <span class="variant">{theme.name}</span>
-        <span class="kind">{theme.appearance}</span>
-        <span class="check" aria-hidden="true">
-          {#if selected(theme)}<Icon name="check" size={18} />{/if}
-        </span>
-      </button>
-    {/each}
-  </div>
-{:else}
-  <p class="muted no-results" role="status">No themes match “{query.trim()}”.</p>
-{/each}
+{#snippet picker(label: string, value: string, appearance?: Appearance)}
+  <label class="row slot">
+    <span>{label}</span>
+    <select {value} aria-label={label} onchange={(event) => setTheme(event.currentTarget.value)}>
+      {#each groups(appearance) as { name, variants } (name)}
+        <optgroup label={name}>
+          {#each variants as theme (theme.id)}
+            <option value={theme.id}>{optionName(theme, appearance)}</option>
+          {/each}
+        </optgroup>
+      {/each}
+    </select>
+  </label>
+{/snippet}
 
 <style>
   .appearance-label {
@@ -120,10 +97,6 @@
   }
   .slot {
     color: var(--text-2);
-  }
-  .slot > :last-child {
-    color: var(--text);
-    text-align: right;
   }
   input[type='checkbox'] {
     appearance: none;
@@ -210,88 +183,21 @@
     outline: 2px solid var(--accent-text);
     outline-offset: 2px;
   }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    min-height: 48px;
-    padding: 0 14px;
+  select {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 60%;
+    min-height: 36px;
+    padding: 4px 28px 4px 10px;
     border: 1px solid var(--line);
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm);
     background: var(--bg-input);
-    color: var(--text-2);
+    color: var(--text);
+    font-size: 15px;
+    text-overflow: ellipsis;
   }
-  .search:focus-within {
+  select:focus-visible {
     outline: 2px solid var(--accent-text);
     outline-offset: 2px;
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    min-height: 46px;
-    background: transparent;
-    color: var(--text);
-    border: 0;
-    padding: 0;
-    outline: none;
-    font-size: 16px;
-  }
-  .search input::placeholder {
-    color: var(--text-2);
-  }
-  .family {
-    margin-top: 16px;
-  }
-  .theme {
-    min-height: 48px;
-  }
-  .theme:first-child {
-    border-top-left-radius: inherit;
-    border-top-right-radius: inherit;
-  }
-  .theme:last-child {
-    border-bottom-left-radius: inherit;
-    border-bottom-right-radius: inherit;
-  }
-  .theme:active {
-    background: var(--accent-soft);
-  }
-  .theme:focus-visible {
-    outline-offset: -2px;
-  }
-  .preview {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    border: 1px solid var(--line-strong);
-    background: var(--preview-bg);
-    color: var(--preview-text);
-    font: 600 11px var(--mono);
-    text-decoration: underline 2px var(--preview-accent);
-    text-underline-offset: 3px;
-  }
-  .variant {
-    flex: 1;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .kind {
-    color: var(--text-2);
-    font-size: 13px;
-    text-transform: capitalize;
-  }
-  .check {
-    display: grid;
-    place-items: center;
-    flex: 0 0 18px;
-    color: var(--accent-text);
-  }
-  .no-results {
-    margin: 16px 6px 0;
-    overflow-wrap: anywhere;
-    font-size: 14px;
   }
 </style>

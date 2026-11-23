@@ -120,22 +120,23 @@ On the phone or tablet:
 1. Install Tailscale on the VM and on your phone, and sign in to the same tailnet on both.
 2. Install the harnesses you want on the VM and sign in to each, for example `devin auth login`, `codex login` or `claude /login`. [gateway/README.md](gateway/README.md#harnesses) lists the install command for each.
 
-3. Clone the repository, then build the web UI and the gateway. The gateway serves the built web UI from `app/build`.
+3. Clone the repository and run the installer. It builds the web UI and the gateway, installs the `uniharn` command into `~/.local/bin`, installs the ACP adapters for Codex and Claude Code when those CLIs are present, and runs `uniharn doctor`.
 
    ```bash
    git clone https://github.com/igomq/uniharn.git
    cd uniharn
-   (cd app && npm ci && npm run build)
-   (cd gateway && npm ci && npm run build)
+   scripts/install-gateway.sh            # or --systemd to also install and start a systemd user service
    ```
 
-4. Start the gateway:
+4. Start the gateway and pair your phone:
 
    ```bash
-   node gateway/dist/index.js
+   uniharn
    ```
 
-   By default the gateway listens on port 8787 on `127.0.0.1` and on the VM's Tailscale IPv4 address only. It never binds to all interfaces unless you pass `--host`. A master token is generated on first start and stored in `~/.local/share/uniharn/token` with mode 0600; `--print-token` prints it. Pair devices as described in [Pairing](#pairing).
+   In a terminal, `uniharn` shows the gateway URL, the number of paired devices and a pairing panel: press Enter to show or hide the pairing QR (one-time code, valid 5 minutes), `t` to show or hide the master token, and `q` to stop. The QR is shown right away while no device is paired. If the gateway already runs as a service, `uniharn` opens the same panel for it instead of starting a second gateway; `uniharn pair` prints a single pairing QR and code. Pass `--no-console` to run without the panel.
+
+   By default the gateway listens on port 8787 on `127.0.0.1` and on the VM's Tailscale IPv4 address only. It never binds to all interfaces unless you pass `--host`. A master token is generated on first start and stored in `~/.local/share/uniharn/token` with mode 0600. See [Pairing](#pairing).
 
 The gateway looks up the Tailscale address once, at startup, by running `tailscale ip -4`. If Tailscale is not up yet, the gateway listens on `127.0.0.1` only. Restart it after Tailscale connects, or pass the address with `--host`.
 
@@ -143,32 +144,15 @@ See [gateway/README.md](gateway/README.md) for all options, including `--roots` 
 
 ### Keep the gateway running
 
-Sessions only keep running while the gateway runs, so start it as a service, or at least inside `tmux`. A systemd user service works well. Save the following as `~/.config/systemd/user/devin-mobile.service`, replacing `/path/to/devin-mobile` with your checkout and `/usr/bin/node` with the output of `command -v node`:
-
-```ini
-[Unit]
-Description=Devin Mobile gateway
-After=network-online.target
-
-[Service]
-ExecStart=/usr/bin/node /path/to/devin-mobile/gateway/dist/index.js
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-```
-
-Then enable and start it:
+Sessions only keep running while the gateway runs, so run it as a service, or at least inside `tmux`. `scripts/install-gateway.sh --systemd` (or `uniharn service install`) writes and starts `~/.config/systemd/user/uniharn-gateway.service`. Then:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now devin-mobile.service
 loginctl enable-linger "$USER"   # keep user services running after you log out
-journalctl --user -u devin-mobile.service -f
+journalctl --user -u uniharn-gateway.service -f
+uniharn pair                     # or just `uniharn` for the pairing panel
 ```
 
-The service runs with systemd's default `PATH`. The gateway finds `devin` in `~/.local/bin`, `/usr/local/bin` or `/opt/homebrew/bin`. If yours is elsewhere, add `Environment=DEVIN_BIN=/full/path/to/devin` to the `[Service]` section.
+The gateway adds your login shell's `PATH` and the usual install directories (`~/.local/bin`, `~/.local/opt/node/bin`, `~/.npm-global/bin`, nvm, Bun, Volta, `/usr/local/bin`) when it looks for harness CLIs and ACP adapters, so a service, `tmux` or a console without your profile still finds them. Set `UNIHARN_LOGIN_SHELL_PATH=0` to skip reading the login shell.
 
 ## Install the app
 
@@ -182,10 +166,10 @@ Version 0.2.0 changed the app identifier to `me.gomq.devinmobile`. It installs a
 
 ## Pairing
 
-1. On the VM, run `node gateway/dist/index.js pair`. It prints a one-time code and a QR code for `http://<gateway>/#pair=<CODE>`, valid for 5 minutes (`--ttl 30..900`).
+1. On the VM, run `uniharn` and press Enter, or run `uniharn pair`. Either prints a one-time code and a QR code for `http://<gateway>/#pair=<CODE>`, valid for 5 minutes (`--ttl 30..900`).
 2. In the app, scan the QR code, paste the link or type the code. Opening the link in a browser served by the gateway pairs automatically.
 
-Each device gets its own token. Settings → Devices lists paired devices and can rename or revoke them, rotate this device's token, and pair another device. A revoked device is disconnected immediately. `node gateway/dist/index.js devices list|revoke|revoke-all` does the same from the VM.
+Each device gets its own token. Settings → Devices lists paired devices and can rename or revoke them, rotate this device's token, and pair another device. A revoked device is disconnected immediately. `uniharn devices list|revoke|revoke-all` does the same from the VM.
 
 You can still connect with the gateway address and the master token under "Use an access token instead". Forgetting the gateway in Settings removes the token along with the cached sessions.
 

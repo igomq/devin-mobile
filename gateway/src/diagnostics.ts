@@ -83,6 +83,20 @@ export function checkGatewayPorts(config: Config) {
   })));
 }
 
+/** URL of a gateway with this ID already listening on one of the configured local addresses, if any. */
+export async function findRunningGateway(config: Config, gatewayId: string): Promise<string | null> {
+  for (const host of config.hosts.map(probeHost)) {
+    const url = gatewayUrl(host, config.port);
+    try {
+      const response = await fetch(`${url}/healthz`, { redirect: 'error', signal: AbortSignal.timeout(1500) });
+      if (response.ok && (await response.json()).gatewayId === gatewayId) return url;
+    } catch {
+      // Nothing listening there.
+    }
+  }
+  return null;
+}
+
 interface GatewayAuthCheck {
   gatewayAuth: 'authenticated' | 'rejected' | 'unavailable';
   activeDeviceCount: number;

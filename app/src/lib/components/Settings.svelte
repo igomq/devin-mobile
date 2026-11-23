@@ -31,13 +31,6 @@
       toast(e instanceof Error ? e.message : String(e), 'error');
     }
   }
-  const CAP_LABEL: Record<string, string> = { available: 'Available', requires_secure_context: 'Needs HTTPS', requires_external_setup: 'Needs external setup', blocked_by_signing: 'Blocked by signing' };
-  const PLATFORMS = [
-    ['inApp', 'In-app'],
-    ['webPush', 'Web Push (browser / PWA)'],
-    ['androidFcm', 'Android native (FCM)'],
-    ['iosApns', 'iOS native (APNs)']
-  ] as const;
 
   let agent = $derived(conn.info?.agent ?? null);
 
@@ -149,17 +142,6 @@
           <p class="muted detail">Connect to a gateway to manage notifications.</p>
         {/if}
       </div>
-
-      {#if notif.capabilities}
-        <div class="label">Notification support</div>
-        <div class="card">
-          {#each PLATFORMS as [key, name]}
-            {@const c = notif.capabilities[key]}
-            <div class="kv"><span>{name}</span><b class:bad={c.status !== 'available'}>{CAP_LABEL[c.status] ?? c.status}</b></div>
-            <p class="muted detail">{c.detail}</p>
-          {/each}
-        </div>
-      {/if}
 
       <div class="label">Gateway</div>
       <div class="card">
