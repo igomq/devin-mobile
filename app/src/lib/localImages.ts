@@ -29,7 +29,10 @@ export function localImages(node: HTMLElement, arg: { cwd?: string | null; open:
   };
   const click = (e: MouseEvent) => {
     const img = (e.target as HTMLElement).closest('img');
-    if (img && isRemote(img.src)) opts.open(img.src, img.alt || 'Image');
+    // Only images already loaded into the page: the app's image policy would block a remote URL in the viewer.
+    if (!img || !/^(data:|blob:)/i.test(img.src)) return;
+    e.preventDefault();
+    opts.open(img.src, img.alt || 'Image');
   };
   load();
   const mo = new MutationObserver(load);
