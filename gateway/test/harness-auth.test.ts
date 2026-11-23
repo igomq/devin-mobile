@@ -94,6 +94,23 @@ rl.on('line', (line) => {
   else if (msg.id !== undefined) out({ id: msg.id, result: {} });
 });`;
 
+test('ACP harness: a configured executable path is also used for the login check', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uniharn-auth-'));
+  const calls: string[][] = [];
+  const run: CommandRunner = async (bin, args) => (calls.push([bin, ...args]), ok('{"account":null}', 1));
+  const adapter = new AcpHarnessAdapter(BUILTIN_ACP_SPECS.find((s) => s.id === 'kiro')!, run);
+  try {
+    const custom = exe(dir, 'my-kiro');
+    adapter.configure({ bin: custom });
+    const info = await adapter.probe();
+    assert.equal(info.auth.status, 'unauthenticated');
+    assert.deepEqual(calls[0], [custom, 'whoami', '--format', 'json']);
+  } finally {
+    adapter.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('ACP harness: login state comes from the status command, not from the running process', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'uniharn-auth-'));
   const calls: string[][] = [];

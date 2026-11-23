@@ -147,7 +147,7 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
     if (!this.resolvedBin) return notInstalled(this.bin);
     const check = this.spec.authCheck;
     if (!check) return authState('unknown', { detail: 'This harness has no login status command; its login is checked when a session starts.' });
-    const bin = check.bin === this.spec.bin && this.bin === this.spec.bin ? this.resolvedBin : resolveBin(check.bin);
+    const bin = check.bin === this.spec.bin ? this.resolvedBin : resolveBin(check.bin);
     if (!bin) return authState('unknown', { detail: `\`${check.bin}\` was not found, so the login could not be checked.` });
     try {
       return check.parse(await this.run(bin, check.args, { timeout: 10_000, env: filterEnv(this.envAllowlist) }));
