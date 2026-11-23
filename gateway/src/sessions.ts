@@ -173,6 +173,7 @@ export class SessionManager extends EventEmitter {
   sessions = new Map<string, Session>();
   private permCounter = 0;
   agentError: string | null = null;
+  private idleStopped: AcpConnection | null = null;
 
   constructor(
     private bin: string,
@@ -217,7 +218,7 @@ export class SessionManager extends EventEmitter {
       conn.on('request', (id, m, p) => this.onRequest(conn, id, m, p));
       conn.on('exit', (code) => {
         if (this.acp === conn) this.acp = null;
-        this.agentError = `${label} exited (${code}). ${conn.stderrTail.slice(-3).join(' | ')}`;
+        this.agentError = this.idleStopped === conn ? null : `${label} exited (${code}). ${conn.stderrTail.slice(-3).join(' | ')}`;
         for (const s of this.sessions.values()) {
           s.loaded = false;
           s.running = 0;
@@ -449,10 +450,19 @@ export class SessionManager extends EventEmitter {
    * app can open them (Codex refuses with "This conversation is open in another app" while we hold one).
    */
   async releaseIdle(isWatched: (sessionId: string) => boolean, idleMs: number): Promise<number> {
-    if (!this.acp?.alive || !this.acp.initResult?.agentCapabilities?.sessionCapabilities?.close) return 0;
+    const acp = this.acp;
+    if (!acp?.alive) return 0;
+    const loaded = [...this.sessions.values()].filter((s) => s.loaded);
+    const idle = (s: Session) => !s.running && !s.permissions.size && Date.now() - s.updatedAt >= idleMs && !isWatched(s.sessionId);
+    if (!acp.initResult?.agentCapabilities?.sessionCapabilities?.close) {
+      // Codex has no session/close: the only way to let go is to stop the agent once every session it holds is idle.
+      if (!loaded.length || !loaded.every(idle)) return 0;
+      this.idleStopped = acp;
+      acp.stop();
+      return loaded.length;
+    }
     let released = 0;
-    for (const s of this.sessions.values()) {
-      if (!s.loaded || s.running || s.permissions.size || Date.now() - s.updatedAt < idleMs || isWatched(s.sessionId)) continue;
+    for (const s of loaded.filter(idle)) {
       await this.closeSession(s.sessionId).catch(() => undefined);
       released++;
     }

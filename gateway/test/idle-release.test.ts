@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { SessionManager } from '../src/sessions.js';
 
 /** An agent that supports session/close and logs each call to `closed.log`. */
-function closingAgent(dir: string): string {
+function closingAgent(dir: string, close = true): string {
   const p = join(dir, 'agent');
   writeFileSync(
     p,
@@ -17,7 +17,7 @@ const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m })
 let n = 0;
 rl.on('line', (line) => {
   const msg = JSON.parse(line);
-  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: {} } } } });
+  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: ${close ? '{ close: {} }' : '{}'} } } });
   else if (msg.method === 'session/new') out({ id: msg.id, result: { sessionId: 's' + ++n } });
   else if (msg.method === 'session/close') {
     fs.appendFileSync(${JSON.stringify(join(dir, 'closed.log'))}, msg.params.sessionId + '\\n');
@@ -46,6 +46,26 @@ test('idle sessions nobody is watching are closed so other apps can open them', 
     assert.equal((m as any).sessions.get(idle.sessionId).loaded, false);
     assert.equal((m as any).sessions.get(watched.sessionId).loaded, true);
     assert.equal((m as any).sessions.get(fresh.sessionId).loaded, true);
+  } finally {
+    m.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an agent without session/close is stopped once every session it holds is idle', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uniharn-idle-'));
+  const m = new SessionManager(closingAgent(dir, false));
+  try {
+    const a = await m.createSession(dir);
+    const b = await m.createSession(dir);
+    (m as any).sessions.get(a.sessionId).updatedAt = Date.now() - 10 * 60_000;
+    assert.equal(await m.releaseIdle(() => false, 2 * 60_000), 0, 'b is still fresh');
+
+    (m as any).sessions.get(b.sessionId).updatedAt = Date.now() - 10 * 60_000;
+    assert.equal(await m.releaseIdle(() => false, 2 * 60_000), 2);
+    for (let i = 0; i < 50 && (m as any).sessions.get(a.sessionId).loaded; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.equal((m as any).sessions.get(a.sessionId).loaded, false);
+    assert.equal(m.agentError, null);
   } finally {
     m.stop();
     rmSync(dir, { recursive: true, force: true });
