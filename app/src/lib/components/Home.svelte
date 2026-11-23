@@ -177,7 +177,7 @@
   function selectKey(e: KeyboardEvent) {
     // Capture phase: runs before the Sheet and search handlers, so an open sheet or a search query
     // takes the Escape first.
-    if (e.key !== 'Escape' || !selecting || e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+    if (e.key !== 'Escape' || !selecting || bulkBusy || e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
     if (e.target === searchInput && query) return;
     e.preventDefault();
     stopSelect();
@@ -323,7 +323,7 @@
 
   <div class="dock">
     {#if selecting}
-      <button class="btn glass dockbtn" onclick={stopSelect}>Cancel</button>
+      <button class="btn glass dockbtn" onclick={stopSelect} disabled={bulkBusy}>Cancel</button>
       <button class="btn danger dockbtn" onclick={() => (bulkOpen = true)} disabled={!selectedIds.length || bulkBusy}>
         {#if bulkBusy}<span class="spinner"></span>{:else}<Icon name="trash" size={18} />{/if} Delete ({selectedIds.length})
       </button>
@@ -340,7 +340,7 @@
   </div>
 </div>
 
-<DirPicker bind:open={picking} onpick={create} onnoproject={() => create(null)} />
+<DirPicker bind:open={picking} onpick={create} onnoproject={conn.info?.scratchDir ? () => create(null) : undefined} />
 
 <Sheet bind:open={actionsOpen} title={actionsFor?.title || 'Session'}>
   <p class="muted mono idline">{actionsFor?.id} · {shortPath(actionsFor?.cwd, conn.info?.home)}</p>
