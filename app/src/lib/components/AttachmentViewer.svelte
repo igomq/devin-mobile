@@ -29,7 +29,8 @@
         <img src={item.src} alt={item.name} />
       </div>
     {:else if isMarkdown(item.name, item.mimeType)}
-      <div class="doc md">{@html markdown(item.text)}</div>
+      <!-- No images: a remote image in someone else's file would tell its author when it was opened. -->
+      <div class="doc md">{@html markdown(item.text, { images: false })}</div>
     {:else}
       <pre class="doc mono">{item.text}</pre>
     {/if}
