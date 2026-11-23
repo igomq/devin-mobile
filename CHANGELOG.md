@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-23
+
 ### Added
 
 - The gateway lets go of a session nobody has open in uniharn after 2 minutes without activity (`UNIHARN_IDLE_RELEASE_MS`, `0` turns it off), so the harness's own app can open it. It does this by stopping the agent once all its sessions are idle (Codex keeps the conversation locked even after `session/close`), and the next open starts it again. Codex refused with "This conversation is open in another app" while uniharn held it.
