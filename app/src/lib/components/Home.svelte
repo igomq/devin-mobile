@@ -3,7 +3,8 @@
   import type { SessionRow } from '#lib/types.ts';
   import { go, toast, route, requests, fresh } from '#lib/ui.svelte.ts';
   import { ago, shortPath } from '#lib/format.ts';
-  import { isScratchPath, projectLabel } from '#lib/labels.ts';
+  import { isScratchPath, projectLabel, shortHarnessName } from '#lib/labels.ts';
+  import { tick } from 'svelte';
   import Icon from './Icon.svelte';
   import { notif } from '#lib/notifications.svelte.ts';
   import Sheet from './Sheet.svelte';
@@ -21,6 +22,40 @@
   $effect(() => {
     if (usableHarnesses.length && !usableHarnesses.some((h) => h.id === harnessId)) harnessId = usableHarnesses[0].id;
   });
+
+  // Harness picker in the dock: a glass pill that opens an upward menu.
+  let pickerOpen = $state(false);
+  let pickerEl = $state<HTMLElement>();
+  let pickerBtn = $state<HTMLButtonElement>();
+  let pickerMenu = $state<HTMLElement>();
+  let currentName = $derived(harnessName(harnessId));
+  $effect(() => {
+    if (!pickerOpen) return;
+    tick().then(() => pickerMenu?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus({ preventScroll: true }));
+  });
+  $effect(() => {
+    if (selecting) pickerOpen = false;
+  });
+  function closePicker(refocus = false) {
+    pickerOpen = false;
+    if (refocus) pickerBtn?.focus();
+  }
+  function pickHarness(id: string) {
+    harnessId = id;
+    closePicker(true);
+  }
+  function pickerOutside(e: PointerEvent) {
+    if (pickerOpen && pickerEl && !pickerEl.contains(e.target as Node)) closePicker();
+  }
+  function menuKey(e: KeyboardEvent) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    const items = [...(pickerMenu?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : (at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next].focus();
+  }
   let creating = $state(false);
   let actionsFor = $state<SessionRow | null>(null);
   let actionsOpen = $state(false);
@@ -175,6 +210,12 @@
   }
 
   function selectKey(e: KeyboardEvent) {
+    // An open harness menu takes Escape first, so neither select mode nor the chat beside reacts to it.
+    if (e.key === 'Escape' && pickerOpen && !e.defaultPrevented) {
+      e.preventDefault();
+      closePicker(true);
+      return;
+    }
     // Capture phase: runs before the Sheet and search handlers, so an open sheet or a search query
     // takes the Escape first.
     if (e.key !== 'Escape' || !selecting || e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
@@ -199,7 +240,7 @@
 
 {#snippet rowText(s: SessionRow, showFolder: boolean)}
   <span class="stext">
-    <span class="stitle">{#if s.harnessId && s.harnessId !== 'devin'}<span class="hbadge">{harnessName(s.harnessId)}</span>{/if}{s.title || 'New session'}</span>
+    <span class="stitle">{#if s.harnessId}<span class="hbadge" title={harnessName(s.harnessId)}>{shortHarnessName(harnessName(s.harnessId))}</span>{/if}{s.title || 'New session'}</span>
     {#if showFolder}<span class="sfolder">{projectLabel(s.cwd, conn.info?.scratchDir) || 'No folder'}</span>{/if}
   </span>
   <span class="smeta">
@@ -236,7 +277,7 @@
   <button class="gsel press" onclick={() => toggleAll(list)} disabled={!list.length} aria-label="{all ? 'Deselect' : 'Select'} all in {name}">{all ? 'Deselect all' : 'Select all'}</button>
 {/snippet}
 
-<svelte:window onkeydowncapture={selectKey} />
+<svelte:window onkeydowncapture={selectKey} onpointerdown={pickerOutside} />
 
 <div class="screen" class:embedded>
   <header class="topbar">
@@ -331,9 +372,32 @@
       </button>
     {:else}
     {#if usableHarnesses.length > 1}
-      <select class="hsel glass" bind:value={harnessId} aria-label="Harness" title="Harness for new sessions">
-        {#each usableHarnesses as h (h.id)}<option value={h.id}>{h.name}</option>{/each}
-      </select>
+      <div class="hpick" bind:this={pickerEl}>
+        <button
+          bind:this={pickerBtn}
+          class="hbtn glass press"
+          class:open={pickerOpen}
+          onclick={() => (pickerOpen = !pickerOpen)}
+          aria-haspopup="menu"
+          aria-expanded={pickerOpen}
+          aria-label="Harness for new sessions: {currentName}"
+          title="Harness for new sessions: {currentName}"
+        >
+          <span class="hcur">{shortHarnessName(currentName)}</span>
+          <span class="hchev" aria-hidden="true"><Icon name="down" size={16} /></span>
+        </button>
+        {#if pickerOpen}
+          <div class="hmenu glass-heavy" role="menu" aria-label="Harness for new sessions" tabindex="-1" bind:this={pickerMenu} onkeydown={menuKey}>
+            {#each usableHarnesses as h (h.id)}
+              {@const on = h.id === harnessId}
+              <button class="hitem" class:on role="menuitemradio" aria-checked={on} onclick={() => pickHarness(h.id)}>
+                <span class="hname">{h.name}</span>
+                {#if on}<span class="hcheck"><Icon name="check" size={18} /></span>{/if}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     {/if}
     <button class="btn primary newbtn" onclick={() => (picking = true)} disabled={creating || conn.status !== 'online'} title="New session (⌘N)">
       {#if creating}<span class="spinner"></span>{:else}<Icon name="compose" size={18} />{/if} New session
@@ -685,27 +749,118 @@
     min-height: 50px;
     font-size: 16px;
   }
-  .hsel {
+  .hpick {
+    position: relative;
     pointer-events: auto;
-    min-height: 50px;
     min-width: 0;
     max-width: 45%;
     flex: 0 1 auto;
-    padding: 0 12px;
+    display: flex;
+  }
+  .hbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 50px;
+    padding: 0 14px 0 18px;
     border-radius: 999px;
-    border: 0;
+    font-size: 15px;
+    font-weight: 600;
     color: var(--text);
-    font: inherit;
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-rim), var(--glass-drop-shadow);
+  }
+  .hbtn.open {
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, var(--glass-rim)), var(--glass-drop-shadow);
+  }
+  .hcur {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hchev {
+    flex: none;
+    display: grid;
+    color: var(--text-2);
+    transition: rotate 0.25s var(--ease-out);
+  }
+  /* The menu opens upward, so the chevron points up while it is open. */
+  .hbtn.open .hchev {
+    rotate: 180deg;
+  }
+  .hmenu {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    z-index: 20;
+    width: max-content;
+    min-width: 200px;
+    max-width: min(300px, calc(100vw - 32px));
+    max-height: min(360px, calc(var(--vvh, 100vh) * 0.5));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 6px;
+    border-radius: var(--r-lg);
+    box-shadow: inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-rim), 0 12px 32px rgba(0, 0, 0, 0.35);
+    transform-origin: bottom left;
+    animation: hmenu-in 0.22s var(--ease-out);
+    outline: none;
+  }
+  @keyframes hmenu-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.96);
+    }
+  }
+  .hitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 12px 0 14px;
+    border-radius: var(--r-md);
+    text-align: left;
+    font-size: 15px;
+    color: var(--text);
+    transition: background-color 0.18s ease;
+  }
+  .hitem:active,
+  .hitem:focus-visible {
+    background: var(--fill);
+    outline: none;
+  }
+  .hitem.on {
+    font-weight: 600;
+  }
+  .hname {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hcheck {
+    flex: none;
+    display: grid;
+    color: var(--accent-text);
   }
   .hbadge {
+    display: inline-block;
+    max-width: 7em;
+    vertical-align: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 11px;
-    padding: 1px 6px;
+    font-weight: 500;
+    line-height: 16px;
+    padding: 0 6px;
     margin-right: 6px;
     border-radius: 6px;
     background: var(--fill);
-    color: var(--text-2, inherit);
+    color: var(--text-2);
   }
   .embedded .newbtn {
     flex: 1 1 auto;
