@@ -91,6 +91,20 @@ test('delegate falls back to the default subagent model, and persists it', async
   }
 });
 
+test('an explicit cwd wins over the parent session folder', async () => {
+  const { orchestrator, registry, cleanup, dir } = setup();
+  try {
+    const parent = await registry.createSession('alpha', dir);
+    const other = join(dir, 'data');
+    const { link, done } = await orchestrator.delegate('alpha:' + parent.sessionId, 'alpha', 'x', { cwd: other });
+    await done;
+    assert.equal(link.cwd, other);
+    assert.equal(link.parentSessionId, 'alpha:' + parent.sessionId);
+  } finally {
+    cleanup();
+  }
+});
+
 test('delegate rejects a model for a harness that offers no model choice', async () => {
   const { orchestrator, cleanup, dir } = setup();
   try {

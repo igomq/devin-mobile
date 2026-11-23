@@ -256,7 +256,7 @@ export class Orchestrator extends EventEmitter {
   ) {
     if (!task.trim()) throw new Error('task is required');
     const parent = parentSessionId ? await this.source(parentSessionId) : null;
-    const cwd = parent?.session.cwd ?? opts.cwd;
+    const cwd = opts.cwd ?? parent?.session.cwd;
     if (!cwd) throw new Error('sessionId or cwd is required');
     const wt = opts.worktree ? await createWorktree(cwd, randomUUID().slice(0, 8)) : null;
     const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, task) : task;

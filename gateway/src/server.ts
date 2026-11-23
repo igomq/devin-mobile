@@ -387,7 +387,7 @@ export function createGatewayServer(input: Config) {
         const harnessId = requireString(p.harnessId, 'harnessId');
         const task = requireString(p.task, 'task');
         const { link, done } = await orchestrator.delegate(id, harnessId, task, {
-          cwd: id ? undefined : absCwd(p.cwd),
+          cwd: typeof p.cwd === 'string' && p.cwd ? absCwd(p.cwd) : id ? undefined : absCwd(p.cwd),
           worktree: !!p.worktree,
           includeContext: !!p.includeContext,
           model: typeof p.model === 'string' && p.model ? p.model : null,
