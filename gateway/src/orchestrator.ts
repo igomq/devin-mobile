@@ -245,8 +245,9 @@ export class Orchestrator extends EventEmitter {
   }
 
   /**
-   * Runs `task` as a subagent on `harnessId`, in the parent's folder (or `opts.cwd` when there is no
-   * parent session) or in an isolated worktree of it.
+   * Runs `task` as a subagent on `harnessId`, in `opts.cwd` (else the parent's folder)
+   * or in an isolated worktree of it. `model: null` runs on the harness default model;
+   * omitting it uses the default subagent model.
    */
   async delegate(
     parentSessionId: string | null,
@@ -261,7 +262,7 @@ export class Orchestrator extends EventEmitter {
     const wt = opts.worktree ? await createWorktree(cwd, randomUUID().slice(0, 8)) : null;
     const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, task) : task;
     try {
-      const model = opts.model || this.settings?.defaultModel(harnessId) || null;
+      const model = opts.model === undefined ? (this.settings?.defaultModel(harnessId) ?? null) : opts.model || null;
       return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt, model);
     } catch (e) {
       if (wt) await removeWorktree(cwd, wt);

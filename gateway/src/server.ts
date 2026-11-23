@@ -390,7 +390,8 @@ export function createGatewayServer(input: Config) {
           cwd: typeof p.cwd === 'string' && p.cwd ? absCwd(p.cwd) : id ? undefined : absCwd(p.cwd),
           worktree: !!p.worktree,
           includeContext: !!p.includeContext,
-          model: typeof p.model === 'string' && p.model ? p.model : null,
+          // null asks for the harness default; omitted uses the default subagent model.
+          model: typeof p.model === 'string' && p.model ? p.model : p.model === null ? null : undefined,
         });
         c.subs.add(link.childSessionId);
         if (p.wait) {

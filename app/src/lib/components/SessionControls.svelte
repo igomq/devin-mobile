@@ -73,7 +73,7 @@
     if (!instruction.trim()) return toast('Describe the task for the subagent', 'error');
     busy = 'delegate';
     try {
-      await rpc('orchestration.delegate', { id: sessionId, harnessId: target, task: instruction, worktree, includeContext: true, model: subModel });
+      await rpc('orchestration.delegate', { id: sessionId, harnessId: target, task: instruction, worktree, includeContext: true, model: subModel || null });
       instruction = '';
       toast(`Subagent started on ${harnessName(target)}`);
     } catch (e) {

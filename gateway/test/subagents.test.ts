@@ -82,6 +82,9 @@ test('delegate falls back to the default subagent model, and persists it', async
     assert.deepEqual(log('alpha').filter((l) => 'set' in l), [{ set: 'big' }]);
     const alpha = settings.list().find((s) => s.harnessId === 'alpha');
     assert.deepEqual(alpha?.models.map((m) => m.value), ['small', 'big']);
+    const harnessDefault = await orchestrator.delegate(null, 'alpha', 'own', { cwd: dir, model: null });
+    await harnessDefault.done;
+    assert.equal(harnessDefault.link.model, null);
     settings.setDefault('alpha', null);
     const plain = await orchestrator.delegate(null, 'alpha', 'again', { cwd: dir });
     await plain.done;
