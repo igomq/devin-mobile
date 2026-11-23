@@ -21,7 +21,7 @@ import { Orchestrator } from './orchestrator.js';
 import { SubagentSettings, sessionRefs } from './subagents.js';
 import { listDirectory, listProjects } from './projects.js';
 import { assertAllowedPath, isPathWithinRoots, RateLimiter, redactSecrets } from './security.js';
-import { folderPolicy, type Session } from './sessions.js';
+import { folderPolicy, recreatedFolders, type Session } from './sessions.js';
 import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
@@ -192,6 +192,7 @@ export function createGatewayServer(input: Config) {
   const gitRpc = createGitRpc(config.dataDir, {
     onStatus: (cwd, st) => notifications.notifyGitConflict(cwd, st.files.filter((f) => f.status === 'conflict').map((f) => f.path)),
     checkPath: config.strictRoots ? (path) => assertAllowedPath(path, sessionRoots, true) : undefined,
+    isRecreated: (path) => recreatedFolders.has(path),
   });
 
   let accountCache: { at: number; value: Json } | null = null;

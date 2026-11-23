@@ -22,6 +22,8 @@ export interface GitRpcOptions {
   onStatus?: (cwd: string, status: git.GitStatus) => void;
   /** Canonicalizes a requested path and throws when it is outside the gateway's allowed roots. */
   checkPath?: (path: string) => string;
+  /** True for a session folder that was deleted and recreated empty: Git there must not reach an enclosing repository. */
+  isRecreated?: (path: string) => boolean;
 }
 
 export function createGitRpc(dataDir: string, opts: GitRpcOptions = {}) {
@@ -30,6 +32,7 @@ export function createGitRpc(dataDir: string, opts: GitRpcOptions = {}) {
   /** Resolves the request cwd; with root checks on, the repository it belongs to must be allowed too. */
   async function cwdOf(v: unknown): Promise<string> {
     const cwd = checkPath(resolve(expandHome(requireString(v, 'cwd'))));
+    if (opts.isRecreated?.(cwd)) throw new Error('This session\'s folder was deleted and recreated empty, so Git is not available here.');
     if (opts.checkPath && await git.isRepo(cwd)) checkPath(await git.repoRoot(cwd));
     return cwd;
   }

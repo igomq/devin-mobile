@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { AcpConnection } from './acp.js';
 import { noteModels, sessionRefs } from './subagents.js';
 
@@ -45,6 +46,9 @@ export interface SessionSummary {
 
 /** Which missing session folders the gateway may recreate so a session can still be loaded. */
 export const folderPolicy = { mayRecreate: (_cwd: string) => true };
+
+/** Folders recreated empty for a load; Git there would reach an enclosing repository, so it is refused. */
+export const recreatedFolders = new Set<string>();
 
 export interface TokenTotals {
   turns: number;
@@ -317,6 +321,7 @@ export class SessionManager extends EventEmitter {
       if (!existsSync(s.cwd) && folderPolicy.mayRecreate(s.cwd)) {
         mkdirSync(s.cwd, { recursive: true, mode: 0o700 });
         s.folderMissing = true;
+        recreatedFolders.add(resolve(s.cwd));
       }
       const ref = randomUUID();
       sessionRefs.set(ref, { harnessId: s.harnessId, sessionId: s.sessionId });

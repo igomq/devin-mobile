@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SessionManager, folderPolicy } from '../src/sessions.js';
+import { SessionManager, folderPolicy, recreatedFolders } from '../src/sessions.js';
 
 /** Agent that, like Claude Code, refuses session/load when the session's folder does not exist. */
 function strictAgent(dir: string): string {
@@ -37,6 +37,7 @@ test('a session whose folder was deleted still loads its history, with the folde
     const s = await m.ensureLoaded('s1', gone);
     assert.ok(existsSync(gone));
     assert.equal(s.summary().folderMissing, true);
+    assert.ok(recreatedFolders.has(gone));
     assert.ok(s.events.some((e) => e.update?.content?.text === 'old reply'));
   } finally {
     m.stop();
