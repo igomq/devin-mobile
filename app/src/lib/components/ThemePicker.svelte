@@ -11,8 +11,8 @@
   }
 
   function optionName(theme: Theme, appearance?: Appearance) {
-    if (appearance || theme.name.toLowerCase() === theme.appearance) return theme.name;
-    return `${theme.name} (${theme.appearance})`;
+    const name = `${theme.family} ${theme.name}`;
+    return appearance || theme.name.toLowerCase() === theme.appearance ? name : `${name} (${theme.appearance})`;
   }
 
   const custom = $derived(isCustomAccent(prefs.accent));
