@@ -164,13 +164,24 @@
 
   /** Shared by the file picker, paste and drag-and-drop. */
   async function addFiles(files: File[]) {
-    let total = images.reduce((n, i) => n + rawSize(i.data), 0);
+    // Images and text share one budget so the whole prompt stays under the gateway's message limit.
+    const textBytes = (t: string) => new TextEncoder().encode(t).length;
+    let total = images.reduce((n, i) => n + rawSize(i.data), 0) + docs.reduce((n, d) => n + textBytes(d.text), 0);
     let skipped = 0;
     let skippedDocs = 0;
     for (const f of files) {
       if (!f.type.startsWith('image/') && isTextFile(f)) {
-        if (docs.length >= MAX_FILES || f.size > MAX_FILE_BYTES) skippedDocs++;
-        else docs.push({ name: f.name || 'Pasted text', mimeType: f.type || 'text/plain', text: decodeText(new Uint8Array(await f.arrayBuffer())) });
+        if (docs.length >= MAX_FILES || f.size > MAX_FILE_BYTES) {
+          skippedDocs++;
+          continue;
+        }
+        const text = decodeText(new Uint8Array(await f.arrayBuffer()));
+        if (total + textBytes(text) > MAX_TOTAL_BYTES) {
+          skippedDocs++;
+          continue;
+        }
+        total += textBytes(text);
+        docs.push({ name: f.name || 'Pasted text', mimeType: f.type || 'text/plain', text });
         continue;
       }
       if (images.length >= MAX_IMAGES || !f.type.startsWith('image/') || f.size > MAX_IMAGE_BYTES || total + f.size > MAX_TOTAL_BYTES) {
@@ -184,7 +195,7 @@
       images.push({ mimeType: f.type, data: btoa(bin), name: f.name || 'Pasted image', url: URL.createObjectURL(f) });
     }
     if (skipped) toast(`Up to ${MAX_IMAGES} images, 8 MB each.`, 'error');
-    if (skippedDocs) toast(`Up to ${MAX_FILES} text files, 1 MB each.`, 'error');
+    if (skippedDocs) toast(`Up to ${MAX_FILES} text files, 1 MB each, 20 MB with images.`, 'error');
   }
 
   async function onfiles(e: Event) {
