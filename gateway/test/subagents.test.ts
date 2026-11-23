@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
@@ -102,6 +102,22 @@ test('an explicit cwd wins over the parent session folder', async () => {
     assert.equal(link.parentSessionId, 'alpha:' + parent.sessionId);
   } finally {
     cleanup();
+  }
+});
+
+test('setDefault reports a failed write and keeps the old default', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uniharn-sub-'));
+  try {
+    const settings = new SubagentSettings(join(dir, 'data'));
+    settings.setDefault('alpha', 'big');
+    writeFileSync(join(dir, 'data', 'subagents.json.tmp'), '');
+    rmSync(join(dir, 'data', 'subagents.json.tmp'));
+    mkdirSync(join(dir, 'data', 'subagents.json.tmp'));
+    assert.throws(() => settings.setDefault('alpha', 'small'));
+    assert.equal(settings.defaultModel('alpha'), 'big');
+    assert.equal(new SubagentSettings(join(dir, 'data')).defaultModel('alpha'), 'big');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

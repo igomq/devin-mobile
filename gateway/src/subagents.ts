@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 type Json = any;
@@ -46,16 +46,20 @@ export class SubagentSettings {
     } catch {
       // Start empty on a damaged file.
     }
-    onCatalogChange = () => this.save();
+    onCatalogChange = () => {
+      try {
+        this.save();
+      } catch {
+        // Losing the model list only costs a reload; it must not break a session.
+      }
+    };
   }
 
   private save() {
-    try {
-      mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
-      writeFileSync(this.file, JSON.stringify({ defaults: this.defaults, models: Object.fromEntries(catalog) }, null, 2), { mode: 0o600 });
-    } catch {
-      // Losing the model list only costs a reload; it must not break a session.
-    }
+    mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
+    const tmp = this.file + '.tmp';
+    writeFileSync(tmp, JSON.stringify({ defaults: this.defaults, models: Object.fromEntries(catalog) }, null, 2), { mode: 0o600 });
+    renameSync(tmp, this.file);
   }
 
   defaultModel(harnessId: string): string | null {
@@ -63,9 +67,16 @@ export class SubagentSettings {
   }
 
   setDefault(harnessId: string, model: string | null) {
+    const before = this.defaults[harnessId];
     if (model) this.defaults[harnessId] = model;
     else delete this.defaults[harnessId];
-    this.save();
+    try {
+      this.save();
+    } catch (e) {
+      if (before) this.defaults[harnessId] = before;
+      else delete this.defaults[harnessId];
+      throw e;
+    }
   }
 
   list() {
