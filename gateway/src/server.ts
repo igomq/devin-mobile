@@ -4,7 +4,8 @@ import { homedir, hostname } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AuthStore, MIN_APP_VERSION, PROTOCOL_VERSION } from './auth.js';
@@ -38,6 +39,8 @@ interface Client {
   terms: Set<string>;
   alive: boolean;
 }
+
+const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
 
 export function createGatewayRegistry(config: Config) {
   const registry = new HarnessRegistry(config.dataDir);
@@ -373,6 +376,22 @@ export function createGatewayServer(input: Config) {
         const projects = listProjects(config.roots, paths)
           .filter((project) => !config.strictRoots || isPathWithinRoots(project.path, config.roots));
         return { projects, roots: config.roots };
+      }
+      case 'fs.image': {
+        // Agents link screenshots by local path (`![shot](/tmp/x.png)`), which the phone cannot open itself.
+        let raw = requireString(p.path, 'path').replace(/^file:\/\//, '');
+        try {
+          raw = decodeURIComponent(raw);
+        } catch {
+          /* keep it as written */
+        }
+        const base = typeof p.cwd === 'string' && p.cwd ? absCwd(p.cwd) : homedir();
+        const path = resolve(base, raw.startsWith('~') ? homedir() + raw.slice(1) : raw);
+        const mimeType = IMAGE_TYPES[extname(path).toLowerCase()];
+        if (!mimeType) throw new Error('Not an image file');
+        if (config.strictRoots) assertAllowedPath(path, sessionRoots, true);
+        if ((await stat(path)).size > 10 * 1024 * 1024) throw new Error('Image is over 10 MB');
+        return { mimeType, data: (await readFile(path)).toString('base64') };
       }
       case 'fs.listDirs': {
         const requested = typeof p.path === 'string' && p.path ? p.path : '~';

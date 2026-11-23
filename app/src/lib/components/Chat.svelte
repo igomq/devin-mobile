@@ -8,6 +8,7 @@
   import { markdown, duration } from '#lib/format.ts';
   import { isScratchPath, projectLabel, shortHarnessName } from '#lib/labels.ts';
   import { decodeText, isTextFile } from '#lib/textfile.ts';
+  import { localImages } from '#lib/localImages.ts';
   import AttachmentViewer, { type Viewed } from './AttachmentViewer.svelte';
   import { applyCommand, commandToken, matchCommands } from '#lib/commands.ts';
   import Icon from './Icon.svelte';
@@ -367,7 +368,7 @@
             </div>
           {:else if b.kind === 'assistant'}
             <div class="msg assistant">
-              <div class="md">{@html markdown(b.text)}</div>
+              <div class="md" use:localImages={{ cwd: view?.cwd, open: (src, name) => (viewing = { kind: 'image', src, name }) }}>{@html markdown(b.text)}</div>
               {#if endsTurn(i)}
                 <div class="msgbar">
                   <button class="copy press" onclick={(e) => copyReply(b.text, e)} aria-label="Copy reply"><Icon name="copy" size={15} /><Icon name="check" size={15} /></button>

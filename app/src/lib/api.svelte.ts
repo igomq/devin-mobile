@@ -389,6 +389,7 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
     return { id: r.session.sessionId, cwd: r.session.cwd };
   },
   'session.prompt': (p) => request('session.prompt', { ...sid(p), text: p.text, images: p.images ?? [], ...(p.files?.length ? { files: p.files } : {}) }),
+  'fs.image': (p) => request('fs.image', { path: p.path, ...(p.cwd ? { cwd: p.cwd } : {}) }),
   'session.cancel': (p) => request('session.cancel', sid(p)),
   'session.permission': (p) => request('session.permission', { ...sid(p), requestId: p.reqId, optionId: p.optionId }),
   'session.setMode': (p) => request('session.setMode', { ...sid(p), modeId: p.modeId }),
