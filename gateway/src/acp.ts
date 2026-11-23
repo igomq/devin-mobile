@@ -51,7 +51,7 @@ export class AcpConnection extends EventEmitter {
     super();
     this.label = opts.label ?? 'acp';
     this.cwd = opts.cwd;
-    this.clientInfo = opts.clientInfo ?? { name: 'uniharn', title: 'uniharn', version: '0.3.5' };
+    this.clientInfo = opts.clientInfo ?? { name: 'uniharn', title: 'uniharn', version: '0.4.0' };
     this.protocolVersion = opts.protocolVersion ?? 1;
   }
 
