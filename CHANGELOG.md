@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-23
+
 ### Added
 
 - Settings › Subagents: a default model per harness for subagent runs, kept apart from chat session models; the subagent form in session controls can pick a model per run.

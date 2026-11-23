@@ -1,6 +1,6 @@
 [package]
 name = "uniharn"
-version = "0.3.1"
+version = "0.3.5"
 description = "uniharn — open-source multi-harness coding agent platform"
 authors = ["GomQ"]
 license = "MIT"

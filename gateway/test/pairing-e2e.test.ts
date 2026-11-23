@@ -133,7 +133,7 @@ test('HTTP and WebSocket pairing use CLI codes, retain legacy hello fields, and 
   const gateway = await health.json();
   assert.equal(gateway.ok, true);
   assert.equal(gateway.name, 'uniharn');
-  assert.equal(gateway.version, '0.3.1');
+  assert.equal(gateway.version, '0.3.5');
   assert.match(String(gateway.build), /^\d+$/);
   assert.ok(!Number.isNaN(Date.parse(gateway.startedAt)));
   assert.equal(gateway.protocolVersion, PROTOCOL_VERSION);
