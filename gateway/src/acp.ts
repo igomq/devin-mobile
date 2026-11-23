@@ -66,6 +66,8 @@ export class AcpConnection extends EventEmitter {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.proc = proc;
+    // Writing to an agent that is exiting must not crash the gateway; its exit rejects pending requests.
+    proc.stdin.on('error', () => undefined);
     const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
     rl.on('line', (line) => this.onLine(line));
     proc.stderr.on('data', (buf: Buffer) => {

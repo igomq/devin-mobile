@@ -217,8 +217,10 @@ export class SessionManager extends EventEmitter {
       conn.on('notification', (m, p) => this.onNotification(m, p));
       conn.on('request', (id, m, p) => this.onRequest(conn, id, m, p));
       conn.on('exit', (code) => {
+        // Released while idle: its sessions were already unloaded, and some may now live on a newer agent.
+        if (this.idleStopped === conn) return;
         if (this.acp === conn) this.acp = null;
-        this.agentError = this.idleStopped === conn ? null : `${label} exited (${code}). ${conn.stderrTail.slice(-3).join(' | ')}`;
+        this.agentError = `${label} exited (${code}). ${conn.stderrTail.slice(-3).join(' | ')}`;
         for (const s of this.sessions.values()) {
           s.loaded = false;
           s.running = 0;
@@ -458,8 +460,14 @@ export class SessionManager extends EventEmitter {
     const busy = (s: Session) => s.running || s.permissions.size || Date.now() - s.updatedAt < idleMs || isWatched(s.sessionId);
     // Sessions ended with closeSession are already unloaded but may still be held, so an empty list also stops it.
     if (loaded.some(busy)) return 0;
+    // Detach first: a session opened while the old process is still exiting starts a new agent instead of writing to it.
     this.idleStopped = acp;
-    acp.stop();
+    this.acp = null;
+    for (const s of loaded) {
+      s.loaded = false;
+      this.emit('state', s.summary());
+    }
+    acp.stop({ idle: true });
     return Math.max(loaded.length, 1);
   }
 
