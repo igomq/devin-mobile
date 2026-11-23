@@ -7,6 +7,7 @@
   import { getStorageItem, removeStorageItem, setStorageItem } from '#lib/storage.ts';
   import { markdown, duration } from '#lib/format.ts';
   import { isScratchPath, projectLabel, shortHarnessName } from '#lib/labels.ts';
+  import { applyCommand, commandToken, matchCommands } from '#lib/commands.ts';
   import Icon from './Icon.svelte';
   import BackButton from './BackButton.svelte';
   import ToolCall from './ToolCall.svelte';
@@ -69,11 +70,7 @@
   });
   let busy = $derived(st.status === 'running' || st.status === 'awaiting_permission');
   let mode = $derived((st.modes ?? []).find((m) => m.id === st.mode));
-  let suggestions = $derived.by(() => {
-    if (!text.startsWith('/') || /\s/.test(text)) return [];
-    const q = text.slice(1).toLowerCase();
-    return (st.commands ?? []).filter((c) => c.name.toLowerCase().startsWith(q)).slice(0, 6);
-  });
+  let suggestions = $derived(matchCommands(st.commands ?? [], text));
 
   // Live elapsed time of the running turn, counted from the prompt that started it.
   let now = $state(Date.now());
@@ -392,7 +389,7 @@
       {#if suggestions.length}
         <div class="sugg glass">
           {#each suggestions as c}
-            <button onclick={() => ((text = '/' + c.name + ' '), input?.focus())}><b class="mono">/{c.name}</b><small>{c.description}</small></button>
+            <button onclick={() => ((text = applyCommand(text, c)), input?.focus())}><b class="mono">{commandToken(c)}</b><small>{c.description}</small></button>
           {/each}
         </div>
       {/if}
@@ -843,7 +840,9 @@
   }
   .sugg {
     border-radius: 20px;
-    overflow: hidden;
+    overflow-y: auto;
+    max-height: min(320px, 40vh);
+    overscroll-behavior: contain;
   }
   .sugg button {
     display: flex;

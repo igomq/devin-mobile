@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Type `/` or `$` in the chat box to pick a skill, plugin or command of the session's harness. Each is inserted with the prefix its harness expects (Codex skills as `$name`, others as `/name`). `$` also finds Codex skills mid-message, and the list scrolls instead of stopping at 6.
+
 ## [0.3.5] - 2026-11-23
 
 ### Added
