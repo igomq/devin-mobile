@@ -24,7 +24,7 @@
     const sid = sessionId;
     conn.generation;
     if (conn.status !== 'online') return;
-    rpc('orchestration.list', { id: sid }).catch(() => {});
+    rpc('orchestration.list', { sessionId: sid }).catch(() => {});
   });
 
   let now = $state(Date.now());

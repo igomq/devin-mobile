@@ -6,6 +6,7 @@
   import type { Item, TextItem, ToolItem } from '#lib/types.ts';
   import Icon from './Icon.svelte';
   import ToolCall from './ToolCall.svelte';
+  import SubagentsPanel from './SubagentsPanel.svelte';
 
   let { sessionId, cwd }: { sessionId: string; cwd: string | null } = $props();
 
@@ -61,6 +62,7 @@
 
 <div class="transcript scroller" bind:this={scroller}>
   <div class="tcol">
+    <SubagentsPanel sessionId={sessionId} />
     {#if !view?.ready}
       {#if view?.error}<div class="notice error">{view.error}</div>{:else}<div class="empty"><span class="spinner"></span></div>{/if}
     {:else if blocks.length === 0}
