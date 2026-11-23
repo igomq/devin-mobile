@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
-import { SessionManager, type Session, type SessionSummary } from '../sessions.js';
+import { SessionManager, type PromptFile, type Session, type SessionSummary } from '../sessions.js';
 import { authState, type CommandRunner, isAuthError, notInstalled, parseDevinAuthStatus, runCommand } from './auth.js';
 import type { AuthState, CreateSessionOptions, HarnessAdapter, HarnessCapabilities, HarnessConfig, HarnessInfo, Json } from './types.js';
 
@@ -147,8 +147,8 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
     }
   }
 
-  prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = []): Promise<void> {
-    return this.manager.prompt(sessionId, text, images);
+  prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = [], files: PromptFile[] = []): Promise<void> {
+    return this.manager.prompt(sessionId, text, images, files);
   }
 
   cancel(sessionId: string): Promise<void> {

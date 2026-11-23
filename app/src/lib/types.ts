@@ -352,6 +352,13 @@ export interface TextItem extends ItemBase {
 	/** The agent's id for this message, when it gives one. */
 	messageId?: string;
 	images?: { mimeType: string; data: string }[];
+	files?: AttachedFile[];
+}
+/** A text file attached to a prompt, decoded. */
+export interface AttachedFile {
+	name: string;
+	mimeType: string;
+	text: string;
 }
 export interface ToolItem extends ItemBase {
 	kind: 'tool';
@@ -580,6 +587,8 @@ export interface ConnInfo {
 	security?: GatewaySecurity | null;
 	/** Gateway-owned folder holding the scratch directories of sessions started without a project. */
 	scratchDir?: string | null;
+	/** The gateway forwards text files attached to a prompt (0.4.0+). */
+	textAttachments?: boolean;
 }
 
 export interface GatewaySecurity {

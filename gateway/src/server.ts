@@ -21,7 +21,7 @@ import { Orchestrator } from './orchestrator.js';
 import { SubagentSettings, sessionRefs } from './subagents.js';
 import { listDirectory, listProjects } from './projects.js';
 import { assertAllowedPath, isPathWithinRoots, RateLimiter, redactSecrets } from './security.js';
-import type { Session } from './sessions.js';
+import type { PromptFile, Session } from './sessions.js';
 import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
@@ -183,6 +183,18 @@ export function createGatewayServer(input: Config) {
     return dir;
   }
 
+  /** Text attachments from the app: at most 10, 1 MB of text each. */
+  function promptFiles(v: unknown): PromptFile[] {
+    if (!Array.isArray(v)) return [];
+    if (v.length > 10) throw new Error('At most 10 files can be attached.');
+    return v.map((f) => {
+      const text = f?.text;
+      if (typeof text !== 'string') throw new Error('files.text must be a string');
+      if (text.length > 1024 * 1024) throw new Error(`${String(f?.name)} is over 1 MB of text.`);
+      return { name: String(f?.name || 'file.txt').slice(0, 200), mimeType: String(f?.mimeType || 'text/plain'), text };
+    });
+  }
+
   function absCwd(v: unknown): string {
     const p = requireString(v, 'cwd');
     return assertAllowedPath(resolve(p.startsWith('~') ? homedir() + p.slice(1) : p), sessionRoots, config.strictRoots);
@@ -240,6 +252,7 @@ export function createGatewayServer(input: Config) {
           security,
           home: homedir(),
           scratchDir: scratchRoot,
+          textAttachments: true,
           agent: manager.agentStatus(),
           harnesses: registry.list(),
           workspaces: workspaces.list(),
@@ -450,7 +463,7 @@ export function createGatewayServer(input: Config) {
         return {};
       case 'session.prompt': {
         const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
-        await adapter.prompt(nativeId, String(p.text ?? ''), Array.isArray(p.images) ? p.images : []);
+        await adapter.prompt(nativeId, String(p.text ?? ''), Array.isArray(p.images) ? p.images : [], promptFiles(p.files));
         return {};
       }
       case 'session.cancel': {

@@ -112,7 +112,7 @@ export interface HarnessAdapter extends EventEmitter {
   listSessions(cwd?: string): Promise<SessionSummary[]>;
   createSession(cwd: string, opts?: CreateSessionOptions): Promise<Session>;
   ensureLoaded(sessionId: string, cwd?: string): Promise<Session>;
-  prompt(sessionId: string, text: string, images?: { mimeType: string; data: string }[]): Promise<void>;
+  prompt(sessionId: string, text: string, images?: { mimeType: string; data: string }[], files?: { name: string; mimeType: string; text: string }[]): Promise<void>;
   cancel(sessionId: string): Promise<void>;
   resolvePermission(sessionId: string, requestId: string, optionId: string | null): void;
   setConfigOption(sessionId: string, configId: string, value: Json): Promise<SessionSummary>;

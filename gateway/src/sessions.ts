@@ -21,6 +21,13 @@ export interface PendingPermission {
   at: number;
 }
 
+/** A text file attached to a prompt, already decoded by the app. */
+export interface PromptFile {
+  name: string;
+  mimeType: string;
+  text: string;
+}
+
 export interface SessionSummary {
   sessionId: string;
   harnessId: string;
@@ -317,19 +324,26 @@ export class SessionManager extends EventEmitter {
     return s;
   }
 
-  async prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = []) {
+  async prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = [], files: PromptFile[] = []) {
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
     const content: Json[] = [];
     if (text) content.push({ type: 'text', text });
     for (const img of images) content.push({ type: 'image', mimeType: img.mimeType, data: img.data });
+    // Agents without embedded-context support still get the file, as text after the message.
+    const embedded = !!acp.initResult?.agentCapabilities?.promptCapabilities?.embeddedContext;
+    for (const f of files) {
+      content.push(embedded
+        ? { type: 'resource', resource: { uri: 'attachment:///' + encodeURIComponent(f.name), mimeType: f.mimeType, text: f.text } }
+        : { type: 'text', text: `\n\n<attachment name="${f.name.replace(/"/g, "'")}">\n${f.text}\n</attachment>`, _file: f });
+    }
     const ev = s.push({ sessionUpdate: 'user_message_chunk', content: content[0] ?? { type: 'text', text: '' }, _local: true, _content: content });
     this.emit('event', s, ev);
     s.running++;
     s.lastError = null;
     this.emit('state', s.summary());
     acp
-      .request('session/prompt', { sessionId, prompt: content })
+      .request('session/prompt', { sessionId, prompt: content.map(({ _file: _f, ...c }) => c) })
       .then((r) => {
         s.lastStopReason = r?.stopReason ?? null;
         const u = r?.usage;

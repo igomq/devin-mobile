@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Tap an image in the chat to open it full screen. Text files (`.md`, `.txt`, logs, CSV, JSON, YAML) can be attached like images: the app detects their encoding (BOM, UTF-8, EUC-KR, Windows-1252), sends them to the agent as embedded resources, and shows them as chips that open the decoded text. Markdown is rendered.
+
 ## [0.3.5] - 2026-11-23
 
 ### Added

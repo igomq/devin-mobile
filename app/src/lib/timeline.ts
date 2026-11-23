@@ -1,6 +1,7 @@
 // Folds the gateway's raw ACP session updates into the flat item list the chat renders:
 // user / assistant / thought / tool / plan / notice.
-import type { Item, Json, PendingPermission, PermissionView, SessionState, SessionSummary, SessionView, ToolContent, ToolItem } from './types.ts';
+import { base64Bytes, decodeText } from './textfile.ts';
+import type { AttachedFile, Item, Json, PendingPermission, PermissionView, SessionState, SessionSummary, SessionView, ToolContent, ToolItem } from './types.ts';
 
 function textOf(content: Json): string {
   if (!content) return '';
@@ -11,6 +12,25 @@ function textOf(content: Json): string {
   if (content.type === 'resource') return content.resource?.text ?? '';
   if (content.type === 'image') return '[image]';
   return '';
+}
+
+/** A text file embedded in a prompt (ACP `resource`), or the gateway's inline fallback for one. */
+export function fileOf(c: Json): AttachedFile | null {
+  if (c?._file) return { name: String(c._file.name), mimeType: String(c._file.mimeType), text: String(c._file.text) };
+  if (c?.type !== 'resource' || !c.resource) return null;
+  const r = c.resource;
+  const mimeType = String(r.mimeType || 'text/plain');
+  let text: string | null = typeof r.text === 'string' ? r.text : null;
+  if (text === null && typeof r.blob === 'string' && /^text\/|json|yaml|markdown/.test(mimeType)) text = decodeText(base64Bytes(r.blob));
+  if (text === null) return null;
+  const raw = String(r.uri ?? '').split(/[\/]/).pop() || 'file';
+  let name = raw;
+  try {
+    name = decodeURIComponent(raw);
+  } catch {
+    /* keep the raw name */
+  }
+  return { name, mimeType, text };
 }
 
 function toolContent(list: Json): ToolContent[] | undefined {
@@ -79,12 +99,20 @@ export function applyUpdate(view: SessionView, u: Json, ts = Date.now()) {
       if (u._local) {
         const parts: Json[] = Array.isArray(u._content) ? u._content : [u.content];
         const images = parts.filter((c) => c?.type === 'image' && c.data).map((c) => ({ mimeType: String(c.mimeType), data: String(c.data) }));
-        add(view, { kind: 'user', text: textOf(parts.filter((c) => c?.type !== 'image')), ...(images.length ? { images } : {}) }, ts);
+        const files = parts.map(fileOf).filter((f): f is AttachedFile => !!f);
+        const text = textOf(parts.filter((c) => c?.type !== 'image' && !fileOf(c)));
+        add(view, { kind: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }, ts);
         break;
       }
       // Devin CLI tags each replayed message; without the tag, prompts sent back to back would merge into one bubble.
       const messageId = u._meta?.['cognition.ai/clientMessageId'] ?? u._meta?.['cognition.ai/eventId'];
       const last = view.items[view.items.length - 1];
+      const file = fileOf(u.content);
+      if (file) {
+        if (last?.kind === 'user' && (!messageId || last.messageId === messageId)) (last.files ??= []).push(file);
+        else add(view, { kind: 'user', text: '', messageId, files: [file] }, ts);
+        break;
+      }
       if (messageId && !(last?.kind === 'user' && last.messageId === messageId)) add(view, { kind: 'user', text: textOf(u.content), messageId }, ts);
       else appendText(view, 'user', textOf(u.content), ts);
       break;
