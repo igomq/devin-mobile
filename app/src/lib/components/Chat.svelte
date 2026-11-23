@@ -1,12 +1,15 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
-  import { views, conn, rpc, openSession, app, errorText } from '#lib/api.svelte.ts';
+  import { views, conn, rpc, leaveSession, openSession, app, errorText } from '#lib/api.svelte.ts';
   import { emptyState } from '#lib/timeline.ts';
-  import type { Item, TextItem, ToolItem } from '#lib/types.ts';
+  import type { AttachedFile, Item, TextItem, ToolItem } from '#lib/types.ts';
   import { go, toast, copyText } from '#lib/ui.svelte.ts';
   import { getStorageItem, removeStorageItem, setStorageItem } from '#lib/storage.ts';
   import { markdown, duration } from '#lib/format.ts';
   import { isScratchPath, projectLabel, shortHarnessName } from '#lib/labels.ts';
+  import { decodeText, isTextFile } from '#lib/textfile.ts';
+  import { fileUrlsToPaths, localImages } from '#lib/localImages.ts';
+  import AttachmentViewer, { type Viewed } from './AttachmentViewer.svelte';
   import { applyCommand, commandToken, matchCommands } from '#lib/commands.ts';
   import Icon from './Icon.svelte';
   import BackButton from './BackButton.svelte';
@@ -54,6 +57,12 @@
       const known = app.sessions.find((s) => s.id === sid);
       openSession(sid, known?.cwd).catch((e) => (loadError = errorText(e)));
     });
+  });
+
+  // Unsubscribe when the chat closes, so the gateway can let go of the session once it is idle.
+  $effect(() => {
+    const sid = id;
+    return () => untrack(() => leaveSession(sid));
   });
 
   // Fold runs of thinking and tool calls into one collapsible "steps" block between messages.
@@ -152,15 +161,36 @@
   const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
   const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
   let images = $state<Attachment[]>([]);
+  const MAX_FILES = 10;
+  const MAX_FILE_BYTES = 1024 * 1024;
+  let docs = $state<AttachedFile[]>([]);
+  let viewing = $state<Viewed | null>(null);
   let fileInput = $state<HTMLInputElement>();
   let dropping = $state(false);
   const rawSize = (b64: string) => Math.floor((b64.length * 3) / 4);
 
   /** Shared by the file picker, paste and drag-and-drop. */
   async function addFiles(files: File[]) {
-    let total = images.reduce((n, i) => n + rawSize(i.data), 0);
+    // Images and text share one budget so the whole prompt stays under the gateway's message limit.
+    const textBytes = (t: string) => new TextEncoder().encode(t).length;
+    let total = images.reduce((n, i) => n + rawSize(i.data), 0) + docs.reduce((n, d) => n + textBytes(d.text), 0);
     let skipped = 0;
+    let skippedDocs = 0;
     for (const f of files) {
+      if (!f.type.startsWith('image/') && isTextFile(f)) {
+        if (docs.length >= MAX_FILES || f.size > MAX_FILE_BYTES) {
+          skippedDocs++;
+          continue;
+        }
+        const text = decodeText(new Uint8Array(await f.arrayBuffer()));
+        if (total + textBytes(text) > MAX_TOTAL_BYTES) {
+          skippedDocs++;
+          continue;
+        }
+        total += textBytes(text);
+        docs.push({ name: f.name || 'Pasted text', mimeType: f.type || 'text/plain', text });
+        continue;
+      }
       if (images.length >= MAX_IMAGES || !f.type.startsWith('image/') || f.size > MAX_IMAGE_BYTES || total + f.size > MAX_TOTAL_BYTES) {
         skipped++;
         continue;
@@ -172,6 +202,7 @@
       images.push({ mimeType: f.type, data: btoa(bin), name: f.name || 'Pasted image', url: URL.createObjectURL(f) });
     }
     if (skipped) toast(`Up to ${MAX_IMAGES} images, 8 MB each.`, 'error');
+    if (skippedDocs) toast(`Up to ${MAX_FILES} text files, 1 MB each, 20 MB with images.`, 'error');
   }
 
   async function onfiles(e: Event) {
@@ -180,7 +211,7 @@
   }
 
   function onpaste(e: ClipboardEvent) {
-    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
+    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/') || isTextFile(f));
     if (!files.length || !view?.ready) return;
     // Keep normal text paste when the clipboard also carries text.
     if (!e.clipboardData?.getData('text/plain')) e.preventDefault();
@@ -209,22 +240,27 @@
 
   async function send() {
     const t = text.trim();
-    if ((!t && !images.length) || sending) return;
+    if ((!t && !images.length && !docs.length) || sending) return;
     sending = true;
     const keep = text;
     const keepImages = images;
+    const keepDocs = docs;
     images = [];
+    docs = [];
     text = '';
     await tick();
     autosize();
     pinned = true;
     try {
-      await rpc('session.prompt', { id, text: t, images: keepImages.map(({ mimeType, data }) => ({ mimeType, data })) });
+      // Older gateways drop `files`, so the text goes inline in the message instead.
+      const inline = conn.info?.textAttachments ? '' : keepDocs.map((f) => `\n\n<attachment name="${f.name}">\n${f.text}\n</attachment>`).join('');
+      await rpc('session.prompt', { id, text: t + inline, images: keepImages.map(({ mimeType, data }) => ({ mimeType, data })), ...(inline ? {} : { files: keepDocs }) });
       keepImages.forEach((i) => URL.revokeObjectURL(i.url));
       toBottom(true);
     } catch (e) {
       text = keep;
       images = keepImages;
+      docs = keepDocs;
       toast(errorText(e), 'error');
     } finally {
       sending = false;
@@ -273,6 +309,7 @@
 </script>
 
 <svelte:window onkeydown={windowKey} />
+<AttachmentViewer bind:item={viewing} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="screen" ondragover={ondragover} ondragleave={() => (dropping = false)} ondrop={ondrop}>
@@ -319,7 +356,17 @@
               <div class="bubble">
                 {#if b.images}
                   <div class="pics">
-                    {#each b.images as img}<img src={`data:${img.mimeType};base64,${img.data}`} alt="Attachment" />{/each}
+                    {#each b.images as img, n}
+                      {@const src = `data:${img.mimeType};base64,${img.data}`}
+                      <button class="pic" onclick={() => (viewing = { kind: 'image', src, name: `Image ${n + 1}` })} aria-label="View image"><img {src} alt="Attachment" /></button>
+                    {/each}
+                  </div>
+                {/if}
+                {#if b.files}
+                  <div class="files">
+                    {#each b.files as f}
+                      <button class="filechip" onclick={() => (viewing = { kind: 'text', ...f })}><Icon name="file" size={14} /><span>{f.name}</span></button>
+                    {/each}
                   </div>
                 {/if}
                 {b.text}
@@ -327,7 +374,7 @@
             </div>
           {:else if b.kind === 'assistant'}
             <div class="msg assistant">
-              <div class="md">{@html markdown(b.text)}</div>
+              <div class="md" use:localImages={{ cwd: view?.cwd, open: (src, name) => (viewing = { kind: 'image', src, name }) }}>{@html markdown(fileUrlsToPaths(b.text))}</div>
               {#if endsTurn(i)}
                 <div class="msgbar">
                   <button class="copy press" onclick={(e) => copyReply(b.text, e)} aria-label="Copy reply"><Icon name="copy" size={15} /><Icon name="check" size={15} /></button>
@@ -397,12 +444,18 @@
         </div>
       {/if}
       <div class="box glass" class:dropping>
-        {#if images.length}
+        {#if images.length || docs.length}
           <div class="thumbs">
             {#each images as img, i (img.url)}
               <span class="thumb">
-                <img src={img.url} alt={img.name} />
+                <button class="pic" onclick={() => (viewing = { kind: 'image', src: img.url, name: img.name })} aria-label="View image"><img src={img.url} alt={img.name} /></button>
                 <button aria-label="Remove image" onclick={() => removeImage(i)}><Icon name="x" size={12} /></button>
+              </span>
+            {/each}
+            {#each docs as f, i}
+              <span class="thumb">
+                <button class="filechip" onclick={() => (viewing = { kind: 'text', ...f })}><Icon name="file" size={14} /><span>{f.name}</span></button>
+                <button aria-label="Remove file" onclick={() => docs.splice(i, 1)}><Icon name="x" size={12} /></button>
               </span>
             {/each}
           </div>
@@ -414,21 +467,21 @@
           onkeydown={keydown}
           {onpaste}
           rows="1"
-          placeholder={dropping ? 'Drop images to attach' : busy ? `Add instructions while ${harnessLabel} works…` : `Message ${harnessLabel}`}
+          placeholder={dropping ? 'Drop images or text files to attach' : busy ? `Add instructions while ${harnessLabel} works…` : `Message ${harnessLabel}`}
           aria-label="Message"
           disabled={!view?.ready}
         ></textarea>
         <div class="bar">
-          <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image"><Icon name="plus" size={18} /></button>
-          <input bind:this={fileInput} type="file" accept="image/*" multiple hidden onchange={onfiles} />
+          <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image or text file"><Icon name="plus" size={18} /></button>
+          <input bind:this={fileInput} type="file" accept="image/*,text/*,.md,.markdown,.txt,.log,.csv,.json,.yaml,.yml,.toml" multiple hidden onchange={onfiles} />
           <button class="chip" onclick={() => (controls = true)}>{mode?.name ?? 'Mode'}</button>
           {#if model}<button class="chip model" onclick={() => (controls = true)} title={model}><span>{model}</span></button>{/if}
           <span class="grow"></span>
           {#if busy}
             <button class="round stop" onclick={stop} aria-label="Stop" title="Stop (Esc)"><Icon name="stop" size={15} /></button>
           {/if}
-          {#if !busy || text.trim() || images.length}
-            <button class="round send" onclick={send} disabled={(!text.trim() && !images.length) || sending || conn.status !== 'online'} aria-label="Send"><Icon name="send" size={18} /></button>
+          {#if !busy || text.trim() || images.length || docs.length}
+            <button class="round send" onclick={send} disabled={(!text.trim() && !images.length && !docs.length) || sending || conn.status !== 'online'} aria-label="Send"><Icon name="send" size={18} /></button>
           {/if}
         </div>
       </div>
@@ -767,7 +820,7 @@
     border-radius: 14px;
     box-shadow: 0 0 0 1px var(--line);
   }
-  .thumb button {
+  .thumb > button:last-child {
     position: absolute;
     top: -5px;
     right: -5px;
@@ -784,6 +837,39 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 6px;
+  }
+  .pic {
+    display: block;
+    padding: 0;
+    border-radius: 14px;
+  }
+  .files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .filechip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 220px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 12px;
+    background: var(--fill);
+    color: var(--text);
+    font-size: 13px;
+  }
+  .filechip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .thumb .filechip {
+    height: 58px;
+    border-radius: 14px;
+    box-shadow: 0 0 0 1px var(--line);
   }
   .pics img {
     max-width: 160px;

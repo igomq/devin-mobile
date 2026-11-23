@@ -31,8 +31,8 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   }
 });
 
-export function markdown(src: string | null | undefined) {
-  return DOMPurify.sanitize(marked.parse(src ?? '', { async: false }), { ADD_ATTR: ['data-copy'] });
+export function markdown(src: string | null | undefined, opts: { images?: boolean } = {}) {
+  return DOMPurify.sanitize(marked.parse(src ?? '', { async: false }), { ADD_ATTR: ['data-copy'], ...(opts.images === false ? { FORBID_TAGS: ['img'] } : {}) });
 }
 
 export function basename(p: string | null | undefined) {

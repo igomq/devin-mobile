@@ -4,7 +4,7 @@ import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import { fallbackBinDirs, mergePath } from '../shell-path.js';
-import { SessionManager, type Session, type SessionSummary } from '../sessions.js';
+import { SessionManager, type PromptFile, type Session, type SessionSummary } from '../sessions.js';
 import { authState, type CommandResult, type CommandRunner, isAuthError, notInstalled, runCommand } from './auth.js';
 import type { AuthState, CreateSessionOptions, HarnessAdapter, HarnessCapabilities, HarnessConfig, HarnessInfo, Json } from './types.js';
 
@@ -248,8 +248,8 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
       throw e;
     }
   }
-  prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = []): Promise<void> {
-    return this.manager.prompt(sessionId, text, images);
+  prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = [], files: PromptFile[] = []): Promise<void> {
+    return this.manager.prompt(sessionId, text, images, files);
   }
   cancel(sessionId: string): Promise<void> {
     return this.manager.cancel(sessionId);
@@ -263,6 +263,10 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
   setMode(sessionId: string, modeId: string): Promise<SessionSummary> {
     return this.manager.setMode(sessionId, modeId);
   }
+  releaseIdle(isWatched: (sessionId: string) => boolean, idleMs: number): Promise<number> {
+    return this.manager.releaseIdle(isWatched, idleMs);
+  }
+
   closeSession(sessionId: string): Promise<void> {
     return this.manager.closeSession(sessionId);
   }

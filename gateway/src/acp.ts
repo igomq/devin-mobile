@@ -59,6 +59,11 @@ export class AcpConnection extends EventEmitter {
     return this.proc !== null;
   }
 
+  /** True while any request (session/new, session/load, a prompt) is waiting for its answer. */
+  get busy() {
+    return this.pending.size > 0;
+  }
+
   async start(): Promise<Json> {
     const proc = spawn(this.bin, this.args, {
       env: this.env,
@@ -66,6 +71,8 @@ export class AcpConnection extends EventEmitter {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.proc = proc;
+    // Writing to an agent that is exiting must not crash the gateway; its exit rejects pending requests.
+    proc.stdin.on('error', () => undefined);
     const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
     rl.on('line', (line) => this.onLine(line));
     proc.stderr.on('data', (buf: Buffer) => {
@@ -94,8 +101,24 @@ export class AcpConnection extends EventEmitter {
     return this.initResult;
   }
 
-  stop() {
-    this.proc?.kill('SIGTERM');
+  /**
+   * Closing stdin lets the agent and its own children exit (codex-acp ignores SIGTERM while its codex child runs,
+   * and that child holds the conversation lock). Signals follow if it is still running.
+   */
+  stop(opts: { idle?: boolean } = {}) {
+    const proc = this.proc;
+    if (!proc) return;
+    proc.stdin?.end();
+    // On gateway shutdown there is no time to wait for timers.
+    if (!opts.idle) proc.kill('SIGTERM');
+    const term = setTimeout(() => proc.exitCode === null && proc.signalCode === null && proc.kill('SIGTERM'), 3000);
+    const kill = setTimeout(() => proc.exitCode === null && proc.signalCode === null && proc.kill('SIGKILL'), 8000);
+    term.unref();
+    kill.unref();
+    proc.once('exit', () => {
+      clearTimeout(term);
+      clearTimeout(kill);
+    });
   }
 
   request(method: string, params: Json, timeoutMs = 0): Promise<Json> {

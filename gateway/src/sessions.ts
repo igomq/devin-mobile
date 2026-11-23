@@ -23,6 +23,13 @@ export interface PendingPermission {
   at: number;
 }
 
+/** A text file attached to a prompt, already decoded by the app. */
+export interface PromptFile {
+  name: string;
+  mimeType: string;
+  text: string;
+}
+
 export interface SessionSummary {
   sessionId: string;
   harnessId: string;
@@ -166,6 +173,7 @@ export class SessionManager extends EventEmitter {
   sessions = new Map<string, Session>();
   private permCounter = 0;
   agentError: string | null = null;
+  private idleStopped: AcpConnection | null = null;
 
   constructor(
     private bin: string,
@@ -209,6 +217,8 @@ export class SessionManager extends EventEmitter {
       conn.on('notification', (m, p) => this.onNotification(m, p));
       conn.on('request', (id, m, p) => this.onRequest(conn, id, m, p));
       conn.on('exit', (code) => {
+        // Released while idle: its sessions were already unloaded, and some may now live on a newer agent.
+        if (this.idleStopped === conn) return;
         if (this.acp === conn) this.acp = null;
         this.agentError = `${label} exited (${code}). ${conn.stderrTail.slice(-3).join(' | ')}`;
         for (const s of this.sessions.values()) {
@@ -335,19 +345,26 @@ export class SessionManager extends EventEmitter {
     return s;
   }
 
-  async prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = []) {
+  async prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = [], files: PromptFile[] = []) {
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
     const content: Json[] = [];
     if (text) content.push({ type: 'text', text });
     for (const img of images) content.push({ type: 'image', mimeType: img.mimeType, data: img.data });
+    // Agents without embedded-context support still get the file, as text after the message.
+    const embedded = !!acp.initResult?.agentCapabilities?.promptCapabilities?.embeddedContext;
+    for (const f of files) {
+      content.push(embedded
+        ? { type: 'resource', resource: { uri: 'attachment:///' + encodeURIComponent(f.name), mimeType: f.mimeType, text: f.text } }
+        : { type: 'text', text: `\n\n<attachment name="${f.name.replace(/"/g, "'")}">\n${f.text}\n</attachment>`, _file: f });
+    }
     const ev = s.push({ sessionUpdate: 'user_message_chunk', content: content[0] ?? { type: 'text', text: '' }, _local: true, _content: content });
     this.emit('event', s, ev);
     s.running++;
     s.lastError = null;
     this.emit('state', s.summary());
     acp
-      .request('session/prompt', { sessionId, prompt: content })
+      .request('session/prompt', { sessionId, prompt: content.map(({ _file: _f, ...c }) => c) })
       .then((r) => {
         s.lastStopReason = r?.stopReason ?? null;
         const u = r?.usage;
@@ -428,6 +445,31 @@ export class SessionManager extends EventEmitter {
     if (s.modes) s.modes = { ...s.modes, currentModeId: modeId };
     this.emit('state', s.summary());
     return s.summary();
+  }
+
+  /**
+   * Stops the agent once every session it holds is idle and nobody is watching, so the harness's own app can open them.
+   * Codex keeps its thread-writer lock even after `session/close`; only its process exiting lets go.
+   * The next open starts the agent again and reloads the session.
+   */
+  async releaseIdle(isWatched: (sessionId: string) => boolean, idleMs: number): Promise<number> {
+    const acp = this.acp;
+    // Without session/load a released conversation could not be reopened.
+    // A request in flight (a session being created or loaded) would land on the retired agent.
+    if (!acp?.alive || !acp.initResult?.agentCapabilities?.loadSession || this.loading.size || acp.busy) return 0;
+    const loaded = [...this.sessions.values()].filter((s) => s.loaded);
+    const busy = (s: Session) => s.running || s.permissions.size || Date.now() - s.updatedAt < idleMs || isWatched(s.sessionId);
+    // Sessions ended with closeSession are already unloaded but may still be held, so an empty list also stops it.
+    if (loaded.some(busy)) return 0;
+    // Detach first: a session opened while the old process is still exiting starts a new agent instead of writing to it.
+    this.idleStopped = acp;
+    this.acp = null;
+    for (const s of loaded) {
+      s.loaded = false;
+      this.emit('state', s.summary());
+    }
+    acp.stop({ idle: true });
+    return Math.max(loaded.length, 1);
   }
 
   async closeSession(sessionId: string) {

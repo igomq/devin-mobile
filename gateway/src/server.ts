@@ -4,7 +4,8 @@ import { homedir, hostname } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { AuthStore, MIN_APP_VERSION, PROTOCOL_VERSION } from './auth.js';
@@ -21,7 +22,7 @@ import { Orchestrator } from './orchestrator.js';
 import { SubagentSettings, sessionRefs } from './subagents.js';
 import { listDirectory, listProjects } from './projects.js';
 import { assertAllowedPath, isPathWithinRoots, RateLimiter, redactSecrets } from './security.js';
-import { folderPolicy, recreatedFolders, type Session } from './sessions.js';
+import { folderPolicy, recreatedFolders, type PromptFile, type Session } from './sessions.js';
 import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
@@ -38,6 +39,8 @@ interface Client {
   terms: Set<string>;
   alive: boolean;
 }
+
+const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' };
 
 export function createGatewayRegistry(config: Config) {
   const registry = new HarnessRegistry(config.dataDir);
@@ -184,6 +187,18 @@ export function createGatewayServer(input: Config) {
     return dir;
   }
 
+  /** Text attachments from the app: at most 10, 1 MB of text each. */
+  function promptFiles(v: unknown): PromptFile[] {
+    if (!Array.isArray(v)) return [];
+    if (v.length > 10) throw new Error('At most 10 files can be attached.');
+    return v.map((f) => {
+      const text = f?.text;
+      if (typeof text !== 'string') throw new Error('files.text must be a string');
+      if (text.length > 1024 * 1024) throw new Error(`${String(f?.name)} is over 1 MB of text.`);
+      return { name: String(f?.name || 'file.txt').slice(0, 200), mimeType: String(f?.mimeType || 'text/plain'), text };
+    });
+  }
+
   function absCwd(v: unknown): string {
     const p = requireString(v, 'cwd');
     return assertAllowedPath(resolve(p.startsWith('~') ? homedir() + p.slice(1) : p), sessionRoots, config.strictRoots);
@@ -242,6 +257,7 @@ export function createGatewayServer(input: Config) {
           security,
           home: homedir(),
           scratchDir: scratchRoot,
+          textAttachments: true,
           agent: manager.agentStatus(),
           harnesses: registry.list(),
           workspaces: workspaces.list(),
@@ -361,6 +377,22 @@ export function createGatewayServer(input: Config) {
           .filter((project) => !config.strictRoots || isPathWithinRoots(project.path, config.roots));
         return { projects, roots: config.roots };
       }
+      case 'fs.image': {
+        // Agents link screenshots by local path (`![shot](/tmp/x.png)`), which the phone cannot open itself.
+        let raw = requireString(p.path, 'path').replace(/^file:\/\//, '');
+        try {
+          raw = decodeURIComponent(raw);
+        } catch {
+          /* keep it as written */
+        }
+        const base = typeof p.cwd === 'string' && p.cwd ? absCwd(p.cwd) : homedir();
+        const path = resolve(base, raw.startsWith('~') ? homedir() + raw.slice(1) : raw);
+        const mimeType = IMAGE_TYPES[extname(path).toLowerCase()];
+        if (!mimeType) throw new Error('Not an image file');
+        if (config.strictRoots) assertAllowedPath(path, sessionRoots, true);
+        if ((await stat(path)).size > 10 * 1024 * 1024) throw new Error('Image is over 10 MB');
+        return { mimeType, data: (await readFile(path)).toString('base64') };
+      }
       case 'fs.listDirs': {
         const requested = typeof p.path === 'string' && p.path ? p.path : '~';
         const home = requested === '~' || resolve(requested) === homedir();
@@ -452,7 +484,7 @@ export function createGatewayServer(input: Config) {
         return {};
       case 'session.prompt': {
         const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
-        await adapter.prompt(nativeId, String(p.text ?? ''), Array.isArray(p.images) ? p.images : []);
+        await adapter.prompt(nativeId, String(p.text ?? ''), Array.isArray(p.images) ? p.images : [], promptFiles(p.files));
         return {};
       }
       case 'session.cancel': {
@@ -657,12 +689,14 @@ export function createGatewayServer(input: Config) {
   });
 
   let heartbeat: NodeJS.Timeout | undefined;
+  let idleRelease: NodeJS.Timeout | undefined;
   let revocationPoll: NodeJS.Timeout | undefined;
   let starting = false;
   let closing: Promise<void> | undefined;
   function close(): Promise<void> {
     closing ??= (async () => {
       clearInterval(heartbeat);
+      clearInterval(idleRelease);
       clearInterval(revocationPoll);
       for (const client of clients) client.ws.terminate();
       for (const term of terminals.list()) terminals.close(term.termId);
@@ -706,6 +740,15 @@ export function createGatewayServer(input: Config) {
     }
     if (security.isRoot) console.warn('[uniharn] Gateway is running as root. Run it as a non-root user.');
     if (security.publicBindWarning) console.warn('[uniharn] Gateway is listening on all interfaces. Bind to loopback or your Tailscale address.');
+    const idleReleaseMs = Number(process.env.UNIHARN_IDLE_RELEASE_MS ?? 120_000);
+    if (idleReleaseMs > 0) {
+      idleRelease = setInterval(() => {
+        for (const info of registry.list()) {
+          const watched = (id: string) => [...clients].some((c) => c.subs.has(formatScopedSessionId(info.id, id)));
+          registry.get(info.id)?.releaseIdle?.(watched, idleReleaseMs).catch(() => undefined);
+        }
+      }, Math.max(10_000, Math.min(idleReleaseMs, 60_000))).unref();
+    }
     heartbeat = setInterval(() => {
       for (const client of clients) {
         if (!client.alive) client.ws.terminate();
