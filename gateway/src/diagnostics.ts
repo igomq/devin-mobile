@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createConnection, isIP } from 'node:net';
 import { homedir, hostname, networkInterfaces } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -83,6 +83,20 @@ export function checkGatewayPorts(config: Config) {
     socket.once('error', () => finish(false));
     socket.once('timeout', () => finish(false));
   })));
+}
+
+/** URL of a gateway with this ID already listening on one of the configured local addresses, if any. */
+export async function findRunningGateway(config: Config, gatewayId: string): Promise<string | null> {
+  for (const host of config.hosts.map(probeHost)) {
+    const url = gatewayUrl(host, config.port);
+    try {
+      const response = await fetch(`${url}/healthz`, { redirect: 'error', signal: AbortSignal.timeout(1500) });
+      if (response.ok && (await response.json()).gatewayId === gatewayId) return url;
+    } catch {
+      // Nothing listening there.
+    }
+  }
+  return null;
 }
 
 interface GatewayAuthCheck {
@@ -200,6 +214,33 @@ export function installSystemdService(opts: SystemdOptions): string {
   systemctl('enable', SERVICE_NAME);
   systemctl('restart', SERVICE_NAME);
   return file;
+}
+
+/** Inverse of `renderSystemdUnit`'s quoting: the ExecStart words and the EnvironmentFile path. */
+export function parseSystemdUnit(unit: string): { command: string[]; environmentFile: string | null } {
+  const unescape = (value: string) => value.replace(/\\(.)|%%|\$\$/g, (match, escaped) => escaped ?? match[0]);
+  const exec = /^ExecStart=(.*)$/m.exec(unit)?.[1] ?? '';
+  const command = [...exec.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => unescape(match[1]));
+  const environmentFile = /^EnvironmentFile=(.*)$/m.exec(unit)?.[1];
+  return { command, environmentFile: environmentFile ? unescape(environmentFile) : null };
+}
+
+/** The master token from a `service.env` written by `uniharn service install`. */
+export function parseServiceEnv(text: string): Record<string, string> {
+  const match = /^UNIHARN_TOKEN="((?:[^"\\]|\\.)*)"$/m.exec(text);
+  return match ? { UNIHARN_TOKEN: match[1].replace(/\\(.)/g, '$1') } : {};
+}
+
+/** Arguments and token environment of the installed systemd service, or null when there is none. */
+export function readServiceLaunch(): { argv: string[]; env: Record<string, string> } | null {
+  try {
+    const { command, environmentFile } = parseSystemdUnit(readFileSync(userUnitPath(), 'utf8'));
+    if (command.length < 2) return null;
+    const env = environmentFile ? parseServiceEnv(readFileSync(environmentFile, 'utf8')) : {};
+    return { argv: command, env };
+  } catch {
+    return null;
+  }
 }
 
 export function uninstallSystemdService(): boolean {

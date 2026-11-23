@@ -35,11 +35,16 @@ The gateway also serves the built web UI from `../app/build` and answers `GET /h
 
 The master token is generated on first start and stored in `~/.local/share/uniharn/token` with mode 0600 (automatically migrating from `~/.local/share/devin-mobile/token` if present). It still works for existing setups, but new devices should pair instead.
 
-`scripts/install-gateway.sh [--systemd]` installs the `uniharn` command into `~/.local/bin`, runs `uniharn doctor`, optionally installs a systemd user service, and prints the pairing steps.
+`scripts/install-gateway.sh [--systemd]` builds the web UI and the gateway, installs the `uniharn` command into `~/.local/bin`, installs the Codex and Claude Code ACP adapters when those CLIs are present, runs `uniharn doctor`, optionally installs a systemd user service, and prints the pairing steps.
+
+Run in a terminal, `uniharn` starts the gateway with a console panel: the gateway URL, paired-device count, Enter to show or hide the pairing QR, `t` to show or hide the master token, `q` to stop. If the gateway already runs (for example as the systemd service), `uniharn` attaches the panel to it instead of starting a second one. `--no-console` (or a non-TTY stdin/stdout, as under systemd) runs without it.
+
+Harness lookup uses `PATH` plus the login shell's `PATH` and common install directories (`~/.local/bin`, `~/.local/opt/node/bin`, `~/.npm-global/bin`, nvm, Bun, Volta, `/usr/local/bin`); `UNIHARN_LOGIN_SHELL_PATH=0` skips the login shell.
 
 ## Pairing and devices
 
 ```bash
+uniharn                      # gateway + console: Enter toggles the pairing QR, t the master token
 uniharn pair                 # one-time code + terminal QR, valid 5 minutes (--ttl 30..900, --url, --json)
 uniharn devices list         # paired devices
 uniharn devices revoke <id>  # revoke one device; it is disconnected immediately

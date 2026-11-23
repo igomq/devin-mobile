@@ -53,7 +53,7 @@ export function pushUnavailableReason(): string | null {
   switch (notif.push.state) {
     case 'unsupported':
       return isTauri
-        ? 'The native app webview has no Web Push. Native push (FCM/APNs) needs external setup; see below. Open the gateway in a browser or installed PWA for background push.'
+        ? 'The native app webview has no Web Push. Native push (FCM/APNs) needs external setup. Open the gateway in a browser or installed PWA for background push.'
         : 'This browser does not support Web Push. On iPhone/iPad, add uniharn to the Home Screen (iOS 16.4+) and open it from there.';
     case 'insecure':
       return 'Web Push needs HTTPS. Serve the gateway over HTTPS, for example `tailscale serve --bg 8787`, then open its https://<machine>.ts.net address (localhost also works).';

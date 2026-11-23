@@ -4,12 +4,14 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AuthStore } from './auth.js';
 import { type Config, getArg, loadConfig } from './config.js';
+import { startConsole } from './console.js';
 import {
-  checkGatewayAuth, checkGatewayPorts, collectDiagnostics, gatewayUrl, installSystemdService,
+  VERSION, checkGatewayAuth, checkGatewayPorts, collectDiagnostics, findRunningGateway, gatewayUrl, installSystemdService, readServiceLaunch,
   suggestedUrls, systemdServiceStatus, uninstallSystemdService,
 } from './diagnostics.js';
 import { redactSecrets } from './security.js';
 import { createGatewayRegistry, createGatewayServer } from './server.js';
+import { gatewayPath } from './shell-path.js';
 
 function printJson(value: object): void {
   console.log(JSON.stringify(value, null, 2));
@@ -93,8 +95,44 @@ function manageService(action: string | undefined, config: Config, argv: string[
   }
 }
 
+/** Connection details and the Enter-toggled pairing QR, for `uniharn` run in a terminal. */
+function openConsole(config: Config, attached: boolean, onQuit: () => void): void {
+  const authStore = new AuthStore(config.dataDir, config.token);
+  const pairedDevices = () => authStore.listDevices().filter((device) => device.revokedAt === null).length;
+  const urls = [...new Set([config.publicUrl, ...suggestedUrls(config)].filter((url): url is string => !!url))];
+  startConsole({
+    info: () => ({ version: VERSION, gatewayId: authStore.gatewayId, urls, pairedDevices: pairedDevices(), attached }),
+    createPairing: () => authStore.createPairingCode({ url: urls[0] }),
+    token: config.token,
+    showPairing: pairedDevices() === 0,
+    onQuit,
+  });
+}
+
+function wantsConsole(argv: string[]): boolean {
+  return !!process.stdin.isTTY && !!process.stdout.isTTY && !argv.includes('--no-console') && !argv.includes('--print-token');
+}
+
 async function main(argv: string[], config: Config): Promise<void> {
-  const command = argv[2]?.startsWith('-') ? 'gateway' : argv[2] ?? 'gateway';
+  const implicit = !argv[2] || argv[2].startsWith('-');
+  const command = implicit ? 'gateway' : argv[2];
+  if (command === 'gateway' && implicit && wantsConsole(argv)) {
+    // A gateway already runs (e.g. the systemd service): show its pairing console instead of starting another.
+    // The service may use its own port, data dir, public URL and token, so try its settings first.
+    // Explicit flags ask for a specific gateway, not whatever the service runs.
+    const service = argv.length === 2 ? readServiceLaunch() : null;
+    const candidates = [config];
+    if (service) {
+      const { UNIHARN_TOKEN: _token, DEVIN_MOBILE_TOKEN: _legacyToken, ...env } = process.env;
+      candidates.unshift(loadConfig({ argv: service.argv, env: { ...env, ...service.env } }));
+    }
+    for (const candidate of candidates) {
+      if (await findRunningGateway(candidate, new AuthStore(candidate.dataDir, candidate.token).gatewayId)) {
+        openConsole(candidate, true, () => process.exit(0));
+        return;
+      }
+    }
+  }
   if (command === 'gateway') {
     // Harnesses, terminals and tasks inherit process.env; keep the master token out of them.
     delete process.env.UNIHARN_TOKEN;
@@ -108,11 +146,11 @@ async function main(argv: string[], config: Config): Promise<void> {
     safeLog(`[uniharn] static UI: ${config.staticDir ?? '(none)'}`);
     safeLog('[uniharn] pair a device with: uniharn pair');
     if (argv.includes('--print-token')) console.log(`[uniharn] token: ${config.token}`);
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-      process.once(signal, () => {
-        void gateway.notifyShutdown(`Stopped by ${signal}.`).finally(() => gateway.close().finally(() => process.exit(0)));
-      });
-    }
+    const shutdown = (reason: string) => {
+      void gateway.notifyShutdown(reason).finally(() => gateway.close().finally(() => process.exit(0)));
+    };
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => shutdown(`Stopped by ${signal}.`));
+    if (wantsConsole(argv)) openConsole(config, false, () => shutdown('Stopped from the console.'));
     return;
   }
 
@@ -169,12 +207,14 @@ async function main(argv: string[], config: Config): Promise<void> {
       }
       break;
     default:
-      throw new Error('Usage: uniharn gateway | pair | doctor | status | devices | service');
+      throw new Error('Usage: uniharn [gateway] | pair | doctor | status | devices | service');
   }
 }
 
 let config: Config | undefined;
 try {
+  // Services, tmux and non-login shells often miss where agent CLIs and ACP adapters are installed.
+  process.env.PATH = gatewayPath();
   config = loadConfig();
   await main(process.argv, config);
 } catch (error) {
