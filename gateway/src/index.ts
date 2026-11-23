@@ -6,7 +6,7 @@ import { AuthStore } from './auth.js';
 import { type Config, getArg, loadConfig } from './config.js';
 import { startConsole } from './console.js';
 import {
-  VERSION, checkGatewayAuth, checkGatewayPorts, collectDiagnostics, findRunningGateway, gatewayUrl, installSystemdService, readServiceLaunch,
+  VERSION, checkGatewayAuth, checkGatewayPorts, collectDiagnostics, findRunningGateway, gatewayUrl, restartHint, runningGateway, installSystemdService, readServiceLaunch,
   suggestedUrls, systemdServiceStatus, uninstallSystemdService,
 } from './diagnostics.js';
 import { redactSecrets } from './security.js';
@@ -19,14 +19,16 @@ function printJson(value: object): void {
 
 async function doctor(config: Config, authStore: AuthStore, json: boolean): Promise<void> {
   const { registry } = createGatewayRegistry(config);
-  const [, ports, { gatewayAuth, activeDeviceCount }] = await Promise.all([
+  const [, ports, { gatewayAuth, activeDeviceCount }, running] = await Promise.all([
     registry.probeAll(), checkGatewayPorts(config), checkGatewayAuth(config, authStore.gatewayId),
+    runningGateway(config, authStore.gatewayId),
   ]);
   const report = {
     gatewayId: authStore.gatewayId,
     ...collectDiagnostics(config, registry, authStore, activeDeviceCount),
     masterTokenConfigured: Boolean(config.token),
     gatewayAuth,
+    runningGateway: running,
     portReachability: ports,
   };
   if (json) {
@@ -38,6 +40,11 @@ async function doctor(config: Config, authStore: AuthStore, json: boolean): Prom
   console.log(report.isRoot ? 'User: root (run the gateway as a non-root user)' : 'User: non-root');
   if (report.publicBindWarning) console.log('Bind warning: configured to listen on all interfaces');
   console.log(`Gateway authentication: ${report.gatewayAuth} (master token ${report.masterTokenConfigured ? 'configured' : 'missing'})`);
+  if (!running) console.log('Running gateway: none found');
+  else if (running.outdated) {
+    console.log(`Running gateway: ${running.version ?? 'unknown version'}${running.startedAt ? ` started ${running.startedAt}` : ''} · OUTDATED, it still runs code from before this ${report.version} install`);
+    console.log(`  The app talks to that process, so its harness and login state can differ from this report. Restart it: ${restartHint()}`);
+  } else console.log(`Running gateway: ${running.version} · up to date${running.startedAt ? ` (started ${running.startedAt})` : ''}`);
   console.log(`Tailscale IP: ${report.tailscaleIp ?? 'unavailable'}`);
   console.log(`MagicDNS: ${report.magicDns ?? 'unavailable'}`);
   for (const port of ports) console.log(`${gatewayUrl(port.host, report.port)} · ${port.reachable ? 'reachable' : 'unreachable'}`);
@@ -49,6 +56,7 @@ async function doctor(config: Config, authStore: AuthStore, json: boolean): Prom
   }
   console.log(`Devices: ${report.pairedDeviceCount} paired · ${report.activeDeviceCount} connected`);
   if (report.suggestedUrls.length) console.log(`Gateway URLs: ${report.suggestedUrls.join(', ')}`);
+  console.log(`Harness and login state above were checked by this command; the running gateway checks its own.`);
   console.log(report.updateHint);
 }
 

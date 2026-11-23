@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { app, conn, errorText, rpc } from '#lib/api.svelte.ts';
   import { copyText, go, toast } from '#lib/ui.svelte.ts';
-  import { AUTH_LABEL, authOf, usageLine } from '#lib/accounts.ts';
+  import { AUTH_LABEL, authOf, outdatedGateway, usageLine } from '#lib/accounts.ts';
   import { USAGE_URL } from '#lib/usage.ts';
   import type { HarnessAccounts } from '#lib/types.ts';
   import BackButton from './BackButton.svelte';
@@ -45,7 +45,8 @@
   <main class="scroller">
     <div class="column">
       <p class="muted intro">Logins are checked with each CLI on the gateway host. Credentials stay there, never on this device.</p>
-      {#if loadError}<p class="muted detail bad">{loadError}</p>{/if}
+      {#if outdatedGateway(conn.info, loadError)}<p class="muted detail bad">{outdatedGateway(conn.info, loadError)}</p>
+      {:else if loadError}<p class="muted detail bad">{loadError}</p>{/if}
 
       {#each harnesses as h (h.id)}
         {@const auth = authOf(h)}

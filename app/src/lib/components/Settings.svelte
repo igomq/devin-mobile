@@ -47,6 +47,7 @@
   let versionWarning = $derived.by(() => {
     const info = conn.info;
     if (!info) return null;
+    if (info.outdated) return 'The gateway on the VM was updated but still runs the old version. Restart it to load the update.';
     if ((info.protocolVersion ?? 1) < 2) return 'This gateway is older than the app. Update it to use pairing codes and device management.';
     if (info.minAppVersion && compareVersions(__APP_VERSION__, info.minAppVersion) < 0) return `This gateway needs app version ${info.minAppVersion} or newer. Update the app.`;
     return null;

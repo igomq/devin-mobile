@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-23
+
+### Fixed
+
+- The app and `uniharn doctor` could disagree on harness logins after an update: the gateway process kept running the code it started with (the app showed `Unknown request: harnesses.accounts` and Codex/Claude Code as not installed) while `doctor` checked with the new code. The gateway now reports its build and start time in `/healthz` and an `outdated` flag in `hello`; `doctor` prints the running gateway's version and tells you to restart it when it is outdated, and the app shows the same warning in Settings and Harness accounts.
+
 ### Added
 
 - Harness login state checked with each CLI's own status command (`devin auth status`, `codex login status`, `claude auth status`, `opencode auth list`, `kiro-cli whoami`) and kept apart from the ACP process state. States are `authenticated`, `unauthenticated`, `expired`, `not_installed`, `error` and `unknown`; a running agent or an unverified API key is never reported as logged in, and an agent's "Authentication required" error marks the harness logged out until the next check. `uniharn doctor` prints the process and login state of each harness, with the reason when it is not logged in.

@@ -1,16 +1,42 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createConnection, isIP } from 'node:net';
 import { homedir, hostname, networkInterfaces } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 import { type AuthStore, MIN_APP_VERSION, PROTOCOL_VERSION, validatePairingUrl } from './auth.js';
 import type { Config } from './config.js';
 import type { HarnessRegistry } from './harnesses/registry.js';
 import { isPublicBindHost, isRunningAsRoot, redactSecrets } from './security.js';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.3.1';
+
+/** Changes whenever the gateway code on disk is rebuilt or reinstalled. */
+export function installedBuild(): string | null {
+  try {
+    return String(Math.trunc(statSync(fileURLToPath(import.meta.url)).mtimeMs));
+  } catch {
+    return null;
+  }
+}
+
+/** Build of the code this process loaded at startup. */
+export const BUILD = installedBuild();
+
+export interface RunningGateway {
+  url: string;
+  version: string | null;
+  build: string | null;
+  startedAt: string | null;
+  outdated: boolean;
+}
+
+/** A running gateway is outdated when it loaded other code than what is installed now (gateways before 0.3.1 report no build). */
+export function isOutdated(running: { version?: unknown; build?: unknown }, installed = installedBuild()): boolean {
+  return running.version !== VERSION || (installed !== null && running.build !== installed);
+}
 
 export function gatewaySecurity(config: Config) {
   return {
@@ -85,18 +111,37 @@ export function checkGatewayPorts(config: Config) {
   })));
 }
 
-/** URL of a gateway with this ID already listening on one of the configured local addresses, if any. */
-export async function findRunningGateway(config: Config, gatewayId: string): Promise<string | null> {
+/** The gateway with this ID already listening on one of the configured local addresses, if any. */
+export async function runningGateway(config: Config, gatewayId: string): Promise<RunningGateway | null> {
   for (const host of config.hosts.map(probeHost)) {
     const url = gatewayUrl(host, config.port);
     try {
       const response = await fetch(`${url}/healthz`, { redirect: 'error', signal: AbortSignal.timeout(1500) });
-      if (response.ok && (await response.json()).gatewayId === gatewayId) return url;
+      const body = response.ok ? await response.json() : null;
+      if (body?.gatewayId !== gatewayId) continue;
+      const str = (v: unknown) => (typeof v === 'string' ? v : null);
+      return { url, version: str(body.version), build: str(body.build), startedAt: str(body.startedAt), outdated: isOutdated(body) };
     } catch {
       // Nothing listening there.
     }
   }
   return null;
+}
+
+/** URL of a gateway with this ID already listening on one of the configured local addresses, if any. */
+export async function findRunningGateway(config: Config, gatewayId: string): Promise<string | null> {
+  return (await runningGateway(config, gatewayId))?.url ?? null;
+}
+
+/** How to restart the gateway so it loads the installed code. */
+export function restartHint(): string {
+  let service = false;
+  try {
+    service = existsSync(userUnitPath());
+  } catch {
+    // No systemd user session.
+  }
+  return service ? `systemctl --user restart ${SERVICE_NAME}` : 'quit the running uniharn (q or Ctrl-C) and start it again';
 }
 
 interface GatewayAuthCheck {

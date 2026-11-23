@@ -84,7 +84,7 @@ export async function handleMcpMessage(msg: Json, call: GatewayCall, defaultCwd 
         return reply({
           protocolVersion: msg.params?.protocolVersion ?? '2025-06-18',
           capabilities: { tools: {} },
-          serverInfo: { name: 'uniharn', version: '0.3.0' },
+          serverInfo: { name: 'uniharn', version: '0.3.1' },
         });
       case 'ping':
         return reply({});
