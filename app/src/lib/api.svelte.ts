@@ -228,7 +228,8 @@ export function connect(force = false) {
         deviceId: hello.deviceId ?? null,
         deviceName: hello.deviceName ?? null,
         authKind: hello.authKind ?? null,
-        security: hello.security ?? null
+        security: hello.security ?? null,
+        scratchDir: hello.scratchDir ?? null
       };
       app.sessions = (hello.sessions ?? []).map(rowKeepingActivity);
       app.harnesses = hello.harnesses ?? [];
@@ -382,7 +383,7 @@ function gitStatusView(r: GitStatus): GitStatusView {
 // request types and reshapes the answer.
 const calls: Record<string, (p: Json) => Promise<Json>> = {
   'sessions.create': async (p) => {
-    const r = await request('session.create', { cwd: p.cwd, ...(p.harnessId && p.harnessId !== 'devin' ? { harnessId: p.harnessId } : {}) });
+    const r = await request('session.create', { ...(p.noProject ? { noProject: true } : { cwd: p.cwd }), ...(p.harnessId && p.harnessId !== 'devin' ? { harnessId: p.harnessId } : {}) });
     upsert(r.session);
     return { id: r.session.sessionId, cwd: r.session.cwd };
   },

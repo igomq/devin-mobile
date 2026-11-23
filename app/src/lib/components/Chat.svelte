@@ -5,7 +5,8 @@
   import type { Item, TextItem, ToolItem } from '#lib/types.ts';
   import { go, toast, copyText } from '#lib/ui.svelte.ts';
   import { getStorageItem, removeStorageItem, setStorageItem } from '#lib/storage.ts';
-  import { markdown, basename, duration } from '#lib/format.ts';
+  import { markdown, duration } from '#lib/format.ts';
+  import { isScratchPath, projectLabel, shortHarnessName } from '#lib/labels.ts';
   import Icon from './Icon.svelte';
   import BackButton from './BackButton.svelte';
   import ToolCall from './ToolCall.svelte';
@@ -33,6 +34,7 @@
     const hid = known?.harnessId ?? (id.includes(':') ? id.slice(0, id.indexOf(':')) : 'devin');
     return app.harnesses.find((h) => h.id === hid)?.name ?? (hid === 'devin' ? 'Devin' : hid);
   });
+  let harnessShort = $derived(shortHarnessName(harnessLabel));
   let sending = $state(false);
   let controls = $state(false);
   let scroller = $state<HTMLElement>();
@@ -283,7 +285,7 @@
       <b>{st.title || 'New session'}</b>
       <small>
         <span class="dot {st.status}"></span>
-        {#if conn.status !== 'online'}Reconnecting…{:else if st.status === 'running'}Working {elapsed}{:else if st.status === 'awaiting_permission'}Needs approval{:else}{basename(view?.cwd)}{/if}
+        {#if conn.status !== 'online'}Reconnecting…{:else if st.status === 'running'}Working {elapsed}{:else if st.status === 'awaiting_permission'}Needs approval{:else}{projectLabel(view?.cwd, conn.info?.scratchDir)}{/if}
         {#if mode}<span class="sep">·</span> {mode.name}{/if}
       </small>
     </button>
@@ -307,8 +309,8 @@
         </div>
       {:else if blocks.length === 0}
         <div class="empty">
-          <h2>What should Devin do?</h2>
-          <p class="mono small">{view.cwd}</p>
+          <h2>What should {harnessShort} work on?</h2>
+          {#if isScratchPath(view.cwd, conn.info?.scratchDir)}<p class="small">No project</p>{:else}<p class="mono small">{view.cwd}</p>{/if}
         </div>
       {:else}
         {#each blocks as b, i (b.id)}
@@ -368,7 +370,7 @@
           {/if}
         {/each}
         {#if st.status === 'running' && blocks[blocks.length - 1]?.kind === 'user'}
-          <div class="typing" aria-label="Devin is working"><span></span><span></span><span></span></div>
+          <div class="typing" aria-label="{harnessShort} is working"><span></span><span></span><span></span></div>
         {/if}
       {/if}
     </div>
