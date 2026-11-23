@@ -59,6 +59,11 @@ export class AcpConnection extends EventEmitter {
     return this.proc !== null;
   }
 
+  /** True while any request (session/new, session/load, a prompt) is waiting for its answer. */
+  get busy() {
+    return this.pending.size > 0;
+  }
+
   async start(): Promise<Json> {
     const proc = spawn(this.bin, this.args, {
       env: this.env,

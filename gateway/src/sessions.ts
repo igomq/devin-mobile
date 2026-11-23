@@ -455,7 +455,8 @@ export class SessionManager extends EventEmitter {
   async releaseIdle(isWatched: (sessionId: string) => boolean, idleMs: number): Promise<number> {
     const acp = this.acp;
     // Without session/load a released conversation could not be reopened.
-    if (!acp?.alive || !acp.initResult?.agentCapabilities?.loadSession || this.loading.size) return 0;
+    // A request in flight (a session being created or loaded) would land on the retired agent.
+    if (!acp?.alive || !acp.initResult?.agentCapabilities?.loadSession || this.loading.size || acp.busy) return 0;
     const loaded = [...this.sessions.values()].filter((s) => s.loaded);
     const busy = (s: Session) => s.running || s.permissions.size || Date.now() - s.updatedAt < idleMs || isWatched(s.sessionId);
     // Sessions ended with closeSession are already unloaded but may still be held, so an empty list also stops it.
