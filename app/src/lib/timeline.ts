@@ -58,7 +58,8 @@ export function stateFromSummary(s: SessionSummary): Partial<SessionState> {
     updatedAt: s.updatedAt ?? null,
     context: typeof s.usage?.used === 'number' && typeof s.usage?.size === 'number' && s.usage.size > 0 ? { used: s.usage.used, size: s.usage.size } : null,
     tokens: s.tokens ?? null,
-    turnStats: s.turnStats ?? null
+    turnStats: s.turnStats ?? null,
+    folderMissing: !!s.folderMissing
   };
 }
 

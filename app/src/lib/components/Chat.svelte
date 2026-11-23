@@ -9,6 +9,7 @@
   import { isScratchPath, projectLabel, shortHarnessName } from '#lib/labels.ts';
   import { decodeText, isTextFile } from '#lib/textfile.ts';
   import AttachmentViewer, { type Viewed } from './AttachmentViewer.svelte';
+  import { applyCommand, commandToken, matchCommands } from '#lib/commands.ts';
   import Icon from './Icon.svelte';
   import BackButton from './BackButton.svelte';
   import ToolCall from './ToolCall.svelte';
@@ -71,11 +72,7 @@
   });
   let busy = $derived(st.status === 'running' || st.status === 'awaiting_permission');
   let mode = $derived((st.modes ?? []).find((m) => m.id === st.mode));
-  let suggestions = $derived.by(() => {
-    if (!text.startsWith('/') || /\s/.test(text)) return [];
-    const q = text.slice(1).toLowerCase();
-    return (st.commands ?? []).filter((c) => c.name.toLowerCase().startsWith(q)).slice(0, 6);
-  });
+  let suggestions = $derived(matchCommands(st.commands ?? [], text));
 
   // Live elapsed time of the running turn, counted from the prompt that started it.
   let now = $state(Date.now());
@@ -321,6 +318,9 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="log scroller" bind:this={scroller} onscroll={onScroll} onclick={copyCode} style:padding-bottom={dockHeight + 20 + 'px'}>
     <div class="column">
+      {#if view?.ready && st.folderMissing}
+        <div class="notice warn">This session's folder had been deleted. Its conversation is shown, and the folder was recreated empty, so the agent no longer has the old files.</div>
+      {/if}
       {#if !view?.ready}
         <div class="empty">
           {#if loadError}<h2>Could not open this session</h2><p>{loadError}</p><button class="btn" onclick={() => go('#/')}>Back to sessions</button>
@@ -421,7 +421,7 @@
       {#if suggestions.length}
         <div class="sugg glass">
           {#each suggestions as c}
-            <button onclick={() => ((text = '/' + c.name + ' '), input?.focus())}><b class="mono">/{c.name}</b><small>{c.description}</small></button>
+            <button onclick={() => ((text = applyCommand(text, c)), input?.focus())}><b class="mono">{commandToken(c)}</b><small>{c.description}</small></button>
           {/each}
         </div>
       {/if}
@@ -911,7 +911,9 @@
   }
   .sugg {
     border-radius: 20px;
-    overflow: hidden;
+    overflow-y: auto;
+    max-height: min(320px, calc(var(--vvh) * 0.3));
+    overscroll-behavior: contain;
   }
   .sugg button {
     display: flex;

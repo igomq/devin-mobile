@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { existsSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { AcpConnection } from './acp.js';
 import { noteModels, sessionRefs } from './subagents.js';
 
@@ -45,7 +47,15 @@ export interface SessionSummary {
   usage: Json | null;
   tokens: TokenTotals;
   turnStats: Json[] | null;
+  /** The session's folder was gone when it was loaded and has been recreated empty. */
+  folderMissing: boolean;
 }
+
+/** Which missing session folders the gateway may recreate so a session can still be loaded. */
+export const folderPolicy = { mayRecreate: (_cwd: string) => true };
+
+/** Folders recreated empty for a load; Git there would reach an enclosing repository, so it is refused. */
+export const recreatedFolders = new Set<string>();
 
 export interface TokenTotals {
   turns: number;
@@ -80,6 +90,7 @@ export class Session {
   /** Session-wide totals from Devin CLI's `_cognition.ai/turn_stats` (label/value rows). */
   turnStats: Json[] | null = null;
   permissions = new Map<string, PendingPermission>();
+  folderMissing = false;
 
   constructor(public sessionId: string, public cwd: string, public harnessId = 'devin') {}
 
@@ -119,6 +130,7 @@ export class Session {
       usage: this.usage,
       tokens: this.tokens,
       turnStats: this.turnStats,
+      folderMissing: this.folderMissing,
     };
   }
 
@@ -312,6 +324,12 @@ export class SessionManager extends EventEmitter {
     this.emit('reset', s);
     s.loaded = true; // updates during replay must be accepted
     try {
+      // Agents refuse to load a session whose folder is gone, which would hide its history for good.
+      if (!existsSync(s.cwd) && folderPolicy.mayRecreate(s.cwd)) {
+        mkdirSync(s.cwd, { recursive: true, mode: 0o700 });
+        s.folderMissing = true;
+        recreatedFolders.add(resolve(s.cwd));
+      }
       const ref = randomUUID();
       sessionRefs.set(ref, { harnessId: s.harnessId, sessionId: s.sessionId });
       const r = await acp.request('session/load', { sessionId: s.sessionId, cwd: s.cwd, mcpServers: this.mcpServers(s.cwd, ref) }, 120000);

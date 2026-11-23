@@ -34,6 +34,7 @@ export interface SessionSummary {
 	usage: Json | null;
 	tokens?: TokenTotals;
 	turnStats?: TurnStat[] | null;
+	folderMissing?: boolean;
 }
 
 export interface TokenTotals {
@@ -412,6 +413,7 @@ export interface SessionState {
 	context: ContextUsage | null;
 	tokens: TokenTotals | null;
 	turnStats: TurnStat[] | null;
+	folderMissing?: boolean;
 }
 
 export interface SessionView {
