@@ -100,10 +100,12 @@ export class AcpConnection extends EventEmitter {
    * Closing stdin lets the agent and its own children exit (codex-acp ignores SIGTERM while its codex child runs,
    * and that child holds the conversation lock). Signals follow if it is still running.
    */
-  stop() {
+  stop(opts: { idle?: boolean } = {}) {
     const proc = this.proc;
     if (!proc) return;
     proc.stdin?.end();
+    // On gateway shutdown there is no time to wait for timers.
+    if (!opts.idle) proc.kill('SIGTERM');
     const term = setTimeout(() => proc.exitCode === null && proc.signalCode === null && proc.kill('SIGTERM'), 3000);
     const kill = setTimeout(() => proc.exitCode === null && proc.signalCode === null && proc.kill('SIGKILL'), 8000);
     term.unref();
