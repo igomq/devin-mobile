@@ -178,7 +178,9 @@ export function createGatewayServer(input: Config) {
   async function accountInfo(refresh: boolean, probe = refresh): Promise<Json> {
     if (!refresh && accountCache && Date.now() - accountCache.at < 60_000) return accountCache.value;
     const devin = registry.require('devin');
-    const info = probe || devin.info().auth.checkedAt === null ? await devin.probe() : devin.info();
+    const checkedAt = devin.info().auth.checkedAt;
+    const stale = !checkedAt || Date.now() - Date.parse(checkedAt) >= 60_000;
+    const info = probe || stale ? await devin.probe() : devin.info();
     let usage: DevinUsage | null = null;
     let usageError: string | null = null;
     if (info.auth.status === 'authenticated') {
