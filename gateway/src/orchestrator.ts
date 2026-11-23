@@ -183,6 +183,11 @@ export class Orchestrator extends EventEmitter {
     return this.links.get(id);
   }
 
+  /** Sessions that only exist as the child of a delegation, in the scoped form the app lists them under. */
+  delegatedSessionIds(): Set<string> {
+    return new Set([...this.links.values()].filter((l) => l.kind === 'delegate' && l.childSessionId).map((l) => l.childSessionId));
+  }
+
   private async source(sessionId: string) {
     const { adapter, harnessId, nativeId } = this.registry.resolveSession(sessionId);
     const s = await adapter.ensureLoaded(nativeId);

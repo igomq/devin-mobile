@@ -10,6 +10,7 @@
   import { decodeText, isTextFile } from '#lib/textfile.ts';
   import { fileUrlsToPaths, localImages } from '#lib/localImages.ts';
   import AttachmentViewer, { type Viewed } from './AttachmentViewer.svelte';
+  import SubagentsPanel from './SubagentsPanel.svelte';
   import { applyCommand, commandToken, matchCommands } from '#lib/commands.ts';
   import Icon from './Icon.svelte';
   import BackButton from './BackButton.svelte';
@@ -473,6 +474,8 @@
   {#if !pinned}
     <button class="jump iconbtn glass" style:bottom={dockHeight + 12 + 'px'} onclick={() => ((pinned = true), toBottom(true))} aria-label="Scroll to latest"><Icon name="down" size={20} /></button>
   {/if}
+
+  <SubagentsPanel sessionId={id} />
 
   <div class="dock" bind:clientHeight={dockHeight}>
     <div class="dock-inner">

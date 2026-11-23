@@ -357,6 +357,11 @@ function upsertLink(l: SessionLink) {
   else app.links.unshift(l);
 }
 
+/** Sessions that only exist as the child of a delegation: they live inside their parent chat, not in the session list. */
+function delegatedIds() {
+  return new Set(app.links.filter((l) => l.kind === 'delegate' && l.childSessionId).map((l) => l.childSessionId));
+}
+
 /** The gateway's git status, plus the summary fields the chat header reads (`repo`, `files` with `kind/added/removed`). */
 function gitStatusView(r: GitStatus): GitStatusView {
   const entries = r.files ?? [];
@@ -562,6 +567,7 @@ function legacyNotify(type: 'approval_requested' | 'task_completed' | 'execution
 
 function upsert(summary: SessionSummary) {
   const r = row(summary);
+  if (delegatedIds().has(r.id)) return;
   const i = app.sessions.findIndex((s) => s.id === r.id);
   if (i >= 0) {
     if (app.sessions[i].status === 'running' && (r.status === 'idle' || r.status === 'error')) {
@@ -648,8 +654,11 @@ function onMessage(msg: Json) {
 let listInFlight: Promise<void> | null = null;
 export function refreshSessions() {
   listInFlight ??= request('sessions.list')
-    .then((r) => {
-      app.sessions = r.sessions.map(rowKeepingActivity);
+    .then(async (r) => {
+      // Links decide which sessions are delegated children; load them before filtering.
+      await rpc('orchestration.list').catch(() => []);
+      const delegated = delegatedIds();
+      app.sessions = r.sessions.filter((s: SessionSummary) => !delegated.has(s.sessionId)).map(rowKeepingActivity);
       app.sessionsLoaded = true;
     })
     .catch(() => {})
