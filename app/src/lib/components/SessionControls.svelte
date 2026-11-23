@@ -9,7 +9,7 @@
   import { isModelOption } from '#lib/models.ts';
   import { compact, USAGE_URL } from '#lib/usage.ts';
   import { usageLine } from '#lib/accounts.ts';
-  import type { DevinUsage } from '#lib/types.ts';
+  import type { DevinUsage, SubagentDefault } from '#lib/types.ts';
 
   let { open = $bindable(false), sessionId, view }: { open?: boolean; sessionId: string; view: SessionView | undefined } = $props();
   let busy = $state<string | null>(null);
@@ -40,6 +40,15 @@
   $effect(() => {
     if (targets.length && !targets.some((h) => h.id === target)) target = (targets.find((h) => h.id !== currentHarness) ?? targets[0]).id;
   });
+  let subagents = $state<SubagentDefault[]>([]);
+  let subModel = $state('');
+  let targetModels = $derived(subagents.find((d) => d.harnessId === target)?.models ?? []);
+  $effect(() => {
+    if (open) rpc('subagents.get').then((d: SubagentDefault[]) => (subagents = d), () => {});
+  });
+  $effect(() => {
+    subModel = subagents.find((d) => d.harnessId === target)?.model ?? '';
+  });
   let devinUsage = $state<DevinUsage | null>(null);
   $effect(() => {
     if (open && currentHarness === 'devin') rpc('agent.account').then((a: Json) => (devinUsage = a?.usage ?? null), () => {});
@@ -64,7 +73,7 @@
     if (!instruction.trim()) return toast('Describe the task for the subagent', 'error');
     busy = 'delegate';
     try {
-      await rpc('orchestration.delegate', { id: sessionId, harnessId: target, task: instruction, worktree, includeContext: true });
+      await rpc('orchestration.delegate', { id: sessionId, harnessId: target, task: instruction, worktree, includeContext: true, model: subModel });
       instruction = '';
       toast(`Subagent started on ${harnessName(target)}`);
     } catch (e) {
@@ -150,6 +159,12 @@
       <select bind:value={target} aria-label="Target harness">
         {#each targets as h (h.id)}<option value={h.id}>{h.name}</option>{/each}
       </select>
+      {#if targetModels.length}
+        <select bind:value={subModel} aria-label="Subagent model">
+          <option value="">Subagent model: harness default</option>
+          {#each targetModels as m (m.value)}<option value={m.value}>Subagent model: {m.name}</option>{/each}
+        </select>
+      {/if}
       <textarea rows="2" bind:value={instruction} placeholder="Instruction or subagent task"></textarea>
       <label class="check"><input type="checkbox" bind:checked={worktree} /> Run subagent in a separate git worktree</label>
       <div class="row2">
@@ -159,7 +174,7 @@
       {#each links as l (l.id)}
         <button class="link press" onclick={() => ((open = false), go('#/s/' + encodeURIComponent(l.childSessionId)))}>
           <span class="st {l.status}">{l.status}</span>
-          <span class="lt"><b>{harnessName(l.harnessId)}</b> · {l.kind === 'handoff' ? 'handoff' : l.task}{#if l.branch}<small class="mono">{l.branch}</small>{/if}</span>
+          <span class="lt"><b>{harnessName(l.harnessId)}{l.model ? ` · ${l.model}` : ''}</b> · {l.kind === 'handoff' ? 'handoff' : l.task}{#if l.branch}<small class="mono">{l.branch}</small>{/if}</span>
         </button>
       {/each}
     </div>

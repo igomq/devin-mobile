@@ -33,6 +33,15 @@ test('uniharn-mcp exposes delegation tools and forwards calls to the gateway', a
   assert.match(d.result.content[0].text, /all done$/);
   assert.equal(d.result.isError, undefined);
 
+  const bg = await handleMcpMessage(
+    { jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'delegate_task', arguments: { harnessId: 'claude', task: 'review', model: 'opus', background: true } } },
+    call,
+    '/repo',
+    'ref-1',
+  );
+  assert.deepEqual(calls.at(-1), ['orchestration.delegate', { harnessId: 'claude', task: 'review', cwd: '/repo', worktree: false, model: 'opus', sessionRef: 'ref-1', wait: false }]);
+  assert.equal(bg.result.isError, undefined);
+
   const failed = await handleMcpMessage({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'list_delegations' } }, call);
   assert.equal(failed.result.isError, true);
   assert.equal(failed.result.content[0].text, 'boom');

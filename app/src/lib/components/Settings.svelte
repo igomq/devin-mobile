@@ -134,6 +134,12 @@
         <Icon name="chevron" size={16} />
       </button>
 
+      <div class="label">Subagents</div>
+      <button class="card linkrow press" onclick={() => go('#/subagents')}>
+        <span>Model each harness uses as a subagent</span>
+        <Icon name="chevron" size={16} />
+      </button>
+
       <button class="btn block danger disconnect" onclick={() => (forgetConnection(), go('#/'))}>Disconnect and forget this server</button>
     </div>
   </main>
