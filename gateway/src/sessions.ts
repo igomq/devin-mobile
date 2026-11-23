@@ -446,31 +446,21 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * Closes loaded sessions nobody is watching and that have been quiet for `idleMs`, so the harness's own
-   * app can open them (Codex refuses with "This conversation is open in another app" while we hold one).
+   * Stops the agent once every session it holds is idle and nobody is watching, so the harness's own app can open them.
+   * Codex keeps its thread-writer lock even after `session/close`; only its process exiting lets go.
+   * The next open starts the agent again and reloads the session.
    */
   async releaseIdle(isWatched: (sessionId: string) => boolean, idleMs: number): Promise<number> {
     const acp = this.acp;
     // Without session/load a released conversation could not be reopened.
-    if (!acp?.alive || !acp.initResult?.agentCapabilities?.loadSession) return 0;
+    if (!acp?.alive || !acp.initResult?.agentCapabilities?.loadSession || this.loading.size) return 0;
     const loaded = [...this.sessions.values()].filter((s) => s.loaded);
-    const idle = (s: Session) => !s.running && !s.permissions.size && Date.now() - s.updatedAt >= idleMs && !isWatched(s.sessionId);
-    if (!acp.initResult?.agentCapabilities?.sessionCapabilities?.close) {
-      // Codex has no session/close: the only way to let go is to stop the agent once every session it holds is idle.
-      // Sessions ended with closeSession are already unloaded but still held, so an empty list also stops it.
-      if (!loaded.every(idle)) return 0;
-      this.idleStopped = acp;
-      acp.stop();
-      return Math.max(loaded.length, 1);
-    }
-    let released = 0;
-    for (const s of loaded) {
-      // Checked right before each close: a turn may have started while an earlier close was awaited.
-      if (!s.loaded || !idle(s)) continue;
-      await this.closeSession(s.sessionId).catch(() => undefined);
-      released++;
-    }
-    return released;
+    const busy = (s: Session) => s.running || s.permissions.size || Date.now() - s.updatedAt < idleMs || isWatched(s.sessionId);
+    // Sessions ended with closeSession are already unloaded but may still be held, so an empty list also stops it.
+    if (loaded.some(busy)) return 0;
+    this.idleStopped = acp;
+    acp.stop();
+    return Math.max(loaded.length, 1);
   }
 
   async closeSession(sessionId: string) {
