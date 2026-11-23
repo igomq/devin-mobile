@@ -48,7 +48,8 @@
     if (pickerOpen && pickerEl && !pickerEl.contains(e.target as Node)) closePicker();
   }
   function pickerFocusOut(e: FocusEvent) {
-    if (pickerOpen && pickerEl && !pickerEl.contains(e.relatedTarget as Node | null)) closePicker();
+    const next = e.relatedTarget as Node | null;
+    if (pickerOpen && pickerEl && next && !pickerEl.contains(next)) closePicker();
   }
   function menuKey(e: KeyboardEvent) {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
