@@ -841,7 +841,7 @@
   .sugg {
     border-radius: 20px;
     overflow-y: auto;
-    max-height: min(320px, 40vh);
+    max-height: min(320px, calc(var(--vvh) * 0.3));
     overscroll-behavior: contain;
   }
   .sugg button {
