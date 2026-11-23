@@ -10,8 +10,9 @@ if [[ $EUID -eq 0 ]]; then
   echo "Warning: install and run the gateway as a non-root user." >&2
 fi
 
-if ! command -v node >/dev/null || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 20 ? 1 : 0)'; then
-  echo "Node.js 20 or newer is required." >&2
+# The web UI build (SvelteKit) needs Node.js 22.17 or newer.
+if ! command -v node >/dev/null || ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 17) ? 0 : 1)'; then
+  echo "Node.js 22.17 or newer is required." >&2
   exit 1
 fi
 
@@ -24,7 +25,7 @@ if [[ -e "$launcher" && ! -L "$launcher" ]]; then
   exit 1
 fi
 
-(cd "$repo_dir/app" && npm ci && npm run build)
+(cd "$repo_dir/app" && npm ci --include=dev && npm run build)
 cd "$gateway_dir"
 npm ci --include=dev
 npm run build

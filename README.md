@@ -104,7 +104,7 @@ The repository has two packages:
 On the VM:
 
 - Linux with at least one harness installed and signed in: [Devin CLI](https://docs.devin.ai/cli), Codex CLI with [`codex-acp`](https://www.npmjs.com/package/@agentclientprotocol/codex-acp), Claude Code with [`claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), [OpenCode](https://opencode.ai), Kiro CLI, or another ACP agent.
-- Node.js 20 or later and npm. The gateway depends on `node-pty`, a native module. If npm cannot use a prebuilt binary for your platform, it compiles one, which needs Python 3, `make` and a C++ compiler.
+- Node.js 22.17 or later and npm (the web UI build needs it; the gateway alone runs on Node.js 20). The gateway depends on `node-pty`, a native module. If npm cannot use a prebuilt binary for your platform, it compiles one, which needs Python 3, `make` and a C++ compiler.
 - Git, for the Changes screen and worktrees, and the GitHub CLI `gh` (signed in) for the PRs tab.
 - [Tailscale](https://tailscale.com/download), signed in to the same tailnet as your phone or tablet.
 
