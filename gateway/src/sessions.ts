@@ -464,7 +464,9 @@ export class SessionManager extends EventEmitter {
       return Math.max(loaded.length, 1);
     }
     let released = 0;
-    for (const s of loaded.filter(idle)) {
+    for (const s of loaded) {
+      // Checked right before each close: a turn may have started while an earlier close was awaited.
+      if (!s.loaded || !idle(s)) continue;
       await this.closeSession(s.sessionId).catch(() => undefined);
       released++;
     }
