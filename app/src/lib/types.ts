@@ -533,6 +533,13 @@ export interface Workspace {
 	updatedAt: number;
 }
 
+/** Default subagent model for one harness, and the models its sessions offered. */
+export interface SubagentDefault {
+	harnessId: string;
+	model: string | null;
+	models: { value: string; name: string }[];
+}
+
 export interface SessionLink {
 	id: string;
 	kind: 'handoff' | 'delegate';
@@ -543,6 +550,7 @@ export interface SessionLink {
 	cwd: string;
 	worktree: string | null;
 	branch: string | null;
+	model?: string | null;
 	status: 'running' | 'done' | 'error';
 	output: string | null;
 	stopReason: string | null;

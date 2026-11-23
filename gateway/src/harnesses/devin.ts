@@ -117,7 +117,7 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
     };
   }
 
-  setMcpServers(servers: (cwd?: string) => Json[]): void {
+  setMcpServers(servers: (cwd?: string, ref?: string) => Json[]): void {
     this.manager.mcpServers = servers;
   }
 

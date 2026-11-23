@@ -14,13 +14,14 @@ export type GatewayCall = (type: string, params: Json) => Promise<Json>;
 export const MCP_TOOLS = [
   {
     name: 'list_harnesses',
-    description: 'List the coding harnesses (Devin, Codex, Claude Code, OpenCode, ...) available on this uniharn gateway.',
+    description:
+      'List the coding harnesses (Devin, Codex, Claude Code, OpenCode, ...) on this uniharn gateway, with the models each offers and its default subagent model. Call this first when the user asks you to have another agent or model do something.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'delegate_task',
     description:
-      'Run a task as a subagent on another harness and wait for its final reply. Use worktree=true to isolate its file changes on a new git branch.',
+      'Run a task as a subagent on another harness (e.g. "have Codex review this", "ask Claude to write the tests") and wait for its final reply. Use worktree=true to isolate its file changes on a new git branch, background=true to return at once and check later with list_delegations.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -28,6 +29,8 @@ export const MCP_TOOLS = [
         task: { type: 'string', description: 'Self-contained instructions for the subagent.' },
         cwd: { type: 'string', description: 'Project folder. Defaults to the folder this MCP server was started in.' },
         worktree: { type: 'boolean', description: 'Run in a new git worktree (branch uniharn/sub-*) instead of the folder itself.' },
+        model: { type: 'string', description: 'Model id from list_harnesses. Omit to use the default subagent model set in uniharn.' },
+        background: { type: 'boolean', description: 'Return as soon as the subagent starts instead of waiting for its reply.' },
       },
       required: ['harnessId', 'task'],
     },
@@ -44,23 +47,44 @@ const textResult = (value: Json, isError = false) => ({
   ...(isError ? { isError: true } : {}),
 });
 
-async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd: string): Promise<Json> {
+async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd: string, sessionRef: string): Promise<Json> {
   switch (name) {
     case 'list_harnesses': {
       const { harnesses } = await call('harnesses.list', {});
+      const subagents: Json[] = (await call('subagents.get', {}).catch(() => null))?.subagents ?? [];
       return textResult(
-        harnesses.map((h: Json) => ({ id: h.id, name: h.name, installed: h.installed, enabled: h.enabled, status: h.status })),
+        harnesses.map((h: Json) => {
+          const sub = subagents.find((x) => x.harnessId === h.id);
+          return {
+            id: h.id,
+            name: h.name,
+            installed: h.installed,
+            enabled: h.enabled,
+            status: h.status,
+            login: h.auth?.status ?? h.authStatus,
+            defaultModel: sub?.model ?? null,
+            models: (sub?.models ?? []).map((m: Json) => m.value),
+          };
+        }),
       );
     }
     case 'delegate_task': {
+      const background = !!args?.background;
       const { link } = await call('orchestration.delegate', {
         harnessId: args?.harnessId,
         task: args?.task,
         cwd: args?.cwd || defaultCwd,
         worktree: !!args?.worktree,
-        wait: true,
+        ...(typeof args?.model === 'string' && args.model ? { model: args.model } : {}),
+        ...(sessionRef ? { sessionRef } : {}),
+        wait: !background,
       });
-      const header = [`status: ${link.status}`, `session: ${link.childSessionId}`, link.branch ? `branch: ${link.branch} (${link.worktree})` : null]
+      const header = [
+        `status: ${link.status}`,
+        `session: ${link.childSessionId}`,
+        link.model ? `model: ${link.model}` : null,
+        link.branch ? `branch: ${link.branch} (${link.worktree})` : null,
+      ]
         .filter(Boolean)
         .join('\n');
       return textResult(`${header}\n\n${link.output ?? link.error ?? ''}`, link.status === 'error');
@@ -75,7 +99,7 @@ async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd:
 }
 
 /** Handles one MCP JSON-RPC message; returns the response, or null for notifications. */
-export async function handleMcpMessage(msg: Json, call: GatewayCall, defaultCwd = process.cwd()): Promise<Json | null> {
+export async function handleMcpMessage(msg: Json, call: GatewayCall, defaultCwd = process.cwd(), sessionRef = ''): Promise<Json | null> {
   const reply = (result: Json) => ({ jsonrpc: '2.0', id: msg.id, result });
   if (msg.id === undefined || msg.id === null) return null;
   try {
@@ -92,7 +116,7 @@ export async function handleMcpMessage(msg: Json, call: GatewayCall, defaultCwd 
         return reply({ tools: MCP_TOOLS });
       case 'tools/call':
         try {
-          return reply(await callTool(msg.params?.name, msg.params?.arguments ?? {}, call, defaultCwd));
+          return reply(await callTool(msg.params?.name, msg.params?.arguments ?? {}, call, defaultCwd, sessionRef));
         } catch (e: Json) {
           if (e?.code) throw e;
           return reply(textResult(String(e?.message ?? e), true));
@@ -162,7 +186,7 @@ async function main() {
     } catch {
       return;
     }
-    const res = await handleMcpMessage(msg, call, process.env.UNIHARN_SESSION_CWD || process.cwd());
+    const res = await handleMcpMessage(msg, call, process.env.UNIHARN_SESSION_CWD || process.cwd(), process.env.UNIHARN_SESSION_REF || '');
     if (res) process.stdout.write(JSON.stringify(res) + '\n');
   });
   rl.on('close', () => process.exit(0));

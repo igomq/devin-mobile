@@ -17,6 +17,7 @@ import { formatScopedSessionId, HarnessRegistry } from './harnesses/registry.js'
 import { checkRateLimit, clientIp, exchangePairingCode, handlePairRequest, RequestError, sendJson } from './pairing.js';
 import { NotificationService } from './notifications.js';
 import { Orchestrator } from './orchestrator.js';
+import { SubagentSettings, sessionRefs } from './subagents.js';
 import { listDirectory, listProjects } from './projects.js';
 import { assertAllowedPath, isPathWithinRoots, RateLimiter, redactSecrets } from './security.js';
 import type { Session } from './sessions.js';
@@ -51,7 +52,8 @@ export function createGatewayServer(input: Config) {
   const authStore = new AuthStore(config.dataDir, config.token);
   const { registry, manager } = createGatewayRegistry(config);
   const workspaces = new WorkspaceStore(config.dataDir);
-  const orchestrator = new Orchestrator(registry, config.dataDir);
+  const subagents = new SubagentSettings(config.dataDir);
+  const orchestrator = new Orchestrator(registry, config.dataDir, subagents);
   const mcpEntry = join(dirname(fileURLToPath(import.meta.url)), 'mcp.js');
   if (process.env.UNIHARN_SUBAGENT_MCP !== '0' && existsSync(mcpEntry)) {
     // Every harness session gets uniharn's MCP server so its agent can delegate to other harnesses.
@@ -59,7 +61,7 @@ export function createGatewayServer(input: Config) {
     const mcpTokenFile = join(config.dataDir, 'mcp-token');
     writeFileSync(mcpTokenFile, config.token + '\n', { mode: 0o600 });
     chmodSync(mcpTokenFile, 0o600);
-    registry.setMcpServers((cwd) => {
+    registry.setMcpServers((cwd, ref) => {
       const bind = config.hosts[0] ?? '127.0.0.1';
       const host = bind === '*' || bind === '0.0.0.0' ? '127.0.0.1' : bind === '::' ? '::1' : bind;
       const env = [
@@ -67,7 +69,9 @@ export function createGatewayServer(input: Config) {
         { name: 'UNIHARN_TOKEN_FILE', value: mcpTokenFile },
         { name: 'UNIHARN_GATEWAY_URL', value: `ws://${host.includes(':') ? `[${host}]` : host}:${config.port}/ws` },
       ];
-      return [{ name: 'uniharn', command: process.execPath, args: [mcpEntry], env: cwd ? [...env, { name: 'UNIHARN_SESSION_CWD', value: cwd }] : env }];
+      if (cwd) env.push({ name: 'UNIHARN_SESSION_CWD', value: cwd });
+      if (ref) env.push({ name: 'UNIHARN_SESSION_REF', value: ref });
+      return [{ name: 'uniharn', command: process.execPath, args: [mcpEntry], env }];
     });
   }
   const tasks = new TaskRunner();
@@ -393,13 +397,16 @@ export function createGatewayServer(input: Config) {
         return { link };
       }
       case 'orchestration.delegate': {
-        const id = typeof p.sessionId === 'string' && p.sessionId ? p.sessionId : null;
+        const ref = typeof p.sessionRef === 'string' ? sessionRefs.get(p.sessionRef) : undefined;
+        const id = typeof p.sessionId === 'string' && p.sessionId ? p.sessionId : ref ? formatScopedSessionId(ref.harnessId, ref.sessionId) : null;
         const harnessId = requireString(p.harnessId, 'harnessId');
         const task = requireString(p.task, 'task');
         const { link, done } = await orchestrator.delegate(id, harnessId, task, {
-          cwd: id ? undefined : absCwd(p.cwd),
+          cwd: typeof p.cwd === 'string' && p.cwd ? absCwd(p.cwd) : id ? undefined : absCwd(p.cwd),
           worktree: !!p.worktree,
           includeContext: !!p.includeContext,
+          // null asks for the harness default; omitted uses the default subagent model.
+          model: typeof p.model === 'string' && p.model ? p.model : p.model === null ? null : undefined,
         });
         c.subs.add(link.childSessionId);
         if (p.wait) {
@@ -407,6 +414,13 @@ export function createGatewayServer(input: Config) {
           return { link: orchestrator.get(link.id) };
         }
         return { link };
+      }
+      case 'subagents.get':
+        return { subagents: subagents.list() };
+      case 'subagents.setDefault': {
+        const harnessId = requireString(p.harnessId, 'harnessId');
+        subagents.setDefault(harnessId, typeof p.model === 'string' && p.model ? p.model : null);
+        return { subagents: subagents.list() };
       }
       case 'orchestration.list':
         return { links: orchestrator.list(typeof p.sessionId === 'string' ? p.sessionId : undefined) };

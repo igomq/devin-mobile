@@ -480,7 +480,9 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'workspaces.create': async (p) => (await request('workspaces.create', p)).workspace,
   'session.handoff': async (p) => (await request('session.handoff', { ...sid(p), harnessId: p.harnessId, instruction: p.instruction })).link,
   'orchestration.delegate': async (p) =>
-    (await request('orchestration.delegate', { ...sid(p), harnessId: p.harnessId, task: p.task, worktree: !!p.worktree, includeContext: !!p.includeContext })).link,
+    (await request('orchestration.delegate', { ...sid(p), harnessId: p.harnessId, task: p.task, worktree: !!p.worktree, includeContext: !!p.includeContext, model: p.model === undefined ? undefined : p.model || null })).link,
+  'subagents.get': async () => (await request('subagents.get')).subagents,
+  'subagents.setDefault': async (p) => (await request('subagents.setDefault', { harnessId: p.harnessId, model: p.model ?? null })).subagents,
   'orchestration.list': async (p) => {
     const r = await request('orchestration.list', p?.id ? sid(p) : {});
     for (const l of r.links as SessionLink[]) upsertLink(l);
