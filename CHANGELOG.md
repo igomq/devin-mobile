@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- A session whose folder was deleted could not be opened (Claude Code: "`cwd` does not exist on the machine running the agent"). The gateway now recreates the folder empty before loading, so the conversation opens, and the chat says the folder had been deleted. With strict roots only folders inside the allowed roots are recreated.
+
 ## [0.3.5] - 2026-11-23
 
 ### Added

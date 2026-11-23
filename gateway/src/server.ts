@@ -21,7 +21,7 @@ import { Orchestrator } from './orchestrator.js';
 import { SubagentSettings, sessionRefs } from './subagents.js';
 import { listDirectory, listProjects } from './projects.js';
 import { assertAllowedPath, isPathWithinRoots, RateLimiter, redactSecrets } from './security.js';
-import type { Session } from './sessions.js';
+import { folderPolicy, type Session } from './sessions.js';
 import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
@@ -174,6 +174,7 @@ export function createGatewayServer(input: Config) {
   const scratchRoot = join(config.dataDir, 'scratch');
   const sessionRoots = [...config.roots, scratchRoot];
   const isScratchPath = (path: string) => isPathWithinRoots(path, [scratchRoot]);
+  folderPolicy.mayRecreate = (path) => !config.strictRoots || isPathWithinRoots(path, sessionRoots);
   function newScratchDir(): string {
     const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
     const dir = join(scratchRoot, `${stamp.slice(0, 8)}-${stamp.slice(8)}-${randomBytes(3).toString('hex')}`);
