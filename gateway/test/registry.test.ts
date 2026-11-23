@@ -38,6 +38,7 @@ class FakeAdapter extends EventEmitter implements HarnessAdapter {
       enabled: this.enabled,
       custom: false,
       authStatus: 'authenticated',
+      auth: { status: 'authenticated', method: null, account: [], expiresAt: null, detail: null, checkedAt: null },
       authMethod: null,
       acpSupported: true,
       acpVersion: 1,

@@ -75,7 +75,7 @@ The repository has two packages:
 
 ### Account and usage
 
-- Your Devin plan and account details as reported by `devin auth status`, token and context usage per session, and a link to the quota and credits page on app.devin.ai.
+- A Harness accounts screen with each harness's login state (checked with its own CLI), account and plan, and the Devin plan quota left with its reset time, as the Devin CLI shows it. Token and context usage per session.
 
 ### Interface
 
