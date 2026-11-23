@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
-  import { views, conn, rpc, openSession, app, errorText } from '#lib/api.svelte.ts';
+  import { views, conn, rpc, leaveSession, openSession, app, errorText } from '#lib/api.svelte.ts';
   import { emptyState } from '#lib/timeline.ts';
   import type { AttachedFile, Item, TextItem, ToolItem } from '#lib/types.ts';
   import { go, toast, copyText } from '#lib/ui.svelte.ts';
@@ -57,6 +57,12 @@
       const known = app.sessions.find((s) => s.id === sid);
       openSession(sid, known?.cwd).catch((e) => (loadError = errorText(e)));
     });
+  });
+
+  // Unsubscribe when the chat closes, so the gateway can let go of the session once it is idle.
+  $effect(() => {
+    const sid = id;
+    return () => untrack(() => leaveSession(sid));
   });
 
   // Fold runs of thinking and tool calls into one collapsible "steps" block between messages.
