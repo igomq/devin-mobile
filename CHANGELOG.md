@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Type `/` or `$` in the chat box to pick a skill, plugin or command of the session's harness. Each is inserted with the prefix its harness expects (Codex skills as `$name`, others as `/name`). `$` also finds Codex skills mid-message, and the list scrolls instead of stopping at 6.
 
+### Fixed
+
+- A session whose folder was deleted could not be opened (Claude Code: "`cwd` does not exist on the machine running the agent"). The gateway now recreates the folder empty before loading, so the conversation opens, and the chat says the folder had been deleted. With strict roots only folders inside the allowed roots are recreated.
+
 ## [0.3.5] - 2026-11-23
 
 ### Added
