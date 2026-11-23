@@ -52,6 +52,8 @@ jobs:
       - name: Init Android project
         run: |
           npx tauri android init --ci
+          # init writes Tauri's default launcher icons; regenerate them from the uniharn logo.
+          npx tauri icon app-icon.png
           # Gateways are reached as ws:// over the (WireGuard-encrypted) Tailscale tailnet.
           sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' src-tauri/gen/android/app/build.gradle.kts
           grep -n usesCleartextTraffic src-tauri/gen/android/app/build.gradle.kts
@@ -131,7 +133,10 @@ jobs:
           workspaces: app/src-tauri
       - run: npm ci
       - name: Init iOS project
-        run: npx tauri ios init --ci
+        run: |
+          npx tauri ios init --ci
+          # init writes Tauri's default app icons; regenerate them from the uniharn logo.
+          npx tauri icon app-icon.png
       - name: Build (no code signing)
         run: npx tauri ios build --no-sign --archive-only --target aarch64
       - name: Package IPA
