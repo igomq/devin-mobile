@@ -444,6 +444,21 @@ export class SessionManager extends EventEmitter {
     return s.summary();
   }
 
+  /**
+   * Closes loaded sessions nobody is watching and that have been quiet for `idleMs`, so the harness's own
+   * app can open them (Codex refuses with "This conversation is open in another app" while we hold one).
+   */
+  async releaseIdle(isWatched: (sessionId: string) => boolean, idleMs: number): Promise<number> {
+    if (!this.acp?.alive || !this.acp.initResult?.agentCapabilities?.sessionCapabilities?.close) return 0;
+    let released = 0;
+    for (const s of this.sessions.values()) {
+      if (!s.loaded || s.running || s.permissions.size || Date.now() - s.updatedAt < idleMs || isWatched(s.sessionId)) continue;
+      await this.closeSession(s.sessionId).catch(() => undefined);
+      released++;
+    }
+    return released;
+  }
+
   async closeSession(sessionId: string) {
     const s = this.sessions.get(sessionId);
     const acp = await this.ensureAgent();

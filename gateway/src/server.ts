@@ -689,12 +689,14 @@ export function createGatewayServer(input: Config) {
   });
 
   let heartbeat: NodeJS.Timeout | undefined;
+  let idleRelease: NodeJS.Timeout | undefined;
   let revocationPoll: NodeJS.Timeout | undefined;
   let starting = false;
   let closing: Promise<void> | undefined;
   function close(): Promise<void> {
     closing ??= (async () => {
       clearInterval(heartbeat);
+      clearInterval(idleRelease);
       clearInterval(revocationPoll);
       for (const client of clients) client.ws.terminate();
       for (const term of terminals.list()) terminals.close(term.termId);
@@ -738,6 +740,15 @@ export function createGatewayServer(input: Config) {
     }
     if (security.isRoot) console.warn('[uniharn] Gateway is running as root. Run it as a non-root user.');
     if (security.publicBindWarning) console.warn('[uniharn] Gateway is listening on all interfaces. Bind to loopback or your Tailscale address.');
+    const idleReleaseMs = Number(process.env.UNIHARN_IDLE_RELEASE_MS ?? 120_000);
+    if (idleReleaseMs > 0) {
+      idleRelease = setInterval(() => {
+        for (const info of registry.list()) {
+          const watched = (id: string) => [...clients].some((c) => c.subs.has(formatScopedSessionId(info.id, id)));
+          registry.get(info.id)?.releaseIdle?.(watched, idleReleaseMs).catch(() => undefined);
+        }
+      }, Math.max(10_000, Math.min(idleReleaseMs, 60_000))).unref();
+    }
     heartbeat = setInterval(() => {
       for (const client of clients) {
         if (!client.alive) client.ws.terminate();

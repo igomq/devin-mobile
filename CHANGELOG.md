@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- The gateway closes a session nobody has open in uniharn after 2 minutes without activity (`UNIHARN_IDLE_RELEASE_MS`, `0` turns it off), so the harness's own app can open it. Codex refused with "This conversation is open in another app" while uniharn held it.
 - Images an agent links by a path on the gateway machine (`![shot](/tmp/shot.png)`) now load through the gateway (`fs.image`) instead of showing as broken. Tapping an image in an agent reply opens it full screen.
 - Tap an image in the chat to open it full screen. Text files (`.md`, `.txt`, logs, CSV, JSON, YAML) can be attached like images: the app detects their encoding (BOM, UTF-8, EUC-KR, Windows-1252), sends them to the agent as embedded resources, and shows them as chips that open the decoded text. Markdown is rendered.
 - Type `/` or `$` in the chat box to pick a skill, plugin or command of the session's harness. Each is inserted with the prefix its harness expects (Codex skills as `$name`, others as `/name`). `$` also finds Codex skills mid-message, and the list scrolls instead of stopping at 6.

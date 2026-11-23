@@ -167,6 +167,10 @@ export class DevinHarnessAdapter extends EventEmitter implements HarnessAdapter 
     return this.manager.setMode(sessionId, modeId);
   }
 
+  releaseIdle(isWatched: (sessionId: string) => boolean, idleMs: number): Promise<number> {
+    return this.manager.releaseIdle(isWatched, idleMs);
+  }
+
   closeSession(sessionId: string): Promise<void> {
     return this.manager.closeSession(sessionId);
   }
