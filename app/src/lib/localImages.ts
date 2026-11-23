@@ -1,6 +1,5 @@
 import { rpc } from './api.svelte.ts';
 
-const cache = new Map<string, Promise<string>>();
 const isRemote = (src: string) => /^(https?:|data:|blob:)/i.test(src);
 
 /**
@@ -9,6 +8,8 @@ const isRemote = (src: string) => /^(https?:|data:|blob:)/i.test(src);
  */
 export function localImages(node: HTMLElement, arg: { cwd?: string | null; open: (src: string, name: string) => void }) {
   let opts = arg;
+  // Per reply: a later reply that reuses the path (a re-taken screenshot) fetches it again.
+  const cache = new Map<string, Promise<string>>();
   const load = () => {
     for (const img of node.querySelectorAll('img')) {
       const src = img.getAttribute('src') ?? '';
