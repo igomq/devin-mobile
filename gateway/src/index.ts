@@ -117,7 +117,8 @@ async function main(argv: string[], config: Config): Promise<void> {
   if (command === 'gateway' && implicit && wantsConsole(argv)) {
     // A gateway already runs (e.g. the systemd service): show its pairing console instead of starting another.
     // The service may use its own port, data dir, public URL and token, so try its settings first.
-    const service = readServiceLaunch();
+    // Explicit flags ask for a specific gateway, not whatever the service runs.
+    const service = argv.length === 2 ? readServiceLaunch() : null;
     const candidates = [config];
     if (service) {
       const { UNIHARN_TOKEN: _token, DEVIN_MOBILE_TOKEN: _legacyToken, ...env } = process.env;
