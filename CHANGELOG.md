@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Settings › Subagents: a default model per harness for subagent runs, kept apart from chat session models; the subagent form in session controls can pick a model per run.
+- Agents can delegate from their own chat: `delegate_task` takes `model` and `background`, `list_harnesses` lists models, and runs an agent starts are linked to its session.
+
 ## [0.3.1] - 2026-11-23
 
 ### Fixed
