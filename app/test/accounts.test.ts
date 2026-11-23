@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authOf, OUTDATED_GATEWAY, outdatedGateway, untilText, usageLine } from '../src/lib/accounts.ts';
+import { authOf, OLD_GATEWAY, OUTDATED_GATEWAY, outdatedGateway, untilText, usageLine } from '../src/lib/accounts.ts';
 
 test('untilText formats minutes, hours and days, and is empty once passed', () => {
   const now = Date.parse('2026-11-23T00:00:00Z');
@@ -27,7 +27,7 @@ test('authOf does not trust the login state of gateways that only send authStatu
 
 test('outdatedGateway flags a gateway process older than its installed code', () => {
   assert.equal(outdatedGateway({ outdated: true }, null), OUTDATED_GATEWAY);
-  assert.equal(outdatedGateway({ outdated: false }, 'Unknown request: harnesses.accounts'), OUTDATED_GATEWAY);
+  assert.equal(outdatedGateway({ outdated: false }, 'Unknown request: harnesses.accounts'), OLD_GATEWAY);
   assert.equal(outdatedGateway({ outdated: false }, null), null);
   assert.equal(outdatedGateway(null, 'Gateway offline'), null);
 });

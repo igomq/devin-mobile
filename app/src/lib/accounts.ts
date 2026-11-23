@@ -32,9 +32,12 @@ export function usageLine(w: UsageWindow, now = Date.now()) {
 }
 
 export const OUTDATED_GATEWAY =
-  'The gateway on the VM is still running an older version, so logins and harnesses here can differ from uniharn doctor. Restart it: quit uniharn (q) and start it again, or run systemctl --user restart uniharn-gateway.';
+  'The gateway on the VM was updated but still runs the old version, so logins and harnesses here can differ from uniharn doctor. Restart it: quit uniharn (q) and start it again, or run systemctl --user restart uniharn-gateway.';
+export const OLD_GATEWAY =
+  'The gateway on the VM is older than this app and cannot report logins. Update it (git pull, then scripts/install-gateway.sh); if you already did, restart it.';
 
-/** Why this screen may disagree with `uniharn doctor`: the gateway process predates the installed code. */
+/** Why this screen may disagree with `uniharn doctor`: the gateway process predates the installed code, or the gateway is too old. */
 export function outdatedGateway(info: { outdated?: boolean | null } | null, loadError: string | null) {
-  return !!info?.outdated || /unknown request/i.test(loadError ?? '') ? OUTDATED_GATEWAY : null;
+  if (info?.outdated) return OUTDATED_GATEWAY;
+  return /unknown request/i.test(loadError ?? '') ? OLD_GATEWAY : null;
 }
