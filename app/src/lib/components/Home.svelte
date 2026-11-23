@@ -177,7 +177,9 @@
   function selectKey(e: KeyboardEvent) {
     // Capture phase: runs before the Sheet and search handlers, so an open sheet or a search query
     // takes the Escape first.
-    if (e.key !== 'Escape' || !selecting || bulkBusy || e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+    if (e.key !== 'Escape' || !selecting || e.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+    // Mid-delete, Escape is swallowed: select mode stays until the delete finishes, and the chat beside it must not stop.
+    if (bulkBusy) return e.preventDefault();
     if (e.target === searchInput && query) return;
     e.preventDefault();
     stopSelect();
