@@ -144,6 +144,11 @@ test('delegatedSessionIds lists only delegate children in their scoped form', as
     assert.deepEqual([...orchestrator.delegatedSessionIds()], [link.childSessionId]);
     assert.ok(!orchestrator.delegatedSessionIds().has(`alpha:${parent.sessionId}`));
 
+    // A delegation without a parent session stays in the session list too.
+    const free = await orchestrator.delegate(null, 'beta', 'solo', { cwd: dir });
+    await free.done;
+    assert.equal(orchestrator.delegatedSessionIds().size, 1);
+
     // Handoffs are full sessions and stay in the session list.
     const handoff = await orchestrator.handoff(`alpha:${parent.sessionId}`, 'beta', 'continue');
     await handoff.done;

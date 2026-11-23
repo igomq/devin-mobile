@@ -355,11 +355,19 @@ function upsertLink(l: SessionLink) {
   const i = app.links.findIndex((x) => x.id === l.id);
   if (i >= 0) app.links[i] = l;
   else app.links.unshift(l);
+  // A delegated child can race into the list before its link arrives; keep it out.
+  if (l.kind === 'delegate' && l.parentSessionId) {
+    const j = app.sessions.findIndex((s) => s.id === l.childSessionId);
+    if (j >= 0) app.sessions.splice(j, 1);
+  }
 }
 
-/** Sessions that only exist as the child of a delegation: they live inside their parent chat, not in the session list. */
-function delegatedIds() {
-  return new Set(app.links.filter((l) => l.kind === 'delegate' && l.childSessionId).map((l) => l.childSessionId));
+/**
+ * Sessions that only exist as the child of a delegation with a live parent chat: they live inside
+ * that chat, not in the session list. Delegations without a parent, or whose parent is gone, stay listed.
+ */
+function delegatedIds(present: Set<string> = new Set(app.sessions.map((s) => s.id))) {
+  return new Set(app.links.filter((l) => l.kind === 'delegate' && l.parentSessionId && l.childSessionId && present.has(l.parentSessionId)).map((l) => l.childSessionId));
 }
 
 /** The gateway's git status, plus the summary fields the chat header reads (`repo`, `files` with `kind/added/removed`). */
@@ -567,17 +575,19 @@ function legacyNotify(type: 'approval_requested' | 'task_completed' | 'execution
 
 function upsert(summary: SessionSummary) {
   const r = row(summary);
-  if (delegatedIds().has(r.id)) return;
-  const i = app.sessions.findIndex((s) => s.id === r.id);
-  if (i >= 0) {
-    if (app.sessions[i].status === 'running' && (r.status === 'idle' || r.status === 'error')) {
-      if (r.status === 'idle') legacyNotify('task_completed', 'Session finished', 'A session finished its turn', r.title || r.cwd || '');
-      else legacyNotify('execution_failed', 'Session hit an error', 'A session stopped with an error', r.title || r.cwd || '');
-    }
-    // A session keeps counting as non-empty once it has shown activity.
-    r.hasMessages ||= app.sessions[i].hasMessages;
-    app.sessions[i] = r;
-  } else app.sessions.unshift(r);
+  // Delegated subagents stay out of the session list but still refresh an open transcript view.
+  if (!delegatedIds().has(r.id)) {
+    const i = app.sessions.findIndex((s) => s.id === r.id);
+    if (i >= 0) {
+      if (app.sessions[i].status === 'running' && (r.status === 'idle' || r.status === 'error')) {
+        if (r.status === 'idle') legacyNotify('task_completed', 'Session finished', 'A session finished its turn', r.title || r.cwd || '');
+        else legacyNotify('execution_failed', 'Session hit an error', 'A session stopped with an error', r.title || r.cwd || '');
+      }
+      // A session keeps counting as non-empty once it has shown activity.
+      r.hasMessages ||= app.sessions[i].hasMessages;
+      app.sessions[i] = r;
+    } else app.sessions.unshift(r);
+  }
   const v = views[r.id];
   if (v) Object.assign(v.state, stateFromSummary(summary));
 }
@@ -657,7 +667,7 @@ export function refreshSessions() {
     .then(async (r) => {
       // Links decide which sessions are delegated children; load them before filtering.
       await rpc('orchestration.list').catch(() => []);
-      const delegated = delegatedIds();
+      const delegated = delegatedIds(new Set(r.sessions.map((s: SessionSummary) => s.sessionId)));
       app.sessions = r.sessions.filter((s: SessionSummary) => !delegated.has(s.sessionId)).map(rowKeepingActivity);
       app.sessionsLoaded = true;
     })

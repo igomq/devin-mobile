@@ -406,7 +406,8 @@ export function createGatewayServer(input: Config) {
         const sessions = await registry.listAllSessions(p.cwd ? absCwd(p.cwd) : undefined);
         const filtered = config.strictRoots ? sessions.filter((s: Json) => !s.cwd || isPathWithinRoots(s.cwd, sessionRoots)) : sessions;
         // A delegated subagent belongs to the chat that started it, not to the session list.
-        const delegated = orchestrator.delegatedSessionIds();
+        const present = new Set(filtered.map((s: Json) => s.sessionId));
+        const delegated = orchestrator.delegatedSessionIds(present);
         return { sessions: delegated.size ? filtered.filter((s: Json) => !delegated.has(s.sessionId)) : filtered };
       }
       case 'session.create': {

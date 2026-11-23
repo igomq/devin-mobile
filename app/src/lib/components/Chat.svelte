@@ -468,14 +468,13 @@
           <div class="typing" aria-label="{harnessShort} is working"><span></span><span></span><span></span></div>
         {/if}
       {/if}
+      <SubagentsPanel sessionId={id} />
     </div>
   </div>
 
   {#if !pinned}
     <button class="jump iconbtn glass" style:bottom={dockHeight + 12 + 'px'} onclick={() => ((pinned = true), toBottom(true))} aria-label="Scroll to latest"><Icon name="down" size={20} /></button>
   {/if}
-
-  <SubagentsPanel sessionId={id} />
 
   <div class="dock" bind:clientHeight={dockHeight}>
     <div class="dock-inner">

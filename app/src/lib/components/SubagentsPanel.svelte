@@ -77,11 +77,10 @@
 
 <style>
   .subagents {
-    flex: none;
-    border-top: 1px solid var(--line);
-    background: var(--bg);
-    max-height: 62vh;
-    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--bg-elev);
+    overflow: hidden;
   }
   .shead {
     display: flex;
