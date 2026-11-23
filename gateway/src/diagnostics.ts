@@ -11,7 +11,7 @@ import type { Config } from './config.js';
 import type { HarnessRegistry } from './harnesses/registry.js';
 import { isPublicBindHost, isRunningAsRoot, redactSecrets } from './security.js';
 
-export const VERSION = '0.3.1';
+export const VERSION = '0.3.5';
 
 /** Changes whenever the gateway code on disk is rebuilt or reinstalled. */
 export function installedBuild(): string | null {
