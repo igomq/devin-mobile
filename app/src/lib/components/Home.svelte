@@ -47,6 +47,9 @@
   function pickerOutside(e: PointerEvent) {
     if (pickerOpen && pickerEl && !pickerEl.contains(e.target as Node)) closePicker();
   }
+  function pickerFocusOut(e: FocusEvent) {
+    if (pickerOpen && pickerEl && !pickerEl.contains(e.relatedTarget as Node | null)) closePicker();
+  }
   function menuKey(e: KeyboardEvent) {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
     e.preventDefault();
@@ -372,7 +375,7 @@
       </button>
     {:else}
     {#if usableHarnesses.length > 1}
-      <div class="hpick" bind:this={pickerEl}>
+      <div class="hpick" bind:this={pickerEl} onfocusout={pickerFocusOut}>
         <button
           bind:this={pickerBtn}
           class="hbtn glass press"
