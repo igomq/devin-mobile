@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-24
+
+### Added
+
+- Mistral Vibe CLI is now a built-in ACP harness (`vibe-acp`), with `vibe --setup` as its sign-in command.
+
+### Changed
+
+- Harness accounts no longer only copy an install command. Missing harnesses get an **Install & setup** action that opens a terminal on the gateway and runs the installer plus sign-in command; install links still copy when a harness only publishes a URL.
+
+### Fixed
+
+- Claude Code's install/setup now installs both the Claude Code CLI and the ACP adapter when they are missing.
+- Strict-roots gateways can open a no-project terminal in the scratch folder instead of rejecting the home directory, project paths with trailing spaces stay exact, and a custom ACP harness keeps its ID if a built-in later uses the same ID.
+
 ## [0.4.1] - 2026-11-23
 
 ### Added
