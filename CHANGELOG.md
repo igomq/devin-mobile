@@ -6,10 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-11-24
+
 ### Added
 
 - The parent chat now has one Subagents view for native harness subagents and uniharn-delegated subagents, with live status, harness/model, worktree and an inline transcript. Users cannot message subagents normally; an urgent-message action uses `_session/steering` for delegated sessions when the harness advertises it and otherwise falls back to a prompt, while native ACP children get a parent-session forwarding instruction.
 - Settings > Subagents can set each harness's delegation model, permission mode, effort/fast-like config options and whether delegation is allowed. Delegation applies the safest autonomous mode the harness exposes, never bypass/full-access by default, and refuses harnesses that only offer impractical per-action approval.
+
+### Changed
+
+- Reasoning-effort and fast-mode controls now sit inside the composer bar next to the mode and model chips instead of a separate row, as a compact slider pill and an icon-only switch that wrap to a second line on narrow screens.
 
 ## [0.4.2] - 2026-11-24
 
