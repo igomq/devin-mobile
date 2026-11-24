@@ -30,7 +30,7 @@
       {:else if route.name === 'session' && route.id}
         {#key route.id}<Chat id={route.id} />{/key}
       {:else if route.name === 'terminal'}
-        {#key route.login}<Terminal login={route.login} />{/key}
+        {#key route.login + ':' + (route.install ?? '')}<Terminal login={route.login} install={route.install} />{/key}
       {:else if route.name === 'settings'}
         <Settings />
       {:else if route.name === 'accounts'}

@@ -23,7 +23,7 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     bin: 'claude-agent-acp',
     altBins: ['claude-code-acp'],
     acpArgs: [],
-    installHint: 'npm i -g @agentclientprotocol/claude-agent-acp',
+    installHint: 'command -v claude >/dev/null 2>&1 || curl -fsSL https://claude.ai/install.sh | bash; command -v claude-agent-acp >/dev/null 2>&1 || npm i -g @agentclientprotocol/claude-agent-acp',
     authMethod: 'claude /login',
     authCheck: { bin: 'claude', args: ['auth', 'status'], parse: (r) => parseClaudeAuthStatus(r) },
   },
@@ -44,6 +44,14 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     installHint: 'curl -fsSL https://cli.kiro.dev/install | bash',
     authMethod: 'kiro-cli login',
     authCheck: { bin: 'kiro-cli', args: ['whoami', '--format', 'json'], parse: parseKiroWhoami },
+  },
+  {
+    id: 'mistral-vibe',
+    name: 'Mistral Vibe CLI',
+    bin: 'vibe-acp',
+    acpArgs: [],
+    installHint: 'curl -LsSf https://mistral.ai/vibe/install.sh | bash',
+    authMethod: 'vibe --setup',
   },
   {
     id: 'command-code',

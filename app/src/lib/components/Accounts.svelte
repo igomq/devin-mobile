@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { app, conn, errorText, rpc } from '#lib/api.svelte.ts';
-  import { copyText, go, toast } from '#lib/ui.svelte.ts';
+  import { copyText, go, installSetupKey, route, toast } from '#lib/ui.svelte.ts';
   import { AUTH_LABEL, authOf, outdatedGateway, usageLine } from '#lib/accounts.ts';
   import { USAGE_URL } from '#lib/usage.ts';
   import type { HarnessAccounts } from '#lib/types.ts';
@@ -26,7 +26,7 @@
     }
   }
   $effect(() => {
-    if (conn.status === 'online' && conn.generation) untrack(() => load());
+    if (route.name === 'accounts' && conn.status === 'online' && conn.generation) untrack(() => load());
   });
 
   // Built-ins first, then custom agents; harnesses that are neither installed nor enabled go last.
@@ -77,7 +77,11 @@
           {#if h.error && h.status === 'error'}<p class="muted detail bad">{h.error}</p>{/if}
           <div class="row2">
             {#if auth.status === 'not_installed' && h.installHint}
-              <button class="btn" onclick={() => copyText(h.installHint!).then(() => toast('Install command copied', 'info'))}>Copy install command</button>
+              {#if /^https?:\/\//.test(h.installHint!.trim())}
+                <button class="btn" onclick={() => copyText(h.installHint!).then(() => toast('Install link copied', 'info'))}>Copy install link</button>
+              {:else}
+                <button class="btn" onclick={() => { sessionStorage.setItem(installSetupKey(h.id), '1'); go(`#/terminal?install=${encodeURIComponent(h.id)}`); }}>Install &amp; setup</button>
+              {/if}
             {:else if h.id === 'devin'}
               <button class="btn" onclick={() => go('#/terminal?login')}>{auth.status === 'authenticated' ? 'Log in again' : 'Log in on the VM'}</button>
               <a class="btn" href={USAGE_URL} target="_blank" rel="noreferrer">Usage &amp; limits</a>
