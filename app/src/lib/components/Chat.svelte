@@ -108,6 +108,9 @@
   let effortShown = $derived(effortDraft ?? effort?.index ?? -1);
   // "Medium (default)" reads as "Medium" in the composer.
   let effortText = $derived(levels[effortShown] ? levels[effortShown].name.replace(/\s*\(.*\)\s*$/, '').trim() || levels[effortShown].value : String(effortOpt?.currentValue ?? 'Default'));
+  // Reserve the label's width for the longest level name so the pill never resizes mid-drag
+  // (a wrap reflow would move the track under the pointer).
+  let effortLabelW = $derived(Math.max(2, ...levels.map((l) => (l.name.replace(/\s*\(.*\)\s*$/, '').trim() || l.value).length)));
   let effortPct = $derived(levels.length > 1 && effortShown >= 0 ? (effortShown / (levels.length - 1)) * 100 : 0);
   let fast = $derived(fastControl(st.configOptions, effortOpt));
   let fastPending = $state<boolean | null>(null);
@@ -557,7 +560,7 @@
                   onchange={(e) => commitEffort(+e.currentTarget.value)}
                 />
               </span>
-              <span class="elabel" aria-hidden="true">{effortText}</span>
+              <span class="elabel" style:min-width={effortLabelW + 'ch'} aria-hidden="true">{effortText}</span>
             </div>
           {/if}
           {#if fast}
