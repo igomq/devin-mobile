@@ -267,7 +267,9 @@ test('a wait timeout cancels the child session and records it on the link', asyn
     assert.equal(finished.cancelled, true);
     assert.equal(finished.stopReason, 'timeout');
     assert.equal(finished.error, 'Timed out after 0 seconds; subagent session was cancelled');
-    assert.equal((await orchestrator.detail(link.id))?.lastActivity, null);
+    const snapshot = (await orchestrator.detail(link.id))?.lastActivity;
+    assert.equal(snapshot?.running, false);
+    assert.equal(snapshot?.lastEvent?.sessionUpdate, '_turn_end');
     assert.equal(await orchestrator.detail('missing'), undefined);
 
     beta.cancel = async () => {

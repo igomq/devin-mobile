@@ -46,6 +46,8 @@ export interface SessionLink {
   error: string | null;
   /** True when uniharn cancelled the child session (e.g. after a wait timeout). */
   cancelled?: boolean;
+  /** Snapshot of the child's latest event and tool call, taken when the turn ended. */
+  lastActivity?: Json | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -172,6 +174,20 @@ export async function gitHead(cwd: string): Promise<string | null> {
 const offeredText = (values: string[]) => (values.length > 20 ? `${values.slice(0, 20).join(', ')}, … ${values.length - 20} more` : values.join(', '));
 const duration = (ms: number) => (ms >= 60000 ? `${Math.round(ms / 60000)} minutes` : `${Math.round(ms / 1000)} seconds`);
 
+/** A session's latest event and tool call, for link `lastActivity`. Status-only tool updates keep the title of their tool call. */
+function activityOf(s: Session | undefined | null): Json | null {
+  if (!s) return null;
+  const last = s.events[s.events.length - 1];
+  const tool = [...s.events].reverse().find((e) => e.update?.sessionUpdate === 'tool_call' || e.update?.sessionUpdate === 'tool_call_update');
+  const toolTitle = tool?.update?.title ?? (tool?.update?.toolCallId ? [...s.events].reverse().find((e) => e.update?.toolCallId === tool.update.toolCallId && e.update?.title)?.update?.title : null);
+  return {
+    updatedAt: s.updatedAt,
+    running: s.running > 0,
+    lastEvent: last ? { seq: last.seq, sessionUpdate: last.update?.sessionUpdate ?? null, ...(last.update?.title ? { title: last.update.title } : {}) } : null,
+    lastTool: tool ? { title: toolTitle ?? null, status: tool.update.status ?? null } : null,
+  };
+}
+
 export async function createWorktree(repoCwd: string, id: string): Promise<{ path: string; branch: string; baseSha: string | null }> {
   const { stdout } = await execFileAsync('git', ['-C', repoCwd, 'rev-parse', '--show-toplevel'], { timeout: 10000 });
   const top = stdout.trim();
@@ -258,24 +274,11 @@ export class Orchestrator extends EventEmitter {
     return this.links.get(id);
   }
 
-  /** One link with a best-effort peek at its child session's latest activity; a dead child yields `lastActivity: null`. */
+  /** One link with its child's latest activity — live for running tasks, the snapshot taken at finish otherwise. */
   async detail(id: string): Promise<(SessionLink & { lastActivity: Json }) | undefined> {
     const link = this.links.get(id);
     if (!link) return undefined;
-    const lastActivity = await Promise.resolve()
-      .then(() => {
-        const s = this.children.get(id);
-        if (!s) return null;
-        const last = s.events[s.events.length - 1];
-        const tool = [...s.events].reverse().find((e) => e.update?.sessionUpdate === 'tool_call' || e.update?.sessionUpdate === 'tool_call_update');
-        return {
-          updatedAt: s.updatedAt,
-          running: s.running > 0,
-          lastEvent: last ? { seq: last.seq, sessionUpdate: last.update?.sessionUpdate ?? null, ...(last.update?.title ? { title: last.update.title } : {}) } : null,
-          lastTool: tool ? { title: tool.update.title ?? null, status: tool.update.status ?? null } : null,
-        };
-      })
-      .catch(() => null);
+    const lastActivity = link.lastActivity ?? activityOf(this.children.get(id));
     return { ...link, lastActivity };
   }
 
@@ -417,23 +420,26 @@ export class Orchestrator extends EventEmitter {
         this.update(
           link,
           stopReason === 'cancelled'
-            ? { status: 'error', stopReason, error: 'Subagent turn was cancelled before it finished', output: lastAgentReply(child) || null }
-            : { status: 'done', output: lastAgentReply(child), stopReason },
+            ? { status: 'error', stopReason, error: 'Subagent turn was cancelled before it finished', output: lastAgentReply(child) || null, lastActivity: activityOf(child) }
+            : { status: 'done', output: lastAgentReply(child), stopReason, lastActivity: activityOf(child) },
         ),
       )
       .catch(async (e) => {
         const output = lastAgentReply(child) || null;
-        if (!e?._timeout) return this.update(link, { status: 'error', error: `Subagent turn failed: ${String(e?.message ?? e)}`, output });
+        if (!e?._timeout) return this.update(link, { status: 'error', error: `Subagent turn failed: ${String(e?.message ?? e)}`, output, lastActivity: activityOf(child) });
         const cancelError = await adapter.cancel(child.sessionId).then(
           () => null,
           (err) => String(err?.message ?? err),
         );
+        // Dispatching `session/cancel` only asks the harness to stop; confirm the turn actually ended.
+        const confirmed = cancelError ? false : await waitForTurn(child, before, 15_000).then(() => true, () => false);
         this.update(link, {
           status: 'error',
           stopReason: 'timeout',
-          cancelled: !cancelError,
-          error: `Timed out after ${duration(timeoutMs)}; ${cancelError ? `cancelling the subagent session failed: ${cancelError}` : 'subagent session was cancelled'}`,
+          cancelled: confirmed,
+          error: `Timed out after ${duration(timeoutMs)}; ${cancelError ? `cancelling the subagent session failed: ${cancelError}` : confirmed ? 'subagent session was cancelled' : 'a cancel was sent but the subagent session did not stop'}`,
           output,
+          lastActivity: activityOf(child),
         });
       })
       .finally(() => this.children.delete(link.id));
