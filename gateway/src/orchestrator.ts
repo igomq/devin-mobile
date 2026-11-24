@@ -179,12 +179,16 @@ function activityOf(s: Session | undefined | null): Json | null {
   if (!s) return null;
   const last = s.events[s.events.length - 1];
   const tool = [...s.events].reverse().find((e) => e.update?.sessionUpdate === 'tool_call' || e.update?.sessionUpdate === 'tool_call_update');
-  const toolTitle = tool?.update?.title ?? (tool?.update?.toolCallId ? [...s.events].reverse().find((e) => e.update?.toolCallId === tool.update.toolCallId && e.update?.title)?.update?.title : null);
+  // Status-only or content-only updates lack the other field; backfill each from the most
+  // recent earlier event carrying it with the same toolCallId.
+  const earlier = tool?.update?.toolCallId ? [...s.events].reverse().filter((e) => e !== tool && e.update?.toolCallId === tool.update.toolCallId) : [];
+  const toolTitle = tool?.update?.title ?? earlier.find((e) => e.update?.title)?.update?.title ?? null;
+  const toolStatus = tool?.update?.status ?? earlier.find((e) => e.update?.status)?.update?.status ?? null;
   return {
     updatedAt: s.updatedAt,
     running: s.running > 0,
     lastEvent: last ? { seq: last.seq, sessionUpdate: last.update?.sessionUpdate ?? null, ...(last.update?.title ? { title: last.update.title } : {}) } : null,
-    lastTool: tool ? { title: toolTitle ?? null, status: tool.update.status ?? null } : null,
+    lastTool: tool ? { title: toolTitle, status: toolStatus } : null,
   };
 }
 
@@ -425,20 +429,20 @@ export class Orchestrator extends EventEmitter {
         ),
       )
       .catch(async (e) => {
-        const output = lastAgentReply(child) || null;
-        if (!e?._timeout) return this.update(link, { status: 'error', error: `Subagent turn failed: ${String(e?.message ?? e)}`, output, lastActivity: activityOf(child) });
+        if (!e?._timeout) return this.update(link, { status: 'error', error: `Subagent turn failed: ${String(e?.message ?? e)}`, output: lastAgentReply(child) || null, lastActivity: activityOf(child) });
         const cancelError = await adapter.cancel(child.sessionId).then(
           () => null,
           (err) => String(err?.message ?? err),
         );
-        // Dispatching `session/cancel` only asks the harness to stop; confirm the turn actually ended.
-        const confirmed = cancelError ? false : await waitForTurn(child, before, 15_000).then(() => true, () => false);
+        // `session/cancel` only asks the harness to stop; the turn is confirmed ended when a
+        // _turn_end arrives — a non-timeout rejection (_turn_error) also means it ended.
+        const confirmed = cancelError ? false : await waitForTurn(child, before, 15_000).then(() => true, (err) => !err?._timeout);
         this.update(link, {
           status: 'error',
           stopReason: 'timeout',
           cancelled: confirmed,
           error: `Timed out after ${duration(timeoutMs)}; ${cancelError ? `cancelling the subagent session failed: ${cancelError}` : confirmed ? 'subagent session was cancelled' : 'a cancel was sent but the subagent session did not stop'}`,
-          output,
+          output: lastAgentReply(child) || null,
           lastActivity: activityOf(child),
         });
       })
