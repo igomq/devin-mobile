@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Grok CLI (`grok agent stdio`) is now a built-in ACP harness, so it appears in the harness list and can be delegated to once installed; sign in with `grok login --device-auth` or `XAI_API_KEY`.
+
 ## [0.4.5] - 2026-11-24
 
 ### Added

@@ -139,6 +139,19 @@ export function parseKiroWhoami(r: CommandResult): AuthState {
   return authState('authenticated', { method: typeof a.accountType === 'string' ? a.accountType : 'Kiro', account: fields });
 }
 
+/** `grok models` exits 0 even when signed out; the sign-in line is the signal. */
+export function parseGrokModelsAuth(r: CommandResult): AuthState {
+  const failed = failedToRun(r, 'grok models');
+  if (failed) return failed;
+  const out = combined(r);
+  if (/not authenticated|not logged in|login required|authentication required|unauthorized|invalid api key|invalid xai_api_key|xai_api_key invalid/i.test(out)) {
+    return authState('unauthenticated', { detail: 'Set XAI_API_KEY or run `grok login --device-auth`.' });
+  }
+  if (/you are logged in|logged in with/i.test(out)) return authState('authenticated', { method: 'Grok' });
+  if (r.code === 0 && /available models|default model/i.test(out)) return authState('authenticated', { method: 'Grok' });
+  return authState('unknown', { detail: 'Unrecognized `grok models` output.' });
+}
+
 /** True for an agent error that means it needs a login. */
 export function isAuthError(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);

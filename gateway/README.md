@@ -82,6 +82,7 @@ Every harness is driven over ACP (JSON-RPC on stdio). Capabilities (session resu
 | Claude Code | `claude` | `claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`), falls back to `claude-code-acp` | Sessions, prompts, permissions and model switching verified |
 | OpenCode | `opencode` | `opencode acp` | Prompts, worktree subagents and the `uniharn` MCP server verified |
 | Kiro CLI | `kiro` | `kiro-cli acp` | Native ACP, not tested |
+| Grok CLI | `grok` | `grok agent stdio` | Native ACP; initialize checked signed out |
 | Mistral Vibe CLI | `mistral-vibe` | `vibe-acp` | Native ACP, not tested |
 | Command Code | `command-code` | none documented | Disabled until `bin`/`args` point at an ACP command |
 | Google Antigravity | `antigravity` | none documented | Disabled until `bin`/`args` point at an ACP command |

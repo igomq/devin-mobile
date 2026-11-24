@@ -16,6 +16,7 @@ test('fallback dirs include the ACP adapter and nvm install locations', () => {
     mkdirSync(join(home, '.nvm', 'versions', 'node', 'v26.1.0', 'bin'), { recursive: true });
     const dirs = fallbackBinDirs(home);
     assert.ok(dirs.includes(join(home, '.local', 'bin')));
+    assert.ok(dirs.includes(join(home, '.grok', 'bin')));
     assert.ok(dirs.includes(join(home, '.local', 'opt', 'node', 'bin')));
     assert.ok(dirs.includes(join(home, '.nvm', 'versions', 'node', 'v26.1.0', 'bin')));
   } finally {

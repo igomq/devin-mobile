@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   type CommandResult, type CommandRunner, isAuthError, parseClaudeAuthStatus, parseCodexLoginStatus,
-  parseDevinAuthStatus, parseKiroWhoami, parseOpenCodeAuthList,
+  parseDevinAuthStatus, parseGrokModelsAuth, parseKiroWhoami, parseOpenCodeAuthList,
 } from '../src/harnesses/auth.js';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
 import { BUILTIN_ACP_SPECS } from '../src/harnesses/builtins.js';
@@ -68,6 +68,16 @@ test('Kiro whoami: null account is logged out, an account is logged in', () => {
   assert.equal(s.method, 'BuilderId');
   assert.ok(!JSON.stringify(s).includes('accessToken'));
   assert.equal(parseKiroWhoami(ok('Not logged in', 1)).status, 'unauthenticated');
+});
+
+test('Grok models probe reads the sign-in line, not just the exit code', () => {
+  const signedOut = 'You are not authenticated.\n\nDefault model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n';
+  assert.equal(parseGrokModelsAuth(ok(signedOut)).status, 'unauthenticated');
+  assert.equal(parseGrokModelsAuth(ok('You are logged in with XAI_API_KEY\n\nAvailable models:\n  * grok-4.6\n')).status, 'authenticated');
+  assert.equal(parseGrokModelsAuth(ok('\nDefault model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n')).status, 'authenticated');
+  assert.equal(parseGrokModelsAuth(ok('', 1, 'Not logged in')).status, 'unauthenticated');
+  assert.equal(parseGrokModelsAuth(ok('', 1, 'invalid api key')).status, 'unauthenticated');
+  assert.equal(parseGrokModelsAuth({ stdout: '', stderr: '', code: null, error: 'timed out' }).status, 'error');
 });
 
 test('isAuthError recognizes agent login errors only', () => {
