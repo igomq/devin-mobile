@@ -84,6 +84,11 @@ function choiceText(c: Json): string {
   return `${c?.id ?? ''} ${c?.value ?? ''} ${c?.name ?? ''} ${c?.description ?? ''}`.toLowerCase();
 }
 
+/** Mode identity without the free-text description, so prose like "the agent ..." cannot impersonate a mode. */
+function choiceIdentity(c: Json): string {
+  return `${c?.id ?? ''} ${c?.value ?? ''} ${c?.name ?? ''}`.toLowerCase();
+}
+
 export function isUnsafeModeChoice(c: Json): boolean {
   return /bypass|danger|yolo|full[-_ ]?access|skip[-_ ]?permissions/.test(choiceText(c));
 }
@@ -93,7 +98,7 @@ const EDIT_AUTONOMY = /\b(accept[-_ ]?edits?|workspace[-_ ]?write|code)\b/;
 
 export function isAutonomousModeChoice(c: Json): boolean {
   if (isUnsafeModeChoice(c)) return false;
-  const text = choiceText(c);
+  const text = choiceIdentity(c);
   return STRONG_AUTONOMY.test(text) || EDIT_AUTONOMY.test(text);
 }
 
@@ -128,7 +133,7 @@ export function recommendedDelegationMode(configOptions: Json[] | undefined, mod
   const choices = modeChoices(configOptions, modes);
   const score = (c: Json) => {
     if (!isAutonomousModeChoice(c)) return -1;
-    return STRONG_AUTONOMY.test(choiceText(c)) ? 1 : 0;
+    return STRONG_AUTONOMY.test(choiceIdentity(c)) ? 1 : 0;
   };
   return choices.map((c, i) => ({ c, i, s: score(c) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s || a.i - b.i)[0]?.c ?? null;
 }

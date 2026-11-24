@@ -253,3 +253,18 @@ test('recommendedDelegationMode prefers autonomous permission handling over edit
   };
   assert.equal(recommendedDelegationMode(undefined, claudeModes)?.id, 'auto');
 });
+
+test('recommendedDelegationMode ignores autonomy keywords in mode descriptions', () => {
+  const mode = {
+    id: 'mode',
+    name: 'Mode',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'read-only',
+    options: [
+      { value: 'read-only', name: 'Read only', description: 'The agent can read files but cannot edit them' },
+      { value: 'agent', name: 'Agent', description: 'Asks before each edit' },
+    ],
+  };
+  assert.equal(recommendedDelegationMode([mode], null)?.value, 'agent');
+});
