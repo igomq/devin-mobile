@@ -226,3 +226,30 @@ test('select-valued fast, collaboration, and effort options are not mistaken for
   assert.equal(modeChoices([fastSelect, collaboration, effort, mode], legacyModes)[0]?.configId, 'mode');
 });
 
+test('recommendedDelegationMode prefers autonomous permission handling over edit-only modes', () => {
+  const codexMode = {
+    id: 'mode',
+    name: 'Agent mode',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'read-only',
+    options: [
+      { value: 'read-only', name: 'Read only', description: 'Requires approval to edit files' },
+      { value: 'workspace-write', name: 'Workspace write', description: 'Edit workspace files; ask before writing outside' },
+      { value: 'agent', name: 'Agent', description: 'Auto review' },
+      { value: 'agent-full-access', name: 'Full access', description: 'Unrestricted' },
+    ],
+  };
+  assert.equal(recommendedDelegationMode([codexMode], null)?.value, 'agent');
+
+  const claudeModes = {
+    currentModeId: 'default',
+    availableModes: [
+      { id: 'default', name: 'Manual', description: 'Always ask before making changes' },
+      { id: 'acceptEdits', name: 'Accept edits', description: 'Automatically accept all file edits' },
+      { id: 'plan', name: 'Plan' },
+      { id: 'auto', name: 'Auto', description: 'Claude handles permission decisions' },
+    ],
+  };
+  assert.equal(recommendedDelegationMode(undefined, claudeModes)?.id, 'auto');
+});

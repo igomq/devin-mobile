@@ -88,9 +88,13 @@ export function isUnsafeModeChoice(c: Json): boolean {
   return /bypass|danger|yolo|full[-_ ]?access|skip[-_ ]?permissions/.test(choiceText(c));
 }
 
+const STRONG_AUTONOMY = /\b(auto|agent|unattended|non[-_ ]?interactive|trusted)\b/;
+const EDIT_AUTONOMY = /\b(accept[-_ ]?edits?|workspace[-_ ]?write|code)\b/;
+
 export function isAutonomousModeChoice(c: Json): boolean {
   if (isUnsafeModeChoice(c)) return false;
-  return /\b(auto|accept[-_ ]?edits?|agent|code|workspace[-_ ]?write|trusted|unattended|non[-_ ]?interactive)\b/.test(choiceText(c));
+  const text = choiceText(c);
+  return STRONG_AUTONOMY.test(text) || EDIT_AUTONOMY.test(text);
 }
 
 export function isInteractiveModeChoice(c: Json): boolean {
@@ -124,11 +128,7 @@ export function recommendedDelegationMode(configOptions: Json[] | undefined, mod
   const choices = modeChoices(configOptions, modes);
   const score = (c: Json) => {
     if (!isAutonomousModeChoice(c)) return -1;
-    const text = choiceText(c);
-    let s = 10;
-    if (/accept[-_ ]?edits|workspace[-_ ]?write|auto|agent|code/.test(text)) s += 3;
-    if (/read[-_ ]?only|plan/.test(text)) s -= 2;
-    return s;
+    return STRONG_AUTONOMY.test(choiceText(c)) ? 1 : 0;
   };
   return choices.map((c, i) => ({ c, i, s: score(c) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s || a.i - b.i)[0]?.c ?? null;
 }
