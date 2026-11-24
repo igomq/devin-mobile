@@ -20,6 +20,7 @@ export function fallbackBinDirs(home = homedir()): string[] {
   const dirs = [
     dirname(process.execPath),
     join(home, '.local', 'bin'),
+    join(home, '.grok', 'bin'),
     join(home, '.local', 'opt', 'node', 'bin'),
     join(home, '.npm-global', 'bin'),
     join(home, '.bun', 'bin'),

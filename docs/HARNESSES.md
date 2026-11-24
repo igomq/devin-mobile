@@ -11,6 +11,7 @@ Tested on Linux x64 with gateway 0.3.0 (unreleased), November 2026.
 | Claude Code | 2.1.330 with `claude-agent-acp` 0.23.1 | Yes | Yes | Yes, with permission approval and cancel | `session/set_model` | Not run | Uses the signed-in Claude account |
 | OpenAI Codex | 0.171.0 with `@agentclientprotocol/codex-acp` | Yes | Yes | Yes | Yes | Not run | Signed in with ChatGPT (`codex login`); without sign-in `session/new` fails with `Authentication required` |
 | Kiro CLI | not installed | - | - | - | - | - | `kiro-cli acp`, untested |
+| Grok CLI | 1.0.92 | Yes | - | - | - | - | `grok agent stdio`; initialize checked signed out, sign-in and prompts untested |
 | Mistral Vibe CLI | not installed | - | - | - | - | - | `vibe-acp`, untested |
 | Command Code | - | - | - | - | - | - | No documented ACP entrypoint; disabled |
 | Google Antigravity | - | - | - | - | - | - | IDE without an ACP CLI; disabled |
@@ -22,6 +23,7 @@ Capabilities reported by the agents' `initialize`:
 | OpenCode | Yes | Yes | Yes | Yes | Yes | stdio, http, sse |
 | Claude Code | Yes | Yes | Yes | Yes | Yes | stdio, http, sse |
 | Codex | Yes | Yes | Yes | Yes | No | stdio, http |
+| Grok CLI | Yes | Yes | Yes | Yes | No | http, sse |
 
 ## Limits
 
@@ -41,6 +43,7 @@ The gateway checks each login with the harness's own CLI, separately from whethe
 | OpenCode | `opencode auth list` | Stored credentials count as logged in; keys found only in the environment are `unknown`. |
 | Kiro | `kiro-cli whoami --format json` | Logged-out output verified with kiro-cli 3.5.0; the logged-in format has not been tested. |
 | Mistral Vibe | none | `vibe --setup` registers an API key; the ACP agent handles its own authentication methods. |
+| Grok | `grok models` | Exits 0 when signed out, so the sign-in line is parsed. Sign in with `grok login --device-auth` or `XAI_API_KEY`; the installer also links `agent`, so check that command if you use Cursor CLI. |
 | Custom ACP | none | `unknown` until the agent rejects a request with an authentication error. |
 
 When the status command is missing or prints something unexpected the state is `unknown`, never `authenticated`.

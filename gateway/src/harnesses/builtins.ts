@@ -1,5 +1,5 @@
 import { AcpHarnessAdapter, type AcpHarnessSpec } from './acp-generic.js';
-import { parseClaudeAuthStatus, parseCodexLoginStatus, parseKiroWhoami, parseOpenCodeAuthList } from './auth.js';
+import { parseClaudeAuthStatus, parseCodexLoginStatus, parseGrokModelsAuth, parseKiroWhoami, parseOpenCodeAuthList } from './auth.js';
 import type { CustomAcpHarnessSpec } from './types.js';
 
 /**
@@ -44,6 +44,15 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     installHint: 'curl -fsSL https://cli.kiro.dev/install | bash',
     authMethod: 'kiro-cli login',
     authCheck: { bin: 'kiro-cli', args: ['whoami', '--format', 'json'], parse: parseKiroWhoami },
+  },
+  {
+    id: 'grok',
+    name: 'Grok CLI',
+    bin: 'grok',
+    acpArgs: ['agent', 'stdio'],
+    installHint: 'curl -fsSL https://x.ai/cli/install.sh | bash && export PATH="$HOME/.grok/bin:$PATH"',
+    authMethod: 'grok login --device-auth',
+    authCheck: { bin: 'grok', args: ['models'], parse: parseGrokModelsAuth },
   },
   {
     id: 'mistral-vibe',
