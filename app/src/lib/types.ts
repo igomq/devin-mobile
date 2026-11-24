@@ -35,6 +35,7 @@ export interface SessionSummary {
 	tokens?: TokenTotals;
 	turnStats?: TurnStat[] | null;
 	folderMissing?: boolean;
+	subagent?: NativeSubagentInfo | null;
 }
 
 export interface TokenTotals {
@@ -558,7 +559,7 @@ export interface SubagentDefault {
 	model: string | null;
 	models: { value: string; name: string }[];
 	options: ConfigOption[];
-	modes: { id?: string; name?: string; description?: string | null; currentModeId?: string; availableModes?: { id?: string; name?: string; description?: string | null }[] } | null;
+	modes: { id?: string; name?: string; description?: string | null }[] | null;
 	policy: { mode: string | null; config: Record<string, string | boolean>; enabled: boolean };
 }
 

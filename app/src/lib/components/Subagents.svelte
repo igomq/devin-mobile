@@ -28,7 +28,7 @@
 
   function modeChoices(d: SubagentDefault | undefined): { value: string; name: string }[] {
     const out = new Map<string, string>();
-    for (const m of d?.modes?.availableModes ?? []) if (m?.id) out.set(m.id, m.name || m.id);
+    for (const m of d?.modes ?? []) if (m?.id) out.set(m.id, m.name || m.id);
     const modeOpt = (d?.options ?? []).find(isModeOption);
     for (const v of modeOpt ? flatValues(modeOpt) : []) out.set(v.value, v.name || v.value);
     return [...out.entries()].map(([value, name]) => ({ value, name }));

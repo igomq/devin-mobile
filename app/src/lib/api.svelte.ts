@@ -367,6 +367,10 @@ function upsertLink(l: SessionLink) {
   const i = app.links.findIndex((x) => x.id === l.id);
   if (i >= 0) app.links[i] = l;
   else app.links.unshift(l);
+  if (l.kind === 'delegate') {
+    const j = app.subagents.findIndex((x) => x.kind === 'delegate' && x.childSessionId === l.childSessionId && x.parentSessionId === l.parentSessionId);
+    if (j >= 0) app.subagents[j] = { ...app.subagents[j], status: l.status, updatedAt: l.updatedAt, canCancel: l.status === 'running' };
+  }
   // A delegated child can race into the list before its link arrives; keep it out.
   if (l.kind === 'delegate' && l.parentSessionId && delegatedIds().has(l.childSessionId)) {
     const j = app.sessions.findIndex((s) => s.id === l.childSessionId);
@@ -609,6 +613,13 @@ function legacyNotify(type: 'approval_requested' | 'task_completed' | 'execution
 
 function upsert(summary: SessionSummary) {
   const r = row(summary);
+  // Native ACP children are transcript views only; they never become top-level chats.
+  if (summary.subagent) {
+    const v = views[r.id];
+    if (v) Object.assign(v.state, stateFromSummary(summary));
+    if (app.sessions.some((s) => s.id === r.id)) app.sessions = app.sessions.filter((s) => s.id !== r.id);
+    return;
+  }
   // Delegated subagents stay out of the session list but still refresh an open transcript view.
   if (!delegatedIds().has(r.id)) {
     const i = app.sessions.findIndex((s) => s.id === r.id);
@@ -649,11 +660,7 @@ function onMessage(msg: Json) {
       return;
     case 'subagent_state': {
       const sub = msg.subagent as SubagentEntry | undefined;
-      if (sub?.childSessionId) {
-        const i = app.subagents.findIndex((x) => x.childSessionId === sub.childSessionId);
-        if (i >= 0) app.subagents[i] = { ...app.subagents[i], ...sub, kind: sub.kind ?? app.subagents[i].kind };
-        else app.subagents.unshift({ ...sub, kind: 'native' } as SubagentEntry);
-      }
+      if (sub?.childSessionId) mergeSubagentEntries([sub]);
       if (msg.session) upsert(msg.session);
       return;
     }

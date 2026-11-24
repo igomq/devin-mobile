@@ -63,6 +63,34 @@ export function createGatewayServer(input: Config) {
     const opt = (configOptions ?? []).find((o) => o?.category === 'model' || o?.id === 'model');
     return typeof opt?.currentValue === 'string' ? opt.currentValue : null;
   };
+  function nativeSubagentEntry(harnessId: string, parentNativeId: string, child: Session) {
+    const summary = child.summary();
+    const sub = summary.subagent;
+    if (!sub) return null;
+    const stateName = typeof sub.state?.state === 'string' ? sub.state.state : summary.status;
+    return {
+      kind: 'native',
+      id: `native:${formatScopedSessionId(harnessId, child.sessionId)}`,
+      parentSessionId: formatScopedSessionId(harnessId, parentNativeId),
+      childSessionId: formatScopedSessionId(harnessId, child.sessionId),
+      harnessId,
+      title: sub.title ?? summary.title ?? child.sessionId,
+      description: sub.description ?? null,
+      task: null,
+      cwd: sub.cwd ?? summary.cwd,
+      worktree: null,
+      branch: null,
+      model: modelValue(summary.configOptions),
+      status: stateName,
+      state: sub.state ?? null,
+      capabilities: sub.capabilities ?? null,
+      configOptions: summary.configOptions,
+      createdAt: child.createdAt,
+      updatedAt: child.updatedAt,
+      canMessage: false,
+      canCancel: !!sub.capabilities?.cancel,
+    };
+  }
   function listSubagents(parentSessionId?: string) {
     const out: Json[] = [];
     for (const l of orchestrator.list()) {
@@ -91,36 +119,9 @@ export function createGatewayServer(input: Config) {
       };
       if (!parentSessionId || entry.parentSessionId === parentSessionId) out.push(entry);
     }
-    for (const { harnessId, parentSessionId: parentNative, child } of registry.listNativeSubagents()) {
-      const summary = child.summary();
-      const sub = summary.subagent;
-      if (!sub) continue;
-      const parentSessionId = formatScopedSessionId(harnessId, parentNative);
-      const childSessionId = formatScopedSessionId(harnessId, child.sessionId);
-      const stateName = typeof sub.state?.state === 'string' ? sub.state.state : summary.status;
-      const entry = {
-        kind: 'native',
-        id: `native:${childSessionId}`,
-        parentSessionId,
-        childSessionId,
-        harnessId,
-        title: sub.title ?? summary.title ?? childSessionId,
-        description: sub.description ?? null,
-        task: null,
-        cwd: sub.cwd ?? summary.cwd,
-        worktree: null,
-        branch: null,
-        model: modelValue(summary.configOptions),
-        status: stateName,
-        state: sub.state ?? null,
-        capabilities: sub.capabilities ?? null,
-        configOptions: summary.configOptions,
-        createdAt: child.createdAt,
-        updatedAt: child.updatedAt,
-        canMessage: false,
-        canCancel: !!sub.capabilities?.cancel,
-      };
-      if (!parentSessionId || entry.parentSessionId === parentSessionId) out.push(entry);
+    for (const { harnessId, parentSessionId: parentNativeId, child } of registry.listNativeSubagents()) {
+      const entry = nativeSubagentEntry(harnessId, parentNativeId, child);
+      if (entry && (!parentSessionId || entry.parentSessionId === parentSessionId)) out.push(entry);
     }
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }
@@ -178,8 +179,9 @@ export function createGatewayServer(input: Config) {
   registry.on('state', (summary) => {
     const sid = formatScopedSessionId(summary.harnessId, summary.sessionId);
     if (summary.subagent) {
-      const subagent = { ...summary.subagent, parentSessionId: formatScopedSessionId(summary.harnessId, summary.subagent.parentSessionId) };
-      broadcast({ type: 'subagent_state', sessionId: sid, harnessId: summary.harnessId, subagent, session: { ...summary, sessionId: sid, subagent } });
+      const native = registry.listNativeSubagents().find((x) => x.harnessId === summary.harnessId && x.child.sessionId === summary.sessionId);
+      const subagent = native ? nativeSubagentEntry(native.harnessId, native.parentSessionId, native.child) : null;
+      if (subagent) broadcast({ type: 'subagent_state', sessionId: sid, harnessId: summary.harnessId, subagent, session: { ...summary, sessionId: sid, subagent: summary.subagent } });
       return;
     }
     broadcast({ type: 'session_state', session: { ...summary, sessionId: sid } });
