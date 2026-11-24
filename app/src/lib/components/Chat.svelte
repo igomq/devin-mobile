@@ -117,6 +117,12 @@
   let gaugeOpen = $state(false);
   let gaugeBtn = $state<HTMLElement>();
   let gaugePanel = $state<HTMLElement>();
+  let composerEl = $state<HTMLElement>();
+  // Cap the popover at the space above the composer so a long draft can't push it offscreen.
+  let quickMax = $state<number | null>(null);
+  $effect(() => {
+    if (gaugeOpen && composerEl) quickMax = Math.max(140, Math.floor(composerEl.getBoundingClientRect().top - 88));
+  });
   let gaugeFill = $derived(effortOpt && levels.length > 1 ? Math.max(4, effortPct) : 0);
   let gaugeAngle = $derived(-90 + (gaugeFill / 100) * 180);
   $effect(() => {
@@ -527,40 +533,7 @@
           <span class="ctxt">{compact(ctx.used)}/{compact(ctx.size)} · {ctxPct}%</span>
         </button>
       {/if}
-      <div class="composer">
-        {#if gaugeOpen && hasQuick}
-          <div class="quick glass-heavy" bind:this={gaugePanel} role="dialog" aria-label="Reasoning and speed">
-            {#if effortOpt && levels.length > 1}
-              <div class="qrow">
-                <span class="qlabel"><Icon name="brain" size={15} />{effortOpt.name || 'Reasoning effort'}</span>
-                <b class="qval" class:busy={effortDraft !== null}>{effortText}</b>
-              </div>
-              <span class="track" style:--pct={effortPct + '%'}>
-                <span class="rail" aria-hidden="true"><i></i></span>
-                <span class="ticks" aria-hidden="true">{#each levels as lv, i (lv.value)}<i class:lit={i <= effortShown}></i>{/each}</span>
-                <input
-                  type="range"
-                  min="0"
-                  max={levels.length - 1}
-                  step="1"
-                  value={Math.max(0, effortShown)}
-                  disabled={quickDisabled}
-                  aria-label={effortOpt.name || 'Reasoning effort'}
-                  aria-valuetext={effortText}
-                  oninput={(e) => (effortDraft = +e.currentTarget.value)}
-                  onchange={(e) => commitEffort(+e.currentTarget.value)}
-                />
-              </span>
-              <div class="qscale" aria-hidden="true"><span>{levelName(0)}</span><span>{levelName(levels.length - 1)}</span></div>
-            {/if}
-            {#if fast}
-              <button class="qrow fast" class:on={fastOn} role="switch" aria-checked={fastOn} aria-label={fast.option.name || 'Fast mode'} disabled={quickDisabled} onclick={toggleFast}>
-                <span class="qlabel"><Icon name="bolt" size={15} />{fast.option.name || 'Fast mode'}</span>
-                <span class="sw" aria-hidden="true"><i></i></span>
-              </button>
-            {/if}
-          </div>
-        {/if}
+      <div class="composer" bind:this={composerEl}>
         <div class="box glass" class:dropping>
           {#if images.length || docs.length}
             <div class="thumbs">
@@ -624,6 +597,45 @@
             {/if}
           </div>
         </div>
+        {#if gaugeOpen && hasQuick}
+          <div
+            class="quick glass-heavy"
+            bind:this={gaugePanel}
+            role="dialog"
+            aria-label="Reasoning and speed"
+            style:max-height={quickMax ? quickMax + 'px' : null}
+          >
+            {#if effortOpt && levels.length > 1}
+              <div class="qrow">
+                <span class="qlabel"><Icon name="brain" size={15} />{effortOpt.name || 'Reasoning effort'}</span>
+                <b class="qval" class:busy={effortDraft !== null}>{effortText}</b>
+              </div>
+              <span class="track" style:--pct={effortPct + '%'}>
+                <span class="rail" aria-hidden="true"><i></i></span>
+                <span class="ticks" aria-hidden="true">{#each levels as lv, i (lv.value)}<i class:lit={i <= effortShown}></i>{/each}</span>
+                <input
+                  type="range"
+                  min="0"
+                  max={levels.length - 1}
+                  step="1"
+                  value={Math.max(0, effortShown)}
+                  disabled={quickDisabled}
+                  aria-label={effortOpt.name || 'Reasoning effort'}
+                  aria-valuetext={effortText}
+                  oninput={(e) => (effortDraft = +e.currentTarget.value)}
+                  onchange={(e) => commitEffort(+e.currentTarget.value)}
+                />
+              </span>
+              <div class="qscale" aria-hidden="true"><span>{levelName(0)}</span><span>{levelName(levels.length - 1)}</span></div>
+            {/if}
+            {#if fast}
+              <button class="qrow fast" class:on={fastOn} role="switch" aria-checked={fastOn} aria-label={fast.option.name || 'Fast mode'} disabled={quickDisabled} onclick={toggleFast}>
+                <span class="qlabel"><Icon name="bolt" size={15} />{fast.option.name || 'Fast mode'}</span>
+                <span class="sw" aria-hidden="true"><i></i></span>
+              </button>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
   </div>
@@ -1070,6 +1082,8 @@
     position: absolute;
     right: 4px;
     bottom: calc(100% + 8px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     z-index: 2;
     width: min(300px, calc(100vw - 32px - var(--safe-left) - var(--safe-right)));
     padding: 14px 16px 12px;
