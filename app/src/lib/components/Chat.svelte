@@ -533,42 +533,38 @@
           aria-label="Message"
           disabled={!view?.ready}
         ></textarea>
-        {#if (effortOpt && levels.length > 1) || fast}
-          <div class="quick">
-            {#if effortOpt && levels.length > 1}
-              <div class="effort" class:busy={effortDraft !== null} title={effortOpt.name}>
-                <Icon name="brain" size={14} />
-                <span class="track" style:--pct={effortPct + '%'}>
-                  <span class="rail" aria-hidden="true"><i></i></span>
-                  <span class="ticks" aria-hidden="true">{#each levels as lv, i (lv.value)}<i class:lit={i <= effortShown}></i>{/each}</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max={levels.length - 1}
-                    step="1"
-                    value={Math.max(0, effortShown)}
-                    disabled={quickDisabled}
-                    aria-label={effortOpt.name || 'Reasoning effort'}
-                    aria-valuetext={effortText}
-                    oninput={(e) => (effortDraft = +e.currentTarget.value)}
-                    onchange={(e) => commitEffort(+e.currentTarget.value)}
-                  />
-                </span>
-                <span class="elabel" aria-hidden="true">{effortText}</span>
-              </div>
-            {/if}
-            {#if fast}
-              <button class="chip fast" class:on={fastOn} role="switch" aria-checked={fastOn} aria-label={fast.option.name || 'Fast mode'} title={fast.option.name} disabled={quickDisabled} onclick={toggleFast}>
-                <Icon name="bolt" size={14} />Fast<span class="sw" aria-hidden="true"><i></i></span>
-              </button>
-            {/if}
-          </div>
-        {/if}
         <div class="bar">
           <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image or text file"><Icon name="plus" size={18} /></button>
           <input bind:this={fileInput} type="file" accept="image/*,text/*,.md,.markdown,.txt,.log,.csv,.json,.yaml,.yml,.toml" multiple hidden onchange={onfiles} />
           <button class="chip" onclick={() => (controls = true)}>{mode?.name ?? 'Mode'}</button>
           {#if model}<button class="chip model" onclick={() => (controls = true)} title={model}><span>{model}</span></button>{/if}
+          {#if effortOpt && levels.length > 1}
+            <div class="effort" class:busy={effortDraft !== null} title={effortOpt.name}>
+              <Icon name="brain" size={13} />
+              <span class="track" style:--pct={effortPct + '%'}>
+                <span class="rail" aria-hidden="true"><i></i></span>
+                <span class="ticks" aria-hidden="true">{#each levels as lv, i (lv.value)}<i class:lit={i <= effortShown}></i>{/each}</span>
+                <input
+                  type="range"
+                  min="0"
+                  max={levels.length - 1}
+                  step="1"
+                  value={Math.max(0, effortShown)}
+                  disabled={quickDisabled}
+                  aria-label={effortOpt.name || 'Reasoning effort'}
+                  aria-valuetext={effortText}
+                  oninput={(e) => (effortDraft = +e.currentTarget.value)}
+                  onchange={(e) => commitEffort(+e.currentTarget.value)}
+                />
+              </span>
+              <span class="elabel" aria-hidden="true">{effortText}</span>
+            </div>
+          {/if}
+          {#if fast}
+            <button class="chip fast" class:on={fastOn} role="switch" aria-checked={fastOn} aria-label={fast.option.name || 'Fast mode'} title={fast.option.name} disabled={quickDisabled} onclick={toggleFast}>
+              <Icon name="bolt" size={13} /><span class="sw" aria-hidden="true"><i></i></span>
+            </button>
+          {/if}
           <span class="grow"></span>
           {#if busy}
             <button class="round stop" onclick={stop} aria-label="Stop" title="Stop (Esc)"><Icon name="stop" size={15} /></button>
@@ -891,6 +887,7 @@
   }
   .bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
     margin-left: -8px;
@@ -1014,23 +1011,15 @@
   .ctxm.full .ctxbar i {
     background: var(--red);
   }
-  /* Quick controls: reasoning effort slider and fast switch. */
-  .quick {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 0 0 6px -8px;
-    min-width: 0;
-  }
+  /* Quick controls, inline in the bar: compact reasoning effort slider and fast switch. */
   .effort {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
-    max-width: 320px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     height: 32px;
-    padding: 0 12px 0 10px;
+    padding: 0 10px 0 9px;
     border-radius: 999px;
     background: var(--fill);
     color: var(--text-2);
@@ -1040,14 +1029,15 @@
   }
   .track {
     position: relative;
-    flex: 1;
-    min-width: 64px;
+    flex: 0 1 110px;
+    width: 110px;
+    min-width: 56px;
     height: 32px;
   }
   .rail {
     position: absolute;
-    left: 8px;
-    right: 8px;
+    left: 7px;
+    right: 7px;
     top: 50%;
     height: 4px;
     margin-top: -2px;
@@ -1064,8 +1054,8 @@
   }
   .ticks {
     position: absolute;
-    left: 8px;
-    right: 8px;
+    left: 7px;
+    right: 7px;
     top: 50%;
     height: 4px;
     margin-top: -2px;
@@ -1105,9 +1095,9 @@
   .track input::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 16px;
-    height: 16px;
-    margin-top: 8px;
+    width: 14px;
+    height: 14px;
+    margin-top: 9px;
     border-radius: 50%;
     background: var(--text);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--line-strong);
@@ -1123,8 +1113,8 @@
     background: transparent;
   }
   .track input::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     border: 0;
     border-radius: 50%;
     background: var(--text);
@@ -1135,15 +1125,13 @@
   }
   .elabel {
     flex: none;
-    min-width: 3.4em;
-    max-width: 6.5em;
+    max-width: 5.5em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--text);
-    text-align: right;
   }
   .effort.busy .elabel {
     color: var(--text-2);
@@ -1151,7 +1139,8 @@
   .fast {
     flex: none;
     height: 32px;
-    padding: 0 8px 0 10px;
+    gap: 4px;
+    padding: 0 8px 0 9px;
     background: var(--fill);
   }
   .fast.on {
@@ -1162,9 +1151,8 @@
   }
   .sw {
     position: relative;
-    width: 26px;
-    height: 16px;
-    margin-left: 2px;
+    width: 22px;
+    height: 14px;
     border-radius: 99px;
     background: var(--fill-2);
     transition: background-color 0.2s ease;
@@ -1173,8 +1161,8 @@
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     background: var(--text-3);
     transition: translate 0.25s var(--ease-spring), background-color 0.2s ease;
@@ -1183,7 +1171,7 @@
     background: var(--accent);
   }
   .fast.on .sw i {
-    translate: 10px 0;
+    translate: 8px 0;
     background: var(--on-accent);
   }
   .chip {
