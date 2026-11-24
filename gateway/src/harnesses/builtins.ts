@@ -50,7 +50,7 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     name: 'Grok CLI',
     bin: 'grok',
     acpArgs: ['agent', 'stdio'],
-    installHint: 'curl -fsSL https://x.ai/cli/install.sh | bash && export PATH="$HOME/.grok/bin:$PATH"',
+    installHint: 'export PATH="$HOME/.grok/bin:$PATH" && curl -fsSL https://x.ai/cli/install.sh | bash',
     authMethod: 'grok login --device-auth',
     authCheck: { bin: 'grok', args: ['models'], parse: parseGrokModelsAuth },
   },
