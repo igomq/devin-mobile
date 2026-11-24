@@ -58,6 +58,72 @@ export function createGatewayServer(input: Config) {
   const workspaces = new WorkspaceStore(config.dataDir);
   const subagents = new SubagentSettings(config.dataDir);
   const orchestrator = new Orchestrator(registry, config.dataDir, subagents);
+
+  const modelValue = (configOptions: Json[] | undefined) => {
+    const opt = (configOptions ?? []).find((o) => o?.category === 'model' || o?.id === 'model');
+    return typeof opt?.currentValue === 'string' ? opt.currentValue : null;
+  };
+  function listSubagents(parentSessionId?: string) {
+    const out: Json[] = [];
+    for (const l of orchestrator.list()) {
+      if (l.kind !== 'delegate') continue;
+      const entry = {
+        kind: 'delegate',
+        id: l.id,
+        parentSessionId: l.parentSessionId,
+        childSessionId: l.childSessionId,
+        harnessId: l.harnessId,
+        title: l.task.split('\n')[0] || 'Subagent',
+        description: null,
+        task: l.task,
+        cwd: l.cwd,
+        worktree: l.worktree,
+        branch: l.branch,
+        model: l.model ?? null,
+        status: l.status,
+        state: null,
+        capabilities: { prompt: {} },
+        configOptions: [],
+        createdAt: l.createdAt,
+        updatedAt: l.updatedAt,
+        canMessage: true,
+        canCancel: l.status === 'running',
+      };
+      if (!parentSessionId || entry.parentSessionId === parentSessionId) out.push(entry);
+    }
+    for (const { harnessId, parentSessionId: parentNative, child } of registry.listNativeSubagents()) {
+      const summary = child.summary();
+      const sub = summary.subagent;
+      if (!sub) continue;
+      const parentSessionId = formatScopedSessionId(harnessId, parentNative);
+      const childSessionId = formatScopedSessionId(harnessId, child.sessionId);
+      const stateName = typeof sub.state?.state === 'string' ? sub.state.state : summary.status;
+      const entry = {
+        kind: 'native',
+        id: `native:${childSessionId}`,
+        parentSessionId,
+        childSessionId,
+        harnessId,
+        title: sub.title ?? summary.title ?? childSessionId,
+        description: sub.description ?? null,
+        task: null,
+        cwd: sub.cwd ?? summary.cwd,
+        worktree: null,
+        branch: null,
+        model: modelValue(summary.configOptions),
+        status: stateName,
+        state: sub.state ?? null,
+        capabilities: sub.capabilities ?? null,
+        configOptions: summary.configOptions,
+        createdAt: child.createdAt,
+        updatedAt: child.updatedAt,
+        canMessage: false,
+        canCancel: !!sub.capabilities?.cancel,
+      };
+      if (!parentSessionId || entry.parentSessionId === parentSessionId) out.push(entry);
+    }
+    return out.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
   const mcpEntry = join(dirname(fileURLToPath(import.meta.url)), 'mcp.js');
   if (process.env.UNIHARN_SUBAGENT_MCP !== '0' && existsSync(mcpEntry)) {
     // Every harness session gets uniharn's MCP server so its agent can delegate to other harnesses.
@@ -111,6 +177,11 @@ export function createGatewayServer(input: Config) {
   });
   registry.on('state', (summary) => {
     const sid = formatScopedSessionId(summary.harnessId, summary.sessionId);
+    if (summary.subagent) {
+      const subagent = { ...summary.subagent, parentSessionId: formatScopedSessionId(summary.harnessId, summary.subagent.parentSessionId) };
+      broadcast({ type: 'subagent_state', sessionId: sid, harnessId: summary.harnessId, subagent, session: { ...summary, sessionId: sid, subagent } });
+      return;
+    }
     broadcast({ type: 'session_state', session: { ...summary, sessionId: sid } });
     notifications.onSessionState({ ...summary, sessionId: sid });
   });
@@ -268,7 +339,7 @@ export function createGatewayServer(input: Config) {
           agent: manager.agentStatus(),
           harnesses: registry.list(),
           workspaces: workspaces.list(),
-          sessions: [...manager.sessions.values()].map((s) => s.summary()).filter((s) => !orchestrator.delegatedSessionIds().has(s.sessionId)),
+          sessions: manager.topLevelSessions().map((s) => s.summary()).filter((s) => !orchestrator.delegatedSessionIds().has(s.sessionId)),
           terminals: terminals.list(),
           tasks: tasks.list(),
           notifications: { unreadCount: notifications.unreadCount(), lastSeq: notifications.lastSeq() },
@@ -379,7 +450,7 @@ export function createGatewayServer(input: Config) {
       case 'agent.authenticate':
         return manager.authenticate(requireString(p.methodId, 'methodId'));
       case 'projects.list': {
-        const paths = [...new Set([...manager.sessions.values()].map((s) => s.cwd))].filter((path) => !isScratchPath(path));
+        const paths = [...new Set(manager.topLevelSessions().map((s) => s.cwd))].filter((path) => !isScratchPath(path));
         const projects = listProjects(config.roots, paths)
           .filter((project) => !config.strictRoots || isPathWithinRoots(project.path, config.roots));
         return { projects, roots: config.roots };
@@ -470,13 +541,41 @@ export function createGatewayServer(input: Config) {
         subagents.setDefault(harnessId, typeof p.model === 'string' && p.model ? p.model : null);
         return { subagents: subagents.list() };
       }
+      case 'subagents.list':
+        return { subagents: listSubagents(typeof p.sessionId === 'string' && p.sessionId ? p.sessionId : undefined) };
+      case 'subagents.setPolicy': {
+        const harnessId = requireString(p.harnessId, 'harnessId');
+        const patch: Json = {};
+        if (p.mode !== undefined) patch.mode = typeof p.mode === 'string' && p.mode ? p.mode : null;
+        if (p.config !== undefined) patch.config = typeof p.config === 'object' && p.config ? p.config : {};
+        if (p.enabled !== undefined) patch.enabled = !!p.enabled;
+        subagents.setPolicy(harnessId, patch);
+        return { subagents: subagents.list() };
+      }
+      case 'subagents.message': {
+        const parentSessionId = requireString(p.parentSessionId, 'parentSessionId');
+        const childSessionId = requireString(p.childSessionId, 'childSessionId');
+        const text = requireString(p.text, 'text');
+        const link = orchestrator.list().find((l) => l.kind === 'delegate' && l.parentSessionId === parentSessionId && l.childSessionId === childSessionId);
+        if (link) {
+          const delivery = await registry.steerSession(link.childSessionId, `[Urgent message from the parent session]\n\n${text}`);
+          return { delivery: 'delegate', mode: delivery.mode, outcome: delivery.outcome ?? null };
+        }
+        const native = registry.listNativeSubagents().find((x) => formatScopedSessionId(x.harnessId, x.child.sessionId) === childSessionId && formatScopedSessionId(x.harnessId, x.parentSessionId) === parentSessionId);
+        if (native) {
+          const title = native.child.subagent?.title ?? native.child.title ?? childSessionId;
+          await registry.resolveSession(parentSessionId).adapter.prompt(registry.resolveSession(parentSessionId).nativeId, `[Urgent user message for subagent "${title}" (${childSessionId})]\n\n${text}\n\nThis is an urgent user instruction. Please forward it to that subagent or handle it directly, whichever is safest. Do not treat it as a normal queued follow-up if you can steer the running work.`);
+          return { delivery: 'parent', mode: 'prompt' };
+        }
+        throw new Error('Subagent not found');
+      }
       case 'orchestration.list':
         return { links: orchestrator.list(typeof p.sessionId === 'string' ? p.sessionId : undefined) };
       case 'session.open': {
         const id = requireString(p.sessionId, 'sessionId');
         const { adapter, harnessId, nativeId } = registry.resolveSession(id);
         const s = await adapter.ensureLoaded(nativeId, p.cwd ? absCwd(p.cwd) : undefined);
-        if (config.strictRoots) assertAllowedPath(s.cwd, sessionRoots, true);
+        if (config.strictRoots && !s.subagent) assertAllowedPath(s.cwd, sessionRoots, true);
         c.subs.add(id);
         const firstSeq = s.events[0]?.seq ?? s.seq + 1;
         let since = p.epoch === s.epoch && typeof p.sinceSeq === 'number' ? p.sinceSeq : 0;

@@ -233,6 +233,17 @@ export class HarnessRegistry extends EventEmitter {
     return lists.flat().sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
+  listNativeSubagents(): { harnessId: HarnessId; parentSessionId: string; child: Session }[] {
+    return [...this.adapters.values()].flatMap((a) => (a.listNativeSubagents?.() ?? []).map((x) => ({ harnessId: a.id, ...x })));
+  }
+
+  async steerSession(sessionId: string, text: string): Promise<{ mode: 'steering' | 'prompt'; outcome?: Json }> {
+    const { adapter, nativeId } = this.resolveSession(sessionId);
+    if (adapter.steer) return adapter.steer(nativeId, text);
+    await adapter.prompt(nativeId, text);
+    return { mode: 'prompt' };
+  }
+
   async createSession(harnessId: HarnessId, cwd: string, opts?: CreateSessionOptions): Promise<Session> {
     const adapter = this.require(harnessId);
     if (!adapter.info().enabled) throw new Error(`Harness ${harnessId} is disabled`);

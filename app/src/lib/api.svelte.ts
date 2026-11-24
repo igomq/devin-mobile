@@ -3,7 +3,7 @@
 import { getStorageItem, removeStorageItem, setStorageItem } from './storage.ts';
 import { defaultDeviceName, detectPlatform, httpBase, pageOrigin, pairDevice } from './pairing.ts';
 import { applyUpdate, emptyState, permissionView, stateFromSummary } from './timeline.ts';
-import type { AppNotification, ChangedFileView, ConnInfo, DeviceInfo, GitStatus, GitStatusView, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, TaskRun, Workspace } from './types.ts';
+import type { AppNotification, ChangedFileView, ConnInfo, DeviceInfo, GitStatus, GitStatusView, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, SubagentDefault, SubagentEntry, TaskRun, Workspace } from './types.ts';
 
 const STORE_SUFFIX = 'connection';
 
@@ -88,7 +88,9 @@ export const app = $state({
   sessionsLoaded: false,
   harnesses: [] as HarnessInfo[],
   workspaces: [] as Workspace[],
-  links: [] as SessionLink[]
+  links: [] as SessionLink[],
+  subagents: [] as SubagentEntry[],
+  subagentSettings: [] as SubagentDefault[]
 });
 
 export const views = $state<Record<string, SessionView>>({});
@@ -113,6 +115,8 @@ function clearSessions() {
   for (const id of Object.keys(views)) delete views[id];
   app.sessions = [];
   app.sessionsLoaded = false;
+  app.subagents = [];
+  app.subagentSettings = [];
 }
 
 export function saveConnection(url: string, token: string, identity: SavedMeta = {}) {
@@ -351,6 +355,14 @@ function rowKeepingActivity(s: SessionSummary): SessionRow {
 
 const sid = (p: Json) => ({ sessionId: p.id });
 
+function mergeSubagentEntries(entries: SubagentEntry[]) {
+  for (const e of entries) {
+    const i = app.subagents.findIndex((x) => x.childSessionId === e.childSessionId && x.parentSessionId === e.parentSessionId);
+    if (i >= 0) app.subagents[i] = { ...app.subagents[i], ...e };
+    else app.subagents.unshift(e);
+  }
+}
+
 function upsertLink(l: SessionLink) {
   const i = app.links.findIndex((x) => x.id === l.id);
   if (i >= 0) app.links[i] = l;
@@ -499,8 +511,27 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
   'session.handoff': async (p) => (await request('session.handoff', { ...sid(p), harnessId: p.harnessId, instruction: p.instruction })).link,
   'orchestration.delegate': async (p) =>
     (await request('orchestration.delegate', { ...sid(p), harnessId: p.harnessId, task: p.task, worktree: !!p.worktree, includeContext: !!p.includeContext, model: p.model === undefined ? undefined : p.model || null })).link,
-  'subagents.get': async () => (await request('subagents.get')).subagents,
-  'subagents.setDefault': async (p) => (await request('subagents.setDefault', { harnessId: p.harnessId, model: p.model ?? null })).subagents,
+  'subagents.setDefault': async (p) => {
+    const r = await request('subagents.setDefault', { harnessId: p.harnessId, model: p.model ?? null });
+    app.subagentSettings = r.subagents;
+    return r.subagents;
+  },
+  'subagents.get': async () => {
+    const r = await request('subagents.get');
+    app.subagentSettings = r.subagents;
+    return r.subagents;
+  },
+  'subagents.list': async (p) => {
+    const r = await request('subagents.list', p?.sessionId ? { sessionId: p.sessionId } : {});
+    mergeSubagentEntries(r.subagents ?? []);
+    return r.subagents;
+  },
+  'subagents.setPolicy': async (p) => {
+    const r = await request('subagents.setPolicy', { harnessId: p.harnessId, mode: p.mode, config: p.config, enabled: p.enabled });
+    app.subagentSettings = r.subagents;
+    return r.subagents;
+  },
+  'subagents.message': (p) => request('subagents.message', { parentSessionId: p.parentSessionId, childSessionId: p.childSessionId, text: p.text }),
   'orchestration.list': async (p) => {
     const r = await request('orchestration.list', p?.id ? sid(p) : {});
     for (const l of r.links as SessionLink[]) upsertLink(l);
@@ -616,6 +647,16 @@ function onMessage(msg: Json) {
     case 'session_reset':
       if (views[msg.sessionId]) openSession(msg.sessionId).catch(() => {});
       return;
+    case 'subagent_state': {
+      const sub = msg.subagent as SubagentEntry | undefined;
+      if (sub?.childSessionId) {
+        const i = app.subagents.findIndex((x) => x.childSessionId === sub.childSessionId);
+        if (i >= 0) app.subagents[i] = { ...app.subagents[i], ...sub, kind: sub.kind ?? app.subagents[i].kind };
+        else app.subagents.unshift({ ...sub, kind: 'native' } as SubagentEntry);
+      }
+      if (msg.session) upsert(msg.session);
+      return;
+    }
     case 'session_state':
       return upsert(msg.session);
     case 'session_deleted':
@@ -662,6 +703,10 @@ function onMessage(msg: Json) {
     case 'notifications_cleared':
       for (const fn of notificationListeners) fn(msg);
   }
+}
+
+export function refreshSubagents(sessionId?: string) {
+  return rpc('subagents.list', sessionId ? { sessionId } : {}).catch(() => [] as SubagentEntry[]);
 }
 
 let listInFlight: Promise<void> | null = null;

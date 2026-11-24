@@ -112,7 +112,11 @@ export interface HarnessAdapter extends EventEmitter {
   listSessions(cwd?: string): Promise<SessionSummary[]>;
   createSession(cwd: string, opts?: CreateSessionOptions): Promise<Session>;
   ensureLoaded(sessionId: string, cwd?: string): Promise<Session>;
+  /** Native ACP child sessions announced on this harness's connections (never top-level sessions). */
+  listNativeSubagents?(): { parentSessionId: string; child: Session }[];
   prompt(sessionId: string, text: string, images?: { mimeType: string; data: string }[], files?: { name: string; mimeType: string; text: string }[]): Promise<void>;
+  /** Urgent mid-turn delivery through `_session/steering` when the harness advertises it. */
+  steer?(sessionId: string, text: string): Promise<{ mode: 'steering' | 'prompt'; outcome?: Json }>;
   cancel(sessionId: string): Promise<void>;
   resolvePermission(sessionId: string, requestId: string, optionId: string | null): void;
   setConfigOption(sessionId: string, configId: string, value: Json): Promise<SessionSummary>;

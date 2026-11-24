@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AcpConnection } from './acp.js';
-import { noteModels, sessionRefs } from './subagents.js';
+import { noteConfigOptions, noteModes, noteModels, sessionRefs } from './subagents.js';
 
 type Json = any;
 
@@ -30,6 +30,16 @@ export interface PromptFile {
   text: string;
 }
 
+export interface NativeSubagentInfo {
+  parentSessionId: string;
+  title: string | null;
+  description: string | null;
+  cwd: string | null;
+  additionalDirectories: string[] | null;
+  capabilities: Json | null;
+  state: Json | null;
+}
+
 export interface SessionSummary {
   sessionId: string;
   harnessId: string;
@@ -49,6 +59,8 @@ export interface SessionSummary {
   turnStats: Json[] | null;
   /** The session's folder was gone when it was loaded and has been recreated empty. */
   folderMissing: boolean;
+  /** Present only for native ACP child sessions announced through `subagent_update`. */
+  subagent?: NativeSubagentInfo | null;
 }
 
 /** Which missing session folders the gateway may recreate so a session can still be loaded. */
@@ -91,10 +103,20 @@ export class Session {
   turnStats: Json[] | null = null;
   permissions = new Map<string, PendingPermission>();
   folderMissing = false;
+  createdAt = Date.now();
+  /** Native ACP subagent metadata when this session is a child announced by its parent. */
+  subagent: NativeSubagentInfo | null = null;
 
   constructor(public sessionId: string, public cwd: string, public harnessId = 'devin') {}
 
   get status(): SessionStatus {
+    if (this.subagent) {
+      const st = this.subagent.state?.state;
+      if (this.permissions.size > 0 || st === 'requires_action') return 'awaiting_permission';
+      if (st === 'running') return 'running';
+      if (st === 'idle' && this.lastError) return 'error';
+      return this.loaded ? 'idle' : 'unloaded';
+    }
     if (this.permissions.size > 0) return 'awaiting_permission';
     if (this.running > 0) return 'running';
     if (!this.loaded) return 'unloaded';
@@ -110,6 +132,7 @@ export class Session {
     if (opts) this.agentConfigOptions = opts;
     this.configOptions = this.modelsFromSetModel ? [...this.agentConfigOptions, this.modelOption] : this.agentConfigOptions;
     noteModels(this.harnessId, this.configOptions);
+    noteConfigOptions(this.harnessId, this.configOptions);
   }
 
   summary(): SessionSummary {
@@ -117,7 +140,7 @@ export class Session {
       sessionId: this.sessionId,
       harnessId: this.harnessId,
       cwd: this.cwd,
-      title: this.title,
+      title: this.subagent?.title ?? this.title,
       status: this.status,
       loaded: this.loaded,
       updatedAt: this.updatedAt,
@@ -131,6 +154,7 @@ export class Session {
       tokens: this.tokens,
       turnStats: this.turnStats,
       folderMissing: this.folderMissing,
+      subagent: this.subagent ? { ...this.subagent } : null,
     };
   }
 
@@ -171,6 +195,7 @@ export class SessionManager extends EventEmitter {
   private startingConnection: AcpConnection | null = null;
   private loading = new Map<string, Promise<Session>>();
   sessions = new Map<string, Session>();
+  private nativeSubagents = new Map<string, Session>();
   private permCounter = 0;
   agentError: string | null = null;
   private idleStopped: AcpConnection | null = null;
@@ -226,6 +251,7 @@ export class SessionManager extends EventEmitter {
           s.running = 0;
           for (const p of s.permissions.values()) this.emit('permission_resolved', s, p.requestId, null);
           s.permissions.clear();
+          if (s.subagent) s.subagent = { ...s.subagent, state: { state: 'unknown' } };
           this.emit('state', s.summary());
         }
         this.emit('agent', this.agentStatus());
@@ -248,6 +274,18 @@ export class SessionManager extends EventEmitter {
     return this.starting;
   }
 
+  topLevelSessions(): Session[] {
+    return [...this.sessions.values()].filter((s) => !this.nativeSubagents.has(s.sessionId));
+  }
+
+  nativeSubagentSessions(): { parentSessionId: string; child: Session }[] {
+    return [...this.nativeSubagents.values()].map((child) => ({ parentSessionId: child.subagent?.parentSessionId ?? '', child }));
+  }
+
+  private assertNotNativeSubagent(sessionId: string) {
+    if (this.nativeSubagents.has(sessionId)) throw new Error('Native ACP subagent sessions cannot be prompted, loaded, or configured by the client');
+  }
+
   private getOrCreate(sessionId: string, cwd: string): Session {
     let s = this.sessions.get(sessionId);
     if (!s) {
@@ -259,7 +297,10 @@ export class SessionManager extends EventEmitter {
 
   private applySessionResult(s: Session, r: Json) {
     if (!r) return;
-    if (r.modes) s.modes = r.modes;
+    if (r.modes) {
+      s.modes = r.modes;
+      noteModes(s.harnessId, r.modes);
+    }
     if (Array.isArray(r.models?.availableModels)) s.modelOption = modelsToConfigOption(r.models);
     s.setConfigOptions(Array.isArray(r.configOptions) ? r.configOptions : undefined);
   }
@@ -289,7 +330,7 @@ export class SessionManager extends EventEmitter {
     } catch (e: any) {
       this.agentError = String(e?.message ?? e);
     }
-    for (const s of this.sessions.values()) {
+    for (const s of this.topLevelSessions()) {
       if (cwd && s.cwd !== cwd) continue;
       out.set(s.sessionId, s.summary());
     }
@@ -310,6 +351,9 @@ export class SessionManager extends EventEmitter {
 
   /** Make sure the agent has this session in memory (session/load replays history as updates). */
   async ensureLoaded(sessionId: string, cwd?: string): Promise<Session> {
+    // Native children are announced by the agent and never go through session/load.
+    const native = this.nativeSubagents.get(sessionId);
+    if (native) return native;
     // One load per session: a second session/load would replay the whole history into the log again.
     const pending = this.loading.get(sessionId);
     if (pending) return pending;
@@ -346,6 +390,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = [], files: PromptFile[] = []) {
+    this.assertNotNativeSubagent(sessionId);
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
     const content: Json[] = [];
@@ -391,9 +436,47 @@ export class SessionManager extends EventEmitter {
       });
   }
 
+  /**
+   * Delivers an urgent message through the harness's `_session/steering` extension when advertised.
+   * With `idleBehavior: promptRequired`, a harness only reports `promptRequired` when no running turn
+   * can accept the steer, and we fall back to a normal `session/prompt` in that case.
+   */
+  async steer(sessionId: string, text: string): Promise<{ mode: 'steering' | 'prompt'; outcome?: Json }> {
+    this.assertNotNativeSubagent(sessionId);
+    const acp = await this.ensureAgent();
+    if (!acp.initResult?._meta?.steering?.supported) {
+      await this.prompt(sessionId, text);
+      return { mode: 'prompt' };
+    }
+    const s = await this.ensureLoaded(sessionId);
+    const content = text ? [{ type: 'text', text }] : [];
+    try {
+      const r = await acp.request('_session/steering', { sessionId, prompt: content, _meta: { steering: { idleBehavior: 'promptRequired' } } }, 30000);
+      const outcome = r?.outcome ?? null;
+      if (outcome === 'promptRequired' || r?.reason === 'noRunningTurn') {
+        await this.prompt(sessionId, text);
+        return { mode: 'prompt', outcome };
+      }
+      if (outcome === 'failed') throw new Error(r?.message ?? 'Steering failed');
+      const ev = s.push({ sessionUpdate: 'user_message_chunk', content: content[0] ?? { type: 'text', text: '' }, _local: true, _steering: true });
+      this.emit('event', s, ev);
+      this.emit('state', s.summary());
+      return { mode: 'steering', outcome };
+    } catch (e: any) {
+      if (e?.code === -32601 || /not supported|unknown method/i.test(String(e?.message ?? e))) {
+        await this.prompt(sessionId, text);
+        return { mode: 'prompt' };
+      }
+      throw e;
+    }
+  }
+
   async cancel(sessionId: string) {
     const s = this.sessions.get(sessionId);
     if (!s) return;
+    if (this.nativeSubagents.has(sessionId) && (typeof s.subagent?.capabilities?.cancel !== 'object' || s.subagent.capabilities.cancel === null)) {
+      throw new Error('This subagent does not advertise cancellation');
+    }
     const acp = await this.ensureAgent();
     acp.notify('session/cancel', { sessionId });
     this.cancelPermissions(s);
@@ -421,6 +504,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async setConfigOption(sessionId: string, configId: string, value: Json) {
+    this.assertNotNativeSubagent(sessionId);
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
     if (configId === 'model' && s.modelsFromSetModel) {
@@ -439,6 +523,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async setMode(sessionId: string, modeId: string) {
+    this.assertNotNativeSubagent(sessionId);
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
     await acp.request('session/set_mode', { sessionId, modeId }, 30000);
@@ -473,6 +558,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async closeSession(sessionId: string) {
+    this.assertNotNativeSubagent(sessionId);
     const s = this.sessions.get(sessionId);
     const acp = await this.ensureAgent();
     if (s?.running) await this.cancel(sessionId);
@@ -486,6 +572,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async deleteSession(sessionId: string) {
+    this.assertNotNativeSubagent(sessionId);
     const acp = await this.ensureAgent();
     await this.closeSession(sessionId).catch(() => undefined);
     if (!acp.initResult?.agentCapabilities?.sessionCapabilities?.delete) {
@@ -507,6 +594,40 @@ export class SessionManager extends EventEmitter {
     this.acp = null;
   }
 
+  private applySubagentUpdate(parent: Session, u: Json) {
+    const childId = typeof u.sessionId === 'string' ? u.sessionId : '';
+    if (!childId || childId === parent.sessionId) return;
+    let child = this.sessions.get(childId);
+    if (!child) {
+      child = this.getOrCreate(childId, typeof u.cwd === 'string' && u.cwd ? u.cwd : parent.cwd);
+      child.loaded = true;
+      child.createdAt = Date.now();
+    }
+    if (!child.subagent) {
+      child.subagent = { parentSessionId: parent.sessionId, title: null, description: null, cwd: null, additionalDirectories: null, capabilities: null, state: null };
+    }
+    const info = child.subagent;
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(u, k);
+    if (has('title')) info.title = typeof u.title === 'string' ? u.title : null;
+    if (has('description')) info.description = typeof u.description === 'string' ? u.description : null;
+    if (has('cwd')) {
+      info.cwd = typeof u.cwd === 'string' ? u.cwd : null;
+      child.cwd = typeof u.cwd === 'string' ? u.cwd : parent.cwd;
+    }
+    if (has('additionalDirectories')) info.additionalDirectories = Array.isArray(u.additionalDirectories) ? u.additionalDirectories.filter((x: Json) => typeof x === 'string') : null;
+    if (has('capabilities')) info.capabilities = u.capabilities ?? null;
+    if (has('state')) {
+      info.state = u.state ?? null;
+      if (u.state && typeof u.state === 'object') {
+        child.lastStopReason = u.state.stopReason ?? null;
+        child.lastError = u.state.stopReason === 'error' ? String(u.state.error?.message ?? 'Subagent work failed') : null;
+      }
+    }
+    this.nativeSubagents.set(childId, child);
+    child.updatedAt = Date.now();
+    this.emit('state', child.summary());
+  }
+
   private onTurnStats(params: Json) {
     const s = this.sessions.get(params?.sessionId);
     if (!s || !Array.isArray(params.responseDimensions)) return;
@@ -522,6 +643,10 @@ export class SessionManager extends EventEmitter {
     const s = this.sessions.get(params.sessionId);
     if (!s) return;
     const u = params.update ?? {};
+    if (u.sessionUpdate === 'subagent_update') {
+      this.applySubagentUpdate(s, u);
+      return;
+    }
     switch (u.sessionUpdate) {
       case 'config_option_update':
         if (Array.isArray(u.configOptions)) s.setConfigOptions(u.configOptions);
