@@ -101,8 +101,8 @@ export function delegationContract(link: SessionLink, applied: AppliedSettings |
     `Harness: ${link.harnessId}${settings ? ` (${settings})` : ''}`,
     `Work path: ${link.cwd}`,
     `Base SHA: ${link.baseSha ?? 'unknown'}`,
-    `Branch: ${link.branch ?? 'none'}`,
-    'Scope: stay inside the work path and branch above; if the task or transcript names owned files, interfaces, or verification commands, treat them as fixed. Before finishing, run the narrowest relevant verification and report the exact commands and results.',
+    `Branch: ${link.branch ?? 'n/a'}`,
+    `Scope: stay inside the work path${link.branch ? ` and branch ${link.branch}` : ''}; if the task or transcript names owned files, interfaces, or verification commands, treat them as fixed. Before finishing, run the narrowest relevant verification and report the exact commands and results.`,
   ].join('\n') + '\n';
 }
 
@@ -182,7 +182,7 @@ function compactEvents(s: Session | undefined, sinceSeq: number, limit = 100): J
       if (u.status) out.status = u.status;
       if (u.toolCallId) out.toolCallId = u.toolCallId;
       if (kind === 'agent_message_chunk' || kind === 'user_message_chunk') {
-        const t = text(u.content).trim();
+        const t = text(u.content);
         if (t) out.text = t.length > 1000 ? `${t.slice(0, 1000)}…` : t;
       }
       if (kind === '_turn_end' && u.stopReason) out.stopReason = u.stopReason;
@@ -227,6 +227,16 @@ export function buildHandoffPrompt(fromHarness: string, s: Session, instruction?
 export async function gitHead(cwd: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync('git', ['-C', cwd, 'rev-parse', '--verify', 'HEAD'], { timeout: 10000 });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Current branch of the repo containing `cwd`, or null when it is not a git repo or is detached. */
+export async function gitBranch(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', cwd, 'branch', '--show-current'], { timeout: 10000 });
     return stdout.trim() || null;
   } catch {
     return null;
@@ -281,7 +291,7 @@ export async function removeWorktree(repoCwd: string, wt: { path: string; branch
  */
 export class Orchestrator extends EventEmitter {
   private links = new Map<string, SessionLink>();
-  /** Child sessions started by this process, so status peeks never trigger a session/load. */
+  /** Child sessions started by this process, kept after completion so detail() can keep serving compact progress events without a session/load. */
   private children = new Map<string, Session>();
   private file: string;
   /** How long a delegation waits for the child's turn before cancelling it. */
@@ -462,7 +472,7 @@ export class Orchestrator extends EventEmitter {
       task,
       cwd: worktree?.path ?? cwd,
       worktree: worktree?.path ?? null,
-      branch: worktree?.branch ?? null,
+      branch: worktree?.branch ?? (await gitBranch(cwd)),
       model,
       baseSha: worktree ? (worktree.baseSha ?? null) : await gitHead(cwd),
       applied,
@@ -509,8 +519,7 @@ export class Orchestrator extends EventEmitter {
           output: lastAgentReply(child) || null,
           lastActivity: activityOf(child),
         });
-      })
-      .finally(() => this.children.delete(link.id));
+      });
     return { link, done };
   }
 

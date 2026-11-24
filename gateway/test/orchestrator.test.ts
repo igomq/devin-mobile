@@ -112,6 +112,7 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     assert.match(contract, /\[uniharn delegation contract\]/);
     assert.match(contract, new RegExp(`Base SHA: ${link.baseSha}`));
     assert.match(contract, /Work path: .*\.uniharn\/worktrees\//);
+    assert.match(contract, new RegExp(`Branch: ${link.branch}`));
     assert.equal(finished.status, 'done');
     assert.equal(finished.stopReason, 'end_turn');
     assert.match(finished.output ?? '', /^beta did write docs cwd=.*\.uniharn\/worktrees\//);
@@ -135,6 +136,13 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     const { link: free, done: freeDone } = await orchestrator.delegate(null, 'alpha', 'lint', { cwd: repo });
     await freeDone;
     assert.equal(orchestrator.get(free.id)?.parentSessionId, '');
+    assert.equal(orchestrator.get(free.id)?.branch, 'main');
+    const freeContract = delegationContract(orchestrator.get(free.id)!, orchestrator.get(free.id)!.applied);
+    assert.match(freeContract, /Branch: main/);
+    const freeProgress = await orchestrator.detail(free.id, { sinceSeq: 0, limit: 500 });
+    const freeText = (freeProgress?.events ?? []).filter((e: any) => e.sessionUpdate === 'agent_message_chunk').map((e: any) => e.text).join('');
+    assert.match(freeText, /lint cwd=/);
+    assert.ok((freeProgress?.events ?? []).some((e: any) => e.sessionUpdate === '_turn_end'));
     assert.match(orchestrator.get(free.id)?.output ?? '', /^alpha did lint cwd=.*repo$/);
     const worktrees = () => execFileSync('git', ['-C', repo, 'worktree', 'list']).toString();
     const branches = () => execFileSync('git', ['-C', repo, 'branch']).toString();
@@ -240,6 +248,9 @@ test('summaries drop task, output and error text and filter by session, status a
     assert.deepEqual(summarizeLink(orchestrator.get(b.link.id)!).title, 'explode');
     assert.match(orchestrator.get(b.link.id)?.error ?? '', /^Subagent turn failed: model overloaded/);
     assert.equal(orchestrator.get(b.link.id)?.cancelled, false);
+    const bContract = delegationContract(orchestrator.get(b.link.id)!, orchestrator.get(b.link.id)!.applied);
+    assert.match(bContract, /Branch: n\/a/);
+    assert.doesNotMatch(bContract, /Branch: none/);
   } finally {
     cleanup();
   }
@@ -285,6 +296,9 @@ test('a wait timeout cancels the child session and records it on the link', asyn
     const snapshot = (await orchestrator.detail(link.id))?.lastActivity;
     assert.equal(snapshot?.running, false);
     assert.equal(snapshot?.lastEvent?.sessionUpdate, '_turn_end');
+    const after = await orchestrator.detail(link.id, { sinceSeq: 0, limit: 500 });
+    assert.ok((after?.events?.length ?? 0) > 0);
+    assert.ok(after?.events?.some((e: any) => e.sessionUpdate === '_turn_end'));
     assert.equal(await orchestrator.detail('missing'), undefined);
 
     beta.cancel = async () => {
