@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
 import { HarnessRegistry } from '../src/harnesses/registry.js';
-import { Orchestrator, buildHandoffPrompt, buildTranscript, delegationContract, lastAgentReply, summarizeLink } from '../src/orchestrator.js';
+import { Orchestrator, buildHandoffPrompt, buildTranscript, delegationContract, lastAgentReply, summarizeLink, waitForTurn } from '../src/orchestrator.js';
 import { SubagentSettings } from '../src/subagents.js';
 
 function echoAgent(dir: string, name: string): string {
@@ -23,7 +23,7 @@ const rl = require('node:readline').createInterface({ input: process.stdin });
 const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
 rl.on('line', (line) => {
   const msg = JSON.parse(line);
-  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: true, delete: true } } } });
   else if (msg.method === 'session/new') { const id = '${name}-' + (++n); cwds[id] = msg.params.cwd; out({ id: msg.id, result: { sessionId: id } }); }
   else if (msg.method === 'session/cancel') { const id = hung[msg.params.sessionId]; if (id !== undefined) out({ id, result: { stopReason: 'cancelled' } }); }
   else if (msg.method === 'session/prompt') {
@@ -143,6 +143,18 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     const freeText = (freeProgress?.events ?? []).filter((e: any) => e.sessionUpdate === 'agent_message_chunk').map((e: any) => e.text).join('');
     assert.match(freeText, /lint cwd=/);
     assert.ok((freeProgress?.events ?? []).some((e: any) => e.sessionUpdate === '_turn_end'));
+    const { nativeId: freeNative } = registry.resolveSession(free.childSessionId);
+    const freeSession = await registry.require('alpha').ensureLoaded(freeNative);
+    const freeSeq = freeSession.seq;
+    await registry.require('alpha').prompt(freeNative, 'follow up');
+    await waitForTurn(freeSession, freeSeq, 1000);
+    const afterFollowUp = await orchestrator.detail(free.id, { sinceSeq: 0, limit: 500 });
+    assert.equal((afterFollowUp?.events ?? []).filter((e: any) => e.sessionUpdate === '_turn_end').length, 1);
+    assert.doesNotMatch((afterFollowUp?.events ?? []).map((e: any) => e.text ?? '').join(''), /follow up|alpha did follow up/);
+    await registry.require('alpha').deleteSession(freeNative);
+    const deletedProgress = await orchestrator.detail(free.id, { sinceSeq: 0, limit: 500 });
+    assert.deepEqual(deletedProgress?.events, []);
+    assert.ok(deletedProgress?.lastActivity);
     assert.match(orchestrator.get(free.id)?.output ?? '', /^alpha did lint cwd=.*repo$/);
     const worktrees = () => execFileSync('git', ['-C', repo, 'worktree', 'list']).toString();
     const branches = () => execFileSync('git', ['-C', repo, 'branch']).toString();

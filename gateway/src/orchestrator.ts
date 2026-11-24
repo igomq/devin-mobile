@@ -167,12 +167,12 @@ export function lastAgentReply(s: Session): string {
 }
 
 /** Compact child-session events after `sinceSeq`, for incremental delegation polling. */
-function compactEvents(s: Session | undefined, sinceSeq: number, limit = 100): Json[] {
+function compactEvents(s: Session | undefined, sinceSeq: number, limit = 100, endSeq?: number): Json[] {
   if (!s) return [];
   const after = Math.max(0, sinceSeq);
   const n = Math.min(Math.max(0, limit), 500);
   return s.events
-    .filter((e) => e.seq > after)
+    .filter((e) => e.seq > after && (endSeq === undefined || e.seq <= endSeq))
     .slice(0, n)
     .map((e) => {
       const u = e.update ?? {};
@@ -293,12 +293,15 @@ export class Orchestrator extends EventEmitter {
   private links = new Map<string, SessionLink>();
   /** Child sessions started by this process, kept after completion so detail() can keep serving compact progress events without a session/load. */
   private children = new Map<string, Session>();
+  /** Last event seq belonging to the delegation turn, so later chat turns on the same session are not reported as progress. */
+  private eventEnd = new Map<string, number>();
   private file: string;
   /** How long a delegation waits for the child's turn before cancelling it. */
   turnTimeoutMs = 60 * 60 * 1000;
 
   constructor(private registry: HarnessRegistry, dataDir: string, private settings: SubagentSettings | null = null) {
     super();
+    this.registry.on('deleted', (sessionId: string) => this.forgetSession(sessionId));
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     this.file = join(dataDir, 'orchestration.json');
     if (existsSync(this.file)) {
@@ -320,6 +323,10 @@ export class Orchestrator extends EventEmitter {
   }
 
   private update(link: SessionLink, patch: Partial<SessionLink>) {
+    if (patch.status === 'done' || patch.status === 'error') {
+      const child = this.children.get(link.id);
+      if (child) this.eventEnd.set(link.id, child.seq);
+    }
     Object.assign(link, patch, { updatedAt: Date.now() });
     this.save();
     this.emit('link', { ...link });
@@ -332,6 +339,16 @@ export class Orchestrator extends EventEmitter {
         ok: link.status === 'done',
         summary: (link.error ?? link.output ?? '').slice(0, 500),
       });
+    }
+  }
+
+  /** Drops live child references when the session itself is deleted, so progress polling cannot resurrect it. */
+  private forgetSession(sessionId: string) {
+    for (const link of this.links.values()) {
+      if (link.childSessionId === sessionId) {
+        this.children.delete(link.id);
+        this.eventEnd.delete(link.id);
+      }
     }
   }
 
@@ -355,7 +372,7 @@ export class Orchestrator extends EventEmitter {
     const link = this.links.get(id);
     if (!link) return undefined;
     const lastActivity = link.lastActivity ?? activityOf(this.children.get(id));
-    const events = typeof opts.sinceSeq === 'number' ? compactEvents(this.children.get(id), opts.sinceSeq, opts.limit ?? 100) : undefined;
+    const events = typeof opts.sinceSeq === 'number' ? compactEvents(this.children.get(id), opts.sinceSeq, opts.limit ?? 100, this.eventEnd.get(id)) : undefined;
     return { ...link, lastActivity, ...(events ? { events } : {}) };
   }
 
