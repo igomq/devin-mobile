@@ -39,7 +39,8 @@
     link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
     merge: 'M6 8a2 2 0 100-4 2 2 0 000 4zM6 8v12M18 18a2 2 0 100-4 2 2 0 000 4zM6 8c0 5 6 6 10 7',
     qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18v2M18 14h2',
-    device: 'M8 3h8a1 1 0 011 1v16a1 1 0 01-1 1H8a1 1 0 01-1-1V4a1 1 0 011-1zM11 18h2'
+    device: 'M8 3h8a1 1 0 011 1v16a1 1 0 01-1 1H8a1 1 0 01-1-1V4a1 1 0 011-1zM11 18h2',
+    subagents: 'M12 9a3 3 0 100-6 3 3 0 000 6zM5 21a3 3 0 100-6 3 3 0 000 6zM19 21a3 3 0 100-6 3 3 0 000 6zM12 9v3M12 12l-5 3.3M12 12l5 3.3'
   };
   let { name, size = 22 }: { name: keyof typeof paths; size?: number } = $props();
 </script>

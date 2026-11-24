@@ -120,10 +120,9 @@
 
 {#if entries.length}
   {#if compact}
-    <button class="subagent-chip" onclick={() => (sheet = true)} aria-label="Subagents">
-      <Icon name="list" size={15} />
-      <span>Subagents</span>
-      {#if active.length}<b>{active.length}</b>{/if}
+    <button class="iconbtn subagent-btn" onclick={() => (sheet = true)} aria-label={active.length ? `Subagents: ${active.length} active` : 'Subagents'} title="Subagents">
+      <Icon name="subagents" />
+      {#if active.length}<b class="badge">{active.length}</b>{/if}
     </button>
   {:else}
     <div class="subagents">
@@ -209,29 +208,20 @@
 {/if}
 
 <style>
-  .subagent-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 10px;
-    border-radius: 999px;
-    background: var(--fill);
-    color: var(--text-2);
-    font-size: 12px;
-    font-weight: 600;
-  }
-  .subagent-chip b {
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
+  /* Compact trigger: a bare icon button for the chat header's glass group, with an active-count badge. */
+  .badge {
+    position: absolute;
+    top: 3px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
     border-radius: 999px;
     background: var(--accent);
     color: var(--on-accent, #fff);
-    font: 700 11px var(--mono);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    font: 700 10px/16px var(--mono);
+    text-align: center;
+    pointer-events: none;
   }
   .subagents {
     border: 1px solid var(--line);

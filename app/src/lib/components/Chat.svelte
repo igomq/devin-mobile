@@ -17,7 +17,6 @@
   import ToolCall from './ToolCall.svelte';
   import Permission from './Permission.svelte';
   import SessionControls from './SessionControls.svelte';
-  import { isModelOption, modelLabel } from '#lib/models.ts';
   import { effortControl, fastControl } from '#lib/quickControls.ts';
   import { compact } from '#lib/usage.ts';
 
@@ -35,7 +34,6 @@
     if (text) setStorageItem(draftSuffix, text);
     else removeStorageItem(draftSuffix);
   });
-  let model = $derived(modelLabel(st.configOptions?.find(isModelOption)));
   let harnessLabel = $derived.by(() => {
     const known = app.sessions.find((s) => s.id === id);
     const hid = known?.harnessId ?? (id.includes(':') ? id.slice(0, id.indexOf(':')) : 'devin');
@@ -106,16 +104,32 @@
   let levels = $derived(effort?.levels ?? []);
   let effortDraft = $state<number | null>(null);
   let effortShown = $derived(effortDraft ?? effort?.index ?? -1);
-  // "Medium (default)" reads as "Medium" in the composer.
-  let effortText = $derived(levels[effortShown] ? levels[effortShown].name.replace(/\s*\(.*\)\s*$/, '').trim() || levels[effortShown].value : String(effortOpt?.currentValue ?? 'Default'));
-  // Reserve the label's width for the longest level name so the pill never resizes mid-drag
-  // (a wrap reflow would move the track under the pointer).
-  let effortLabelW = $derived(Math.max(2, ...levels.map((l) => (l.name.replace(/\s*\(.*\)\s*$/, '').trim() || l.value).length)));
+  // "Medium (default)" reads as "Medium".
+  const levelName = (i: number) => (levels[i] ? levels[i].name.replace(/\s*\(.*\)\s*$/, '').trim() || levels[i].value : '');
+  let effortText = $derived(levels[effortShown] ? levelName(effortShown) : String(effortOpt?.currentValue ?? 'Default'));
   let effortPct = $derived(levels.length > 1 && effortShown >= 0 ? (effortShown / (levels.length - 1)) * 100 : 0);
   let fast = $derived(fastControl(st.configOptions, effortOpt));
   let fastPending = $state<boolean | null>(null);
   let fastOn = $derived(fastPending ?? fast?.on ?? false);
   let quickBusy = $state(false);
+  let hasQuick = $derived(!!fast || (!!effortOpt && levels.length > 1));
+  // Composer gauge: the needle and arc follow the effort level; the popover holds the slider and the fast switch.
+  let gaugeOpen = $state(false);
+  let gaugeBtn = $state<HTMLElement>();
+  let gaugePanel = $state<HTMLElement>();
+  let gaugeFill = $derived(effortOpt && levels.length > 1 ? Math.max(4, effortPct) : 0);
+  let gaugeAngle = $derived(-90 + (gaugeFill / 100) * 180);
+  $effect(() => {
+    if (!hasQuick) gaugeOpen = false;
+  });
+  function outsideGauge(e: PointerEvent) {
+    if (!gaugeOpen) return;
+    const t = e.target as Node;
+    if (gaugePanel?.contains(t) || gaugeBtn?.contains(t)) return;
+    gaugeOpen = false;
+  }
+  // Modes that skip approvals tint the shield, so full access is visible at a glance.
+  let openMode = $derived(!!mode && /bypass|full|yolo|danger|auto|accept/i.test(`${mode.id} ${mode.name}`));
   let quickDisabled = $derived(quickBusy || !view?.ready || conn.status !== 'online');
 
   async function setOption(configId: string, value: string | boolean) {
@@ -337,6 +351,11 @@
 
   // Esc stops the running turn, like the Devin and Claude Code TUIs, unless a sheet is open.
   function windowKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && gaugeOpen) {
+      gaugeOpen = false;
+      gaugeBtn?.focus();
+      return;
+    }
     if (e.key === 'Escape' && busy && !e.defaultPrevented && !document.querySelector('[aria-modal="true"]')) stop();
   }
 
@@ -359,7 +378,7 @@
   }
 </script>
 
-<svelte:window onkeydown={windowKey} />
+<svelte:window onkeydown={windowKey} onpointerdown={outsideGauge} />
 <AttachmentViewer bind:item={viewing} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -375,6 +394,7 @@
       </small>
     </button>
     <div class="glass-group glass">
+      <SubagentsPanel sessionId={id} compact />
       <button class="iconbtn diffbtn" class:has={changes && changes.files} onclick={() => go('#/s/' + encodeURIComponent(id) + '/changes')} aria-label={changes?.files ? `Changes: ${changes.files} files, ${changes.added} added, ${changes.removed} removed lines` : 'Changes'}>
         {#if changes && changes.files}
           <span class="plus">+{changes.added}</span><span class="minus">−{changes.removed}</span>
@@ -507,43 +527,14 @@
           <span class="ctxt">{compact(ctx.used)}/{compact(ctx.size)} · {ctxPct}%</span>
         </button>
       {/if}
-      <div class="box glass" class:dropping>
-        {#if images.length || docs.length}
-          <div class="thumbs">
-            {#each images as img, i (img.url)}
-              <span class="thumb">
-                <button class="pic" onclick={() => (viewing = { kind: 'image', src: img.url, name: img.name })} aria-label="View image"><img src={img.url} alt={img.name} /></button>
-                <button aria-label="Remove image" onclick={() => removeImage(i)}><Icon name="x" size={12} /></button>
-              </span>
-            {/each}
-            {#each docs as f, i}
-              <span class="thumb">
-                <button class="filechip" onclick={() => (viewing = { kind: 'text', ...f })}><Icon name="file" size={14} /><span>{f.name}</span></button>
-                <button aria-label="Remove file" onclick={() => docs.splice(i, 1)}><Icon name="x" size={12} /></button>
-              </span>
-            {/each}
-          </div>
-        {/if}
-        <textarea
-          bind:this={input}
-          bind:value={text}
-          oninput={autosize}
-          onkeydown={keydown}
-          {onpaste}
-          rows="1"
-          placeholder={dropping ? 'Drop images or text files to attach' : busy ? `Add instructions while ${harnessLabel} works…` : `Message ${harnessLabel}`}
-          aria-label="Message"
-          disabled={!view?.ready}
-        ></textarea>
-        <div class="subagent-dock"><SubagentsPanel sessionId={id} compact /></div>
-        <div class="bar">
-          <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image or text file"><Icon name="plus" size={18} /></button>
-          <input bind:this={fileInput} type="file" accept="image/*,text/*,.md,.markdown,.txt,.log,.csv,.json,.yaml,.yml,.toml" multiple hidden onchange={onfiles} />
-          <button class="chip" onclick={() => (controls = true)}>{mode?.name ?? 'Mode'}</button>
-          {#if model}<button class="chip model" onclick={() => (controls = true)} title={model}><span>{model}</span></button>{/if}
-          {#if effortOpt && levels.length > 1}
-            <div class="effort" class:busy={effortDraft !== null} title={effortOpt.name}>
-              <Icon name="brain" size={13} />
+      <div class="composer">
+        {#if gaugeOpen && hasQuick}
+          <div class="quick glass-heavy" bind:this={gaugePanel} role="dialog" aria-label="Reasoning and speed">
+            {#if effortOpt && levels.length > 1}
+              <div class="qrow">
+                <span class="qlabel"><Icon name="brain" size={15} />{effortOpt.name || 'Reasoning effort'}</span>
+                <b class="qval" class:busy={effortDraft !== null}>{effortText}</b>
+              </div>
               <span class="track" style:--pct={effortPct + '%'}>
                 <span class="rail" aria-hidden="true"><i></i></span>
                 <span class="ticks" aria-hidden="true">{#each levels as lv, i (lv.value)}<i class:lit={i <= effortShown}></i>{/each}</span>
@@ -560,21 +551,78 @@
                   onchange={(e) => commitEffort(+e.currentTarget.value)}
                 />
               </span>
-              <span class="elabel" style:min-width={effortLabelW + 'ch'} aria-hidden="true">{effortText}</span>
+              <div class="qscale" aria-hidden="true"><span>{levelName(0)}</span><span>{levelName(levels.length - 1)}</span></div>
+            {/if}
+            {#if fast}
+              <button class="qrow fast" class:on={fastOn} role="switch" aria-checked={fastOn} aria-label={fast.option.name || 'Fast mode'} disabled={quickDisabled} onclick={toggleFast}>
+                <span class="qlabel"><Icon name="bolt" size={15} />{fast.option.name || 'Fast mode'}</span>
+                <span class="sw" aria-hidden="true"><i></i></span>
+              </button>
+            {/if}
+          </div>
+        {/if}
+        <div class="box glass" class:dropping>
+          {#if images.length || docs.length}
+            <div class="thumbs">
+              {#each images as img, i (img.url)}
+                <span class="thumb">
+                  <button class="pic" onclick={() => (viewing = { kind: 'image', src: img.url, name: img.name })} aria-label="View image"><img src={img.url} alt={img.name} /></button>
+                  <button aria-label="Remove image" onclick={() => removeImage(i)}><Icon name="x" size={12} /></button>
+                </span>
+              {/each}
+              {#each docs as f, i}
+                <span class="thumb">
+                  <button class="filechip" onclick={() => (viewing = { kind: 'text', ...f })}><Icon name="file" size={14} /><span>{f.name}</span></button>
+                  <button aria-label="Remove file" onclick={() => docs.splice(i, 1)}><Icon name="x" size={12} /></button>
+                </span>
+              {/each}
             </div>
           {/if}
-          {#if fast}
-            <button class="chip fast" class:on={fastOn} role="switch" aria-checked={fastOn} aria-label={fast.option.name || 'Fast mode'} title={fast.option.name} disabled={quickDisabled} onclick={toggleFast}>
-              <Icon name="bolt" size={13} /><span class="sw" aria-hidden="true"><i></i></span>
+          <textarea
+            bind:this={input}
+            bind:value={text}
+            oninput={autosize}
+            onkeydown={keydown}
+            {onpaste}
+            rows="1"
+            placeholder={dropping ? 'Drop images or text files to attach' : busy ? `Add instructions while ${harnessLabel} works…` : `Message ${harnessLabel}`}
+            aria-label="Message"
+            disabled={!view?.ready}
+          ></textarea>
+          <div class="bar">
+            <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image or text file"><Icon name="plus" size={18} /></button>
+            <input bind:this={fileInput} type="file" accept="image/*,text/*,.md,.markdown,.txt,.log,.csv,.json,.yaml,.yml,.toml" multiple hidden onchange={onfiles} />
+            <button class="round tool" class:open-mode={openMode} onclick={() => (controls = true)} aria-label="Permission mode: {mode?.name ?? 'default'}. Open session settings" title={mode?.name ?? 'Permission mode'}>
+              <Icon name="shield" size={18} />
             </button>
-          {/if}
-          <span class="grow"></span>
-          {#if busy}
-            <button class="round stop" onclick={stop} aria-label="Stop" title="Stop (Esc)"><Icon name="stop" size={15} /></button>
-          {/if}
-          {#if !busy || text.trim() || images.length || docs.length}
-            <button class="round send" onclick={send} disabled={(!text.trim() && !images.length && !docs.length) || sending || conn.status !== 'online'} aria-label="Send"><Icon name="send" size={18} /></button>
-          {/if}
+            <span class="grow"></span>
+            {#if hasQuick}
+              <button
+                bind:this={gaugeBtn}
+                class="round tool gauge"
+                class:on={gaugeOpen}
+                onclick={() => (gaugeOpen = !gaugeOpen)}
+                aria-haspopup="dialog"
+                aria-expanded={gaugeOpen}
+                aria-label="Reasoning: {effortOpt && levels.length > 1 ? effortText : 'default'}{fast ? `, fast mode ${fastOn ? 'on' : 'off'}` : ''}"
+                title="Reasoning and speed"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke-linecap="round" aria-hidden="true">
+                  <path class="arc-bg" d="M4.5 16.5a7.5 7.5 0 1115 0" pathLength="100" />
+                  <path class="arc" d="M4.5 16.5a7.5 7.5 0 1115 0" pathLength="100" stroke-dasharray="{gaugeFill} 100" />
+                  <line class="needle" x1="12" y1="16.5" x2="12" y2="10.5" style:transform="rotate({gaugeAngle}deg)" />
+                  <circle class="hub" cx="12" cy="16.5" r="1.6" />
+                </svg>
+                {#if fastOn}<span class="fastdot" aria-hidden="true"><Icon name="bolt" size={9} /></span>{/if}
+              </button>
+            {/if}
+            {#if busy}
+              <button class="round stop" onclick={stop} aria-label="Stop" title="Stop (Esc)"><Icon name="stop" size={15} /></button>
+            {/if}
+            {#if !busy || text.trim() || images.length || docs.length}
+              <button class="round send" onclick={send} disabled={(!text.trim() && !images.length && !docs.length) || sending || conn.status !== 'online'} aria-label="Send"><Icon name="send" size={18} /></button>
+            {/if}
+          </div>
         </div>
       </div>
     </div>
@@ -853,11 +901,6 @@
   .dock-inner > * {
     pointer-events: auto;
   }
-  .subagent-dock {
-    display: flex;
-    justify-content: flex-start;
-    margin-bottom: 8px;
-  }
   .perms {
     display: flex;
     flex-direction: column;
@@ -1019,28 +1062,80 @@
   .ctxm.full .ctxbar i {
     background: var(--red);
   }
-  /* Quick controls, inline in the bar: compact reasoning effort slider and fast switch. */
-  .effort {
-    flex: 0 1 auto;
-    min-width: 0;
+  /* Reasoning and speed: a gauge button in the bar opens this popover above the composer. */
+  .composer {
+    position: relative;
+  }
+  .quick {
+    position: absolute;
+    right: 4px;
+    bottom: calc(100% + 8px);
+    z-index: 2;
+    width: min(300px, calc(100vw - 32px - var(--safe-left) - var(--safe-right)));
+    padding: 14px 16px 12px;
+    border-radius: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transform-origin: calc(100% - 60px) 100%;
+    animation: materialize 0.2s var(--ease-out);
+  }
+  .qrow {
     display: flex;
     align-items: center;
-    gap: 4px;
-    height: 32px;
-    padding: 0 10px 0 9px;
-    border-radius: 999px;
-    background: var(--fill);
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 28px;
+    width: 100%;
+    text-align: left;
+  }
+  .qlabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .qlabel :global(svg) {
+    flex: none;
+  }
+  .qval {
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--text);
+  }
+  .qval.busy {
     color: var(--text-2);
   }
-  .effort > :global(svg) {
-    flex: none;
+  .qscale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-3);
+    margin-bottom: 4px;
+  }
+  .qrow.fast {
+    min-height: 44px;
+    margin-top: 2px;
+    border-top: 1px solid var(--line);
+    padding-top: 4px;
+  }
+  .qrow.fast:disabled {
+    opacity: 0.6;
+  }
+  .qrow.fast.on > .qlabel {
+    color: var(--text);
+  }
+  .qrow.fast.on > .qlabel :global(svg) {
+    color: var(--amber);
   }
   .track {
     position: relative;
-    flex: 0 1 110px;
-    width: 110px;
-    min-width: 56px;
+    display: block;
     height: 32px;
+    margin: 2px -2px 0;
   }
   .rail {
     position: absolute;
@@ -1131,33 +1226,8 @@
   .track input:focus-visible::-moz-range-thumb {
     box-shadow: 0 0 0 4px var(--accent-soft), 0 0 0 1px var(--line-strong);
   }
-  .elabel {
-    flex: none;
-    max-width: 5.5em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .effort.busy .elabel {
-    color: var(--text-2);
-  }
-  .fast {
-    flex: none;
-    height: 32px;
-    gap: 4px;
-    padding: 0 8px 0 9px;
-    background: var(--fill);
-  }
-  .fast.on {
-    color: var(--text);
-  }
-  .fast.on > :global(svg) {
-    color: var(--amber);
-  }
   .sw {
+    flex: none;
     position: relative;
     width: 22px;
     height: 14px;
@@ -1175,26 +1245,62 @@
     background: var(--text-3);
     transition: translate 0.25s var(--ease-spring), background-color 0.2s ease;
   }
-  .fast.on .sw {
+  .qrow.fast.on .sw {
     background: var(--accent);
   }
-  .fast.on .sw i {
+  .qrow.fast.on .sw i {
     translate: 8px 0;
     background: var(--on-accent);
   }
-  .chip {
-    height: 32px;
+  .round.tool {
+    position: relative;
+    color: var(--text-2);
+  }
+  .round.tool:active:not(:disabled),
+  .round.tool.on {
     background: var(--fill);
+    color: var(--text);
   }
-  .chip.model {
-    min-width: 0;
-    max-width: 46%;
-    flex-shrink: 1;
+  .round.tool.open-mode {
+    color: var(--amber);
   }
-  .chip.model span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .gauge svg {
+    width: 20px;
+    height: 20px;
+  }
+  .gauge .arc-bg {
+    stroke: var(--fill-2);
+    stroke-width: 2.4;
+  }
+  .gauge .arc {
+    stroke: var(--accent);
+    stroke-width: 2.4;
+    transition: stroke-dasharray 0.25s var(--ease-out);
+  }
+  .gauge .needle {
+    stroke: currentColor;
+    stroke-width: 1.8;
+    transform-box: view-box;
+    transform-origin: 12px 16.5px;
+    transition: transform 0.25s var(--ease-out);
+  }
+  .gauge .hub {
+    fill: currentColor;
+  }
+  .fastdot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--amber);
+    color: var(--bg);
+  }
+  .fastdot :global(svg) {
+    stroke-width: 2.6;
   }
   .round {
     width: 36px;
