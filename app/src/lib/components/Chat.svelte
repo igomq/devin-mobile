@@ -535,37 +535,6 @@
           aria-label="Message"
           disabled={!view?.ready}
         ></textarea>
-        {#if (effortOpt && levels.length > 1) || fast}
-          <div class="quick">
-            {#if effortOpt && levels.length > 1}
-              <div class="effort" class:busy={effortDraft !== null} title={effortOpt.name}>
-                <Icon name="brain" size={14} />
-                <span class="track" style:--pct={effortPct + '%'}>
-                  <span class="rail" aria-hidden="true"><i></i></span>
-                  <span class="ticks" aria-hidden="true">{#each levels as lv, i (lv.value)}<i class:lit={i <= effortShown}></i>{/each}</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max={levels.length - 1}
-                    step="1"
-                    value={Math.max(0, effortShown)}
-                    disabled={quickDisabled}
-                    aria-label={effortOpt.name || 'Reasoning effort'}
-                    aria-valuetext={effortText}
-                    oninput={(e) => (effortDraft = +e.currentTarget.value)}
-                    onchange={(e) => commitEffort(+e.currentTarget.value)}
-                  />
-                </span>
-                <span class="elabel" aria-hidden="true">{effortText}</span>
-              </div>
-            {/if}
-            {#if fast}
-              <button class="chip fast" class:on={fastOn} role="switch" aria-checked={fastOn} aria-label={fast.option.name || 'Fast mode'} title={fast.option.name} disabled={quickDisabled} onclick={toggleFast}>
-                <Icon name="bolt" size={14} />Fast<span class="sw" aria-hidden="true"><i></i></span>
-              </button>
-            {/if}
-          </div>
-        {/if}
         <div class="subagent-dock"><SubagentsPanel sessionId={id} compact /></div>
         <div class="bar">
           <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image or text file"><Icon name="plus" size={18} /></button>
