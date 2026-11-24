@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
 import { HarnessRegistry } from '../src/harnesses/registry.js';
 import { Orchestrator } from '../src/orchestrator.js';
-import { SubagentSettings, delegationApprovalProblem, modeChoices, noteModels, recommendedDelegationMode, sessionRefs } from '../src/subagents.js';
+import { SubagentSettings, delegationApprovalProblem, effortOptionOf, modeChoices, noteModels, recommendedDelegationMode, sessionRefs } from '../src/subagents.js';
 
 /** Agent with a model option that records every set_config_option and the MCP env it got. */
 function modelAgent(dir: string, name: string, withModels = true): string {
@@ -267,4 +267,107 @@ test('recommendedDelegationMode ignores autonomy keywords in mode descriptions',
     ],
   };
   assert.equal(recommendedDelegationMode([mode], null)?.value, 'agent');
+});
+
+/** Devin-shaped agent: its thought_level values depend on the model, and `adaptive` has none. Stale values fail with Invalid params. */
+function effortAgent(dir: string, name: string): string {
+  const p = join(dir, name);
+  const log = join(dir, name + '.log');
+  writeFileSync(
+    p,
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+let n = 0;
+const levels = { swe: ['medium', 'high', 'max'], opus: ['low', 'medium', 'high', 'xhigh', 'max'], adaptive: [] };
+const state = {};
+const opts = (st) => [
+  { id: 'mode', category: 'mode', type: 'select', currentValue: 'accept-edits', options: [{ value: 'accept-edits', name: 'Code' }, { value: 'ask', name: 'Ask' }] },
+  { id: 'model', category: 'model', type: 'select', currentValue: st.model, options: Object.keys(levels).map((value) => ({ value })) },
+  ...(levels[st.model].length ? [{ id: 'thought_level', name: 'Thought level', type: 'select', currentValue: st.thought, options: levels[st.model].map((value) => ({ value })) }] : []),
+];
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
+rl.on('line', (line) => {
+  const msg = JSON.parse(line);
+  const st = state[msg.params?.sessionId];
+  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: true, delete: true } } } });
+  else if (msg.method === 'session/new') { const id = '${name}-' + (++n); state[id] = { model: 'swe', thought: 'high' }; out({ id: msg.id, result: { sessionId: id, configOptions: opts(state[id]) } }); }
+  else if (msg.method === 'session/set_config_option') {
+    const { configId, value } = msg.params;
+    fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ [configId]: value }) + '\\n');
+    const valid = configId === 'model' ? value in levels : configId === 'thought_level' ? levels[st.model].includes(value) : true;
+    if (!valid) return out({ id: msg.id, error: { code: -32602, message: 'Invalid params', data: 'Invalid value ' + value } });
+    if (configId === 'model') { st.model = value; st.thought = levels[value][1] ?? null; }
+    if (configId === 'thought_level') st.thought = value;
+    out({ id: msg.id, result: { configOptions: opts(st) } });
+  } else if (msg.method === 'session/prompt') {
+    out({ method: 'session/update', params: { sessionId: msg.params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'ok' } } } });
+    out({ id: msg.id, result: { stopReason: 'end_turn' } });
+  } else if (msg.id !== undefined) out({ id: msg.id, result: {} });
+});
+`,
+    { mode: 0o755 },
+  );
+  return p;
+}
+
+test('effortOptionOf finds Devin and Vibe effort options but not mode, model or single-value options', () => {
+  const mode = { id: 'mode', category: 'mode', options: [{ value: 'a' }, { value: 'b' }] };
+  const model = { id: 'model', category: 'model', options: [{ value: 'thinking-1' }, { value: 'thinking-2' }] };
+  const vibe = { id: 'thinking', name: 'Thinking', category: 'thinking', type: 'select', options: [{ value: 'low' }, { value: 'high' }, { value: 'max', name: 'Max' }] };
+  const devin = { id: 'thought_level', name: 'Thought level', options: [{ value: 'medium' }, { value: 'max' }] };
+  assert.equal(effortOptionOf([mode, model, vibe]), vibe);
+  assert.equal(effortOptionOf([mode, devin]), devin);
+  assert.equal(effortOptionOf([{ id: 'x', category: 'thought_level', options: [{ group: 'g', options: [{ value: 'a' }, { value: 'b' }] }] }])?.id, 'x');
+  assert.equal(effortOptionOf([{ id: 'reasoning', options: [{ value: 'only' }] }]), null);
+  assert.equal(effortOptionOf([mode, model]), null);
+});
+
+test('delegate validates model and effort against what the harness offers for that model', async () => {
+  const { dir, data, cleanup, registry } = setup();
+  registry.register(new AcpHarnessAdapter({ id: 'devinish', name: 'devinish', bin: effortAgent(dir, 'devinish'), acpArgs: [] }));
+  const orchestrator = new Orchestrator(registry, data, new SubagentSettings(data));
+  const sets = () => readFileSync(join(dir, 'devinish.log'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((l) => !('mode' in l));
+  const sessions = () => (registry.require('devinish') as AcpHarnessAdapter).manager.sessions.size;
+  try {
+    const ok = await orchestrator.delegate(null, 'devinish', 'review', { cwd: dir, model: 'opus', effort: 'xhigh' });
+    await ok.done;
+    assert.equal(orchestrator.get(ok.link.id)?.status, 'done');
+    assert.deepEqual(sets(), [{ model: 'opus' }, { thought_level: 'xhigh' }]);
+    assert.deepEqual(ok.link.applied, { model: 'opus', mode: 'accept-edits', config: { thought_level: 'xhigh' } });
+    assert.equal(ok.link.baseSha, null);
+
+    const before = sessions();
+    await assert.rejects(orchestrator.delegate(null, 'devinish', 'x', { cwd: dir, effort: 'xhigh' }), /does not offer effort xhigh \(offered: medium, high, max\)/);
+    await assert.rejects(orchestrator.delegate(null, 'devinish', 'x', { cwd: dir, model: 'adaptive', effort: 'high' }), /does not offer a reasoning effort choice for model adaptive/);
+    await assert.rejects(orchestrator.delegate(null, 'devinish', 'x', { cwd: dir, model: 'gpt' }), /does not offer model gpt \(offered: swe, opus, adaptive\)/);
+    await assert.rejects(orchestrator.delegate(null, 'alpha', 'x', { cwd: dir, effort: 'high' }), /alpha does not offer a reasoning effort choice/);
+    assert.equal(sessions(), before);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a saved effort the chosen model does not offer is skipped instead of failing with Invalid params', async () => {
+  const { dir, data, cleanup, registry } = setup();
+  registry.register(new AcpHarnessAdapter({ id: 'devinish', name: 'devinish', bin: effortAgent(dir, 'devinish'), acpArgs: [] }));
+  const settings = new SubagentSettings(data);
+  settings.setPolicy('devinish', { config: { thought_level: 'xhigh' } });
+  const orchestrator = new Orchestrator(registry, data, settings);
+  const sets = () => readFileSync(join(dir, 'devinish.log'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((l) => !('mode' in l));
+  try {
+    const adaptive = await orchestrator.delegate(null, 'devinish', 'a', { cwd: dir, model: 'adaptive' });
+    await adaptive.done;
+    assert.equal(orchestrator.get(adaptive.link.id)?.status, 'done');
+    assert.deepEqual(adaptive.link.applied?.config, {});
+    const swe = await orchestrator.delegate(null, 'devinish', 'b', { cwd: dir });
+    await swe.done;
+    assert.equal(orchestrator.get(swe.link.id)?.status, 'done');
+    const opus = await orchestrator.delegate(null, 'devinish', 'c', { cwd: dir, model: 'opus' });
+    await opus.done;
+    assert.deepEqual(opus.link.applied?.config, { thought_level: 'xhigh' });
+    assert.deepEqual(sets(), [{ model: 'adaptive' }, { model: 'opus' }, { thought_level: 'xhigh' }]);
+  } finally {
+    cleanup();
+  }
 });

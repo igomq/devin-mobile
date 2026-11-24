@@ -44,6 +44,23 @@ function optionValues(opt: Json): Json[] {
   return (opt?.options ?? []).flatMap((x: Json) => (Array.isArray(x?.options) ? x.options : [x])).filter((x: Json) => x && typeof x === 'object');
 }
 
+/** Values a select config option offers, flattened across groups. */
+export function optionValueIds(opt: Json): string[] {
+  return optionValues(opt).filter((x) => x.value !== undefined && x.value !== null).map((x) => String(x.value));
+}
+
+const EFFORT = /reason|effort|thought|thinking/i;
+
+/** Reasoning-effort option (Devin `thought_level`, Vibe `thinking`, ...), mirroring the app's `effortControl`. Its values can change with the model. */
+export function effortOptionOf(configOptions: Json[] | undefined): Json | null {
+  return (
+    (configOptions ?? []).find((o) => {
+      if (!o || o.category === 'model' || o.id === 'model' || o.category === 'mode' || o.id === 'mode') return false;
+      return (o.category === 'thought_level' || EFFORT.test(`${o.id ?? ''} ${o.name ?? ''} ${o.category ?? ''}`)) && optionValues(o).length >= 2;
+    }) ?? null
+  );
+}
+
 function sameJson(a: unknown, b: unknown) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -138,7 +155,7 @@ export function recommendedDelegationMode(configOptions: Json[] | undefined, mod
   return choices.map((c, i) => ({ c, i, s: score(c) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s || a.i - b.i)[0]?.c ?? null;
 }
 
-function currentModeChoice(configOptions: Json[] | undefined, modes: Json | null | undefined): Json | null {
+export function currentModeChoice(configOptions: Json[] | undefined, modes: Json | null | undefined): Json | null {
   const opt = modeConfigOption(configOptions);
   if (opt) {
     const current = optionValues(opt).find((v) => String(v?.value) === String(opt.currentValue)) ?? { value: opt.currentValue, name: String(opt.currentValue) };

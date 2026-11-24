@@ -7,7 +7,16 @@ import { promisify } from 'node:util';
 import type { HarnessRegistry } from './harnesses/registry.js';
 import { formatScopedSessionId } from './harnesses/registry.js';
 import type { Session } from './sessions.js';
-import { delegationApprovalProblem, findModeChoice, modelOptionOf, recommendedDelegationMode, type SubagentSettings } from './subagents.js';
+import {
+  currentModeChoice,
+  delegationApprovalProblem,
+  effortOptionOf,
+  findModeChoice,
+  modelOptionOf,
+  optionValueIds,
+  recommendedDelegationMode,
+  type SubagentSettings,
+} from './subagents.js';
 
 const execFileAsync = promisify(execFile);
 type Json = any;
@@ -27,12 +36,55 @@ export interface SessionLink {
   branch: string | null;
   /** Model the subagent was started with; null means the harness default. */
   model?: string | null;
+  /** Git HEAD the session (or its worktree) started from; null outside a git repo. */
+  baseSha?: string | null;
+  /** Settings actually in effect on the child before its first prompt. */
+  applied?: AppliedSettings;
   status: LinkStatus;
   output: string | null;
   stopReason: string | null;
   error: string | null;
+  /** True when uniharn cancelled the child session (e.g. after a wait timeout). */
+  cancelled?: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface AppliedSettings {
+  model: string | null;
+  mode: string | null;
+  config: Record<string, string | boolean>;
+}
+
+export type LinkSummary = Pick<
+  SessionLink,
+  'id' | 'kind' | 'parentSessionId' | 'childSessionId' | 'harnessId' | 'model' | 'status' | 'worktree' | 'branch' | 'createdAt' | 'updatedAt'
+> & { title: string };
+
+export interface LinkFilter {
+  sessionId?: string;
+  status?: string;
+  id?: string;
+}
+
+export const linkTitle = (task: string) => task.split('\n')[0].slice(0, 120);
+
+/** A link without its task, output and error text, for cheap polling. */
+export function summarizeLink(l: SessionLink): LinkSummary {
+  return {
+    id: l.id,
+    kind: l.kind,
+    parentSessionId: l.parentSessionId,
+    childSessionId: l.childSessionId,
+    harnessId: l.harnessId,
+    model: l.model ?? null,
+    status: l.status,
+    title: linkTitle(l.task),
+    worktree: l.worktree,
+    branch: l.branch,
+    createdAt: l.createdAt,
+    updatedAt: l.updatedAt,
+  };
 }
 
 function text(content: Json): string {
@@ -89,7 +141,7 @@ export function waitForTurn(s: Session, afterSeq: number, timeoutMs = 60 * 60 * 
         if (u?.sessionUpdate === '_turn_end') return resolve(u.stopReason ?? null);
         if (u?.sessionUpdate === '_turn_error') return reject(new Error(u.message ?? 'Turn failed'));
       }
-      if (Date.now() - started > timeoutMs) return reject(new Error('Timed out waiting for the subagent'));
+      if (Date.now() - started > timeoutMs) return reject(Object.assign(new Error('Timed out waiting for the subagent'), { _timeout: true }));
       setTimeout(tick, pollMs);
     };
     tick();
@@ -107,7 +159,20 @@ export function buildHandoffPrompt(fromHarness: string, s: Session, instruction?
   ].join('\n');
 }
 
-export async function createWorktree(repoCwd: string, id: string): Promise<{ path: string; branch: string }> {
+/** HEAD commit of the repo containing `cwd`, or null when it is not a git repo. */
+export async function gitHead(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', cwd, 'rev-parse', '--verify', 'HEAD'], { timeout: 10000 });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+const offeredText = (values: string[]) => (values.length > 20 ? `${values.slice(0, 20).join(', ')}, … ${values.length - 20} more` : values.join(', '));
+const duration = (ms: number) => (ms >= 60000 ? `${Math.round(ms / 60000)} minutes` : `${Math.round(ms / 1000)} seconds`);
+
+export async function createWorktree(repoCwd: string, id: string): Promise<{ path: string; branch: string; baseSha: string | null }> {
   const { stdout } = await execFileAsync('git', ['-C', repoCwd, 'rev-parse', '--show-toplevel'], { timeout: 10000 });
   const top = stdout.trim();
   const branch = `uniharn/sub-${id}`;
@@ -117,8 +182,9 @@ export async function createWorktree(repoCwd: string, id: string): Promise<{ pat
   mkdirSync(dirname(exclude), { recursive: true });
   const current = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
   if (!current.split('\n').includes('/.uniharn/')) appendFileSync(exclude, (current && !current.endsWith('\n') ? '\n' : '') + '/.uniharn/\n');
+  const baseSha = await gitHead(top);
   await execFileAsync('git', ['-C', top, 'worktree', 'add', '-b', branch, path], { timeout: 60000 });
-  return { path, branch };
+  return { path, branch, baseSha };
 }
 
 /** Removes a worktree and its branch created by {@link createWorktree}. */
@@ -133,7 +199,11 @@ export async function removeWorktree(repoCwd: string, wt: { path: string; branch
  */
 export class Orchestrator extends EventEmitter {
   private links = new Map<string, SessionLink>();
+  /** Child sessions started by this process, so status peeks never trigger a session/load. */
+  private children = new Map<string, Session>();
   private file: string;
+  /** How long a delegation waits for the child's turn before cancelling it. */
+  turnTimeoutMs = 60 * 60 * 1000;
 
   constructor(private registry: HarnessRegistry, dataDir: string, private settings: SubagentSettings | null = null) {
     super();
@@ -165,7 +235,7 @@ export class Orchestrator extends EventEmitter {
       this.registry.emit('subagent_completed', {
         taskId: link.id,
         harnessId: link.harnessId,
-        title: link.task.split('\n')[0].slice(0, 120),
+        title: linkTitle(link.task),
         parentSessionId: link.parentSessionId,
         ok: link.status === 'done',
         summary: (link.error ?? link.output ?? '').slice(0, 500),
@@ -173,14 +243,40 @@ export class Orchestrator extends EventEmitter {
     }
   }
 
-  list(sessionId?: string): SessionLink[] {
+  list(sessionId?: string, filter: Omit<LinkFilter, 'sessionId'> = {}): SessionLink[] {
     return [...this.links.values()]
       .filter((l) => !sessionId || l.parentSessionId === sessionId || l.childSessionId === sessionId)
+      .filter((l) => (!filter.status || l.status === filter.status) && (!filter.id || l.id === filter.id))
       .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  summaries(filter: LinkFilter = {}): LinkSummary[] {
+    return this.list(filter.sessionId, filter).map(summarizeLink);
   }
 
   get(id: string): SessionLink | undefined {
     return this.links.get(id);
+  }
+
+  /** One link with a best-effort peek at its child session's latest activity; a dead child yields `lastActivity: null`. */
+  async detail(id: string): Promise<(SessionLink & { lastActivity: Json }) | undefined> {
+    const link = this.links.get(id);
+    if (!link) return undefined;
+    const lastActivity = await Promise.resolve()
+      .then(() => {
+        const s = this.children.get(id);
+        if (!s) return null;
+        const last = s.events[s.events.length - 1];
+        const tool = [...s.events].reverse().find((e) => e.update?.sessionUpdate === 'tool_call' || e.update?.sessionUpdate === 'tool_call_update');
+        return {
+          updatedAt: s.updatedAt,
+          running: s.running > 0,
+          lastEvent: last ? { seq: last.seq, sessionUpdate: last.update?.sessionUpdate ?? null, ...(last.update?.title ? { title: last.update.title } : {}) } : null,
+          lastTool: tool ? { title: tool.update.title ?? null, status: tool.update.status ?? null } : null,
+        };
+      })
+      .catch(() => null);
+    return { ...link, lastActivity };
   }
 
   /**
@@ -204,8 +300,12 @@ export class Orchestrator extends EventEmitter {
     return { harnessId, session: s };
   }
 
-  /** Applies the persisted per-harness delegation policy before the first prompt. */
-  private async applyDelegationPolicy(child: Session, harnessId: string) {
+  /**
+   * Applies the persisted per-harness delegation policy before the first prompt and returns the config it set.
+   * Config values the current model does not offer are skipped: harnesses like Devin and Vibe change their
+   * effort/speed options per model, and sending a stale value fails with `Invalid params`.
+   */
+  private async applyDelegationPolicy(child: Session, harnessId: string): Promise<Record<string, string | boolean>> {
     const policy = this.settings?.policy(harnessId) ?? { mode: null, config: {}, enabled: true };
     if (!policy.enabled) throw new Error(`Delegation to ${harnessId} is disabled in Settings > Subagents`);
     const adapter = this.registry.require(harnessId);
@@ -223,12 +323,18 @@ export class Orchestrator extends EventEmitter {
     }
     const problem = delegationApprovalProblem(child.configOptions, child.modes);
     if (problem) throw new Error(`Delegation to ${harnessId} is unavailable: it ${problem}`);
+    const applied: Record<string, string | boolean> = {};
     for (const [configId, value] of Object.entries(policy.config)) {
       const opt = (child.configOptions ?? []).find((o: Json) => o?.id === configId || o?.configId === configId);
-      if (!opt) throw new Error(`${harnessId} does not offer delegation config option ${configId}`);
-      const v = typeof opt.currentValue === 'boolean' || opt.type === 'boolean' ? value === true || value === 'true' : String(value);
+      if (!opt) continue;
+      const boolean = typeof opt.currentValue === 'boolean' || opt.type === 'boolean';
+      const v = boolean ? value === true || value === 'true' : String(value);
+      const offered = optionValueIds(opt);
+      if (!boolean && offered.length && !offered.includes(v as string)) continue;
       await adapter.setConfigOption(child.sessionId, opt.id ?? configId, v);
+      applied[opt.id ?? configId] = v;
     }
+    return applied;
   }
 
   /** Best-effort removal of a child session whose setup failed before its link existed. */
@@ -244,17 +350,34 @@ export class Orchestrator extends EventEmitter {
     cwd: string,
     task: string,
     prompt: string,
-    worktree: { path: string; branch: string } | null,
+    worktree: { path: string; branch: string; baseSha?: string | null } | null,
     model: string | null = null,
+    effort: string | null = null,
   ) {
+    const adapter = this.registry.require(harnessId);
     const child = await this.registry.createSession(harnessId, worktree?.path ?? cwd);
+    let applied: AppliedSettings;
     try {
-      if (kind === 'delegate') await this.applyDelegationPolicy(child, harnessId);
+      // The model goes first: the effort and speed options a harness offers can depend on it.
       if (model) {
         const opt = modelOptionOf(child.configOptions);
         if (!opt) throw new Error(`${harnessId} does not offer a model choice`);
-        await this.registry.require(harnessId).setConfigOption(child.sessionId, opt.id, model);
+        const offered = optionValueIds(opt);
+        if (offered.length && !offered.includes(model)) throw new Error(`${harnessId} does not offer model ${model} (offered: ${offeredText(offered)})`);
+        await adapter.setConfigOption(child.sessionId, opt.id, model);
       }
+      const config = kind === 'delegate' ? await this.applyDelegationPolicy(child, harnessId) : {};
+      if (effort) {
+        const opt = effortOptionOf(child.configOptions);
+        if (!opt) throw new Error(`${harnessId} does not offer a reasoning effort choice${model ? ` for model ${model}` : ''}`);
+        const offered = optionValueIds(opt);
+        if (!offered.includes(effort)) throw new Error(`${harnessId} does not offer effort ${effort}${model ? ` for model ${model}` : ''} (offered: ${offeredText(offered)})`);
+        await adapter.setConfigOption(child.sessionId, opt.id, effort);
+        config[opt.id] = effort;
+      }
+      const mode = currentModeChoice(child.configOptions, child.modes);
+      const current = modelOptionOf(child.configOptions)?.currentValue;
+      applied = { model: typeof current === 'string' ? current : model, mode: mode ? String(mode.value ?? mode.id ?? '') || null : null, config };
     } catch (e) {
       await this.discardChildSession(harnessId, child.sessionId);
       throw e;
@@ -271,23 +394,49 @@ export class Orchestrator extends EventEmitter {
       worktree: worktree?.path ?? null,
       branch: worktree?.branch ?? null,
       model,
+      baseSha: worktree ? (worktree.baseSha ?? null) : await gitHead(cwd),
+      applied,
       status: 'running',
       output: null,
       stopReason: null,
       error: null,
+      cancelled: false,
       createdAt: now,
       updatedAt: now,
     };
     this.links.set(link.id, link);
+    this.children.set(link.id, child);
     this.save();
     this.emit('link', { ...link });
     const before = child.seq;
-    const done = this.registry
-      .require(harnessId)
+    const timeoutMs = this.turnTimeoutMs;
+    const done = adapter
       .prompt(child.sessionId, prompt)
-      .then(() => waitForTurn(child, before))
-      .then((stopReason) => this.update(link, { status: 'done', output: lastAgentReply(child), stopReason }))
-      .catch((e) => this.update(link, { status: 'error', error: String(e?.message ?? e), output: lastAgentReply(child) || null }));
+      .then(() => waitForTurn(child, before, timeoutMs))
+      .then((stopReason) =>
+        this.update(
+          link,
+          stopReason === 'cancelled'
+            ? { status: 'error', stopReason, error: 'Subagent turn was cancelled before it finished', output: lastAgentReply(child) || null }
+            : { status: 'done', output: lastAgentReply(child), stopReason },
+        ),
+      )
+      .catch(async (e) => {
+        const output = lastAgentReply(child) || null;
+        if (!e?._timeout) return this.update(link, { status: 'error', error: `Subagent turn failed: ${String(e?.message ?? e)}`, output });
+        const cancelError = await adapter.cancel(child.sessionId).then(
+          () => null,
+          (err) => String(err?.message ?? err),
+        );
+        this.update(link, {
+          status: 'error',
+          stopReason: 'timeout',
+          cancelled: !cancelError,
+          error: `Timed out after ${duration(timeoutMs)}; ${cancelError ? `cancelling the subagent session failed: ${cancelError}` : 'subagent session was cancelled'}`,
+          output,
+        });
+      })
+      .finally(() => this.children.delete(link.id));
     return { link, done };
   }
 
@@ -307,7 +456,7 @@ export class Orchestrator extends EventEmitter {
     parentSessionId: string | null,
     harnessId: string,
     task: string,
-    opts: { cwd?: string; worktree?: boolean; includeContext?: boolean; model?: string | null } = {},
+    opts: { cwd?: string; worktree?: boolean; includeContext?: boolean; model?: string | null; effort?: string | null } = {},
   ) {
     if (!task.trim()) throw new Error('task is required');
     if (this.settings && !this.settings.policy(harnessId).enabled) {
@@ -320,7 +469,7 @@ export class Orchestrator extends EventEmitter {
     const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, task) : task;
     try {
       const model = opts.model === undefined ? (this.settings?.defaultModel(harnessId) ?? null) : opts.model || null;
-      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt, model);
+      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt, model, opts.effort || null);
     } catch (e) {
       if (wt) await removeWorktree(cwd, wt);
       throw e;

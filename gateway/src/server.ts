@@ -528,6 +528,7 @@ export function createGatewayServer(input: Config) {
           includeContext: !!p.includeContext,
           // null asks for the harness default; omitted uses the default subagent model.
           model: typeof p.model === 'string' && p.model ? p.model : p.model === null ? null : undefined,
+          effort: typeof p.effort === 'string' && p.effort ? p.effort : null,
         });
         c.subs.add(link.childSessionId);
         if (p.wait) {
@@ -571,8 +572,16 @@ export function createGatewayServer(input: Config) {
         }
         throw new Error('Subagent not found');
       }
-      case 'orchestration.list':
-        return { links: orchestrator.list(typeof p.sessionId === 'string' ? p.sessionId : undefined) };
+      case 'orchestration.list': {
+        const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+        const filter = { sessionId: str(p.sessionId), status: str(p.status), id: str(p.taskId) ?? str(p.id) };
+        return { links: p.summary === true ? orchestrator.summaries(filter) : orchestrator.list(filter.sessionId, filter) };
+      }
+      case 'orchestration.get': {
+        const link = await orchestrator.detail(requireString(p.id ?? p.taskId, 'id'));
+        if (!link) throw new Error('Delegation not found');
+        return { link };
+      }
       case 'session.open': {
         const id = requireString(p.sessionId, 'sessionId');
         const { adapter, harnessId, nativeId } = registry.resolveSession(id);
