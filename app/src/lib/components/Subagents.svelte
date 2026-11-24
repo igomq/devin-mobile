@@ -24,13 +24,14 @@
   let errorLine = $derived(/unknown request/i.test(loadError ?? '') ? 'Update the gateway on the VM to set subagent settings.' : loadError);
   let harnesses = $derived(app.harnesses.filter((h) => h.enabled && (h.installed || h.id === 'devin')));
   const of = (id: string) => defaults.find((d) => d.harnessId === id);
-  const isModeOption = (o: ConfigOption) => o.id === 'mode' || o.category === 'mode';
+  const isModeOption = (o: ConfigOption) =>
+    o.id !== 'model' && o.category !== 'model' && (o.category === 'mode' || o.id === 'mode' || /mode|permission|approval/i.test(`${o.id} ${o.name ?? ''} ${o.category ?? ''}`));
 
   function modeChoices(d: SubagentDefault | undefined): { value: string; name: string }[] {
+    const modeOpt = (d?.options ?? []).find(isModeOption);
+    if (modeOpt) return flatValues(modeOpt).map((v) => ({ value: String(v.value), name: v.name || String(v.value) }));
     const out = new Map<string, string>();
     for (const m of d?.modes ?? []) if (m?.id) out.set(m.id, m.name || m.id);
-    const modeOpt = (d?.options ?? []).find(isModeOption);
-    for (const v of modeOpt ? flatValues(modeOpt) : []) out.set(v.value, v.name || v.value);
     return [...out.entries()].map(([value, name]) => ({ value, name }));
   }
   function configOptions(d: SubagentDefault | undefined): ConfigOption[] {
