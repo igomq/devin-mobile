@@ -107,8 +107,8 @@ export class HarnessRegistry extends EventEmitter {
 
   private instantiateCustom(spec: CustomAcpHarnessSpec) {
     if (!this.customFactory) return;
+    // A persisted custom definition keeps its ID even if a built-in later claims the same one.
     const existing = this.adapters.get(spec.id);
-    if (existing && !existing.custom) return;
     existing?.stop();
     this.adapters.delete(spec.id);
     this.register(this.customFactory(spec));

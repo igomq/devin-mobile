@@ -91,6 +91,24 @@ test('Registry instantiates custom ACP adapters from persisted definitions', () 
   }
 });
 
+test('persisted custom ACP definitions keep their id when a built-in claims it later', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'uniharn-custom-id-'));
+  try {
+    const r1 = new HarnessRegistry(dir);
+    r1.saveCustomSpec({ id: 'mistral-vibe', name: 'My Vibe', command: '/usr/bin/my-acp' });
+
+    const r2 = new HarnessRegistry(dir);
+    r2.register(new AcpHarnessAdapter({ id: 'mistral-vibe', name: 'Mistral Vibe CLI', bin: '/nonexistent/vibe-acp', acpArgs: [] }));
+    r2.setCustomFactory(createCustomAcpAdapter);
+
+    const adapter = r2.get('mistral-vibe');
+    assert.equal(adapter?.custom, true);
+    assert.equal(adapter?.info().name, 'My Vibe');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('resolveBin skips non-executable PATH matches', () => {
   const dir = mkdtempSync(join(tmpdir(), 'uniharn-bin-'));
   try {

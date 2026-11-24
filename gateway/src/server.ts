@@ -175,6 +175,7 @@ export function createGatewayServer(input: Config) {
   }
   // Sessions started without a project run in gateway-owned folders under the data dir.
   const scratchRoot = join(config.dataDir, 'scratch');
+  mkdirSync(scratchRoot, { recursive: true, mode: 0o700 });
   const sessionRoots = [...config.roots, scratchRoot];
   const isScratchPath = (path: string) => isPathWithinRoots(path, [scratchRoot]);
   folderPolicy.mayRecreate = (path) => !config.strictRoots || isPathWithinRoots(path, sessionRoots);
@@ -202,6 +203,12 @@ export function createGatewayServer(input: Config) {
   function absCwd(v: unknown): string {
     const p = requireString(v, 'cwd');
     return assertAllowedPath(resolve(p.startsWith('~') ? homedir() + p.slice(1) : p), sessionRoots, config.strictRoots);
+  }
+
+  function termCwd(v: unknown): string {
+    const requested = typeof v === 'string' && v.trim() ? v.trim() : '~';
+    if (requested === '~' && config.strictRoots && config.roots.length && !isPathWithinRoots(homedir(), sessionRoots)) return scratchRoot;
+    return absCwd(requested);
   }
 
   const gitRpc = createGitRpc(config.dataDir, {
@@ -570,7 +577,7 @@ export function createGatewayServer(input: Config) {
         tasks.stop(requireString(p.taskId, 'taskId'));
         return {};
       case 'term.open': {
-        const info = terminals.open({ cwd: absCwd(p.cwd ?? homedir()), cols: p.cols, rows: p.rows, kind: p.kind, args: p.args });
+        const info = terminals.open({ cwd: termCwd(p.cwd), cols: p.cols, rows: p.rows, kind: p.kind, args: p.args });
         c.terms.add(info.termId);
         return { term: info, scrollback: '' };
       }

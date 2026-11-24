@@ -26,6 +26,10 @@ function parse(): Route {
   return { name: 'home' };
 }
 
+export function installSetupKey(id: string) {
+  return `uniharn.install.${id}`;
+}
+
 export const route = $state<Route>(parse());
 function loadThemePrefs() {
   try {

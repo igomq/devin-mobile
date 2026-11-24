@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { app, conn, errorText, rpc } from '#lib/api.svelte.ts';
-  import { copyText, go, route, toast } from '#lib/ui.svelte.ts';
+  import { copyText, go, installSetupKey, route, toast } from '#lib/ui.svelte.ts';
   import { AUTH_LABEL, authOf, outdatedGateway, usageLine } from '#lib/accounts.ts';
   import { USAGE_URL } from '#lib/usage.ts';
   import type { HarnessAccounts } from '#lib/types.ts';
@@ -80,7 +80,7 @@
               {#if /^https?:\/\//.test(h.installHint!.trim())}
                 <button class="btn" onclick={() => copyText(h.installHint!).then(() => toast('Install link copied', 'info'))}>Copy install link</button>
               {:else}
-                <button class="btn" onclick={() => go(`#/terminal?install=${encodeURIComponent(h.id)}`)}>Install &amp; setup</button>
+                <button class="btn" onclick={() => { sessionStorage.setItem(installSetupKey(h.id), '1'); go(`#/terminal?install=${encodeURIComponent(h.id)}`); }}>Install &amp; setup</button>
               {/if}
             {:else if h.id === 'devin'}
               <button class="btn" onclick={() => go('#/terminal?login')}>{auth.status === 'authenticated' ? 'Log in again' : 'Log in on the VM'}</button>

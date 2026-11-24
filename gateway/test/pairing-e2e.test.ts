@@ -340,6 +340,9 @@ test('strict roots gate all cwd entry points and discovery mode still allows bro
   for (const type of ['git.status', 'git.diff', 'git.log']) {
     assert.equal((await rpc(ws, type, { cwd: strict.root })).error, 'Path is outside allowed roots', type);
   }
+  const term = await ok(ws, 'term.open', { cwd: '~', cols: 80, rows: 24 });
+  assert.equal(term.term.cwd, join(strict.dataDir, 'scratch'));
+  await ok(ws, 'term.close', { termId: term.term.termId });
   const discovery = await startGateway(t, false);
   const other = await discovery.open();
   await ok(other, 'hello', { token: master });

@@ -5,7 +5,7 @@
   import '@xterm/xterm/css/xterm.css';
   import { conn, rpc, onTerminal, views, app, errorText, refreshSessions } from '#lib/api.svelte.ts';
   import { basename } from '#lib/format.ts';
-  import { activeTheme } from '#lib/ui.svelte.ts';
+  import { activeTheme, installSetupKey } from '#lib/ui.svelte.ts';
   import BackButton from './BackButton.svelte';
 
   let { sessionId = null, login = false, install = null }: { sessionId?: string | null; login?: boolean; install?: string | null } = $props();
@@ -80,9 +80,16 @@
   }
 
   async function runInstallSetup() {
+    if (!install) return;
+    const key = installSetupKey(install);
+    if (sessionStorage.getItem(key) !== '1') return;
     const h = app.harnesses.find((x) => x.id === install);
     const installCmd = h?.installHint?.trim();
-    if (!installCmd || /^https?:\/\//.test(installCmd)) return;
+    if (!installCmd || /^https?:\/\//.test(installCmd)) {
+      sessionStorage.removeItem(key);
+      return;
+    }
+    sessionStorage.removeItem(key);
     const authCmd = h?.authMethod?.trim();
     const cmd = authCmd ? `${installCmd} && ${authCmd}` : installCmd;
     // Let the login shell initialize before typing the command.

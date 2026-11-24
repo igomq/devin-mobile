@@ -23,7 +23,7 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     bin: 'claude-agent-acp',
     altBins: ['claude-code-acp'],
     acpArgs: [],
-    installHint: 'npm i -g @agentclientprotocol/claude-agent-acp',
+    installHint: 'command -v claude >/dev/null 2>&1 || curl -fsSL https://claude.ai/install.sh | bash; command -v claude-agent-acp >/dev/null 2>&1 || npm i -g @agentclientprotocol/claude-agent-acp',
     authMethod: 'claude /login',
     authCheck: { bin: 'claude', args: ['auth', 'status'], parse: (r) => parseClaudeAuthStatus(r) },
   },
