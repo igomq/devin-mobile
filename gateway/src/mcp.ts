@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
  * `uniharn-mcp`: a stdio MCP server that lets any agent delegate work to other uniharn harnesses
- * through the local gateway (`orchestration.delegate`, `harnesses.list`, `orchestration.list`).
+ * through the local gateway (`orchestration.delegate`, `harnesses.list`, `orchestration.list`, `orchestration.get`).
  */
 import { readFileSync, realpathSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
+import { effortOptionOf, optionValueIds } from './subagents.js';
 
 type Json = any;
 export type GatewayCall = (type: string, params: Json) => Promise<Json>;
@@ -15,13 +16,13 @@ export const MCP_TOOLS = [
   {
     name: 'list_harnesses',
     description:
-      'List the coding harnesses (Devin, Codex, Claude Code, OpenCode, ...) on this uniharn gateway, with the models each offers and its default subagent model. Call this first when the user asks you to have another agent or model do something.',
+      'List the coding harnesses (Devin, Codex, Claude Code, OpenCode, ...) on this uniharn gateway, with the models each offers, its default subagent model and the reasoning effort levels last seen (they can differ per model). Call this first when the user asks you to have another agent or model do something.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'delegate_task',
     description:
-      'Run a task as a subagent on another harness (e.g. "have Codex review this", "ask Claude to write the tests") and wait for its final reply. Use worktree=true to isolate its file changes on a new git branch, background=true to return at once and check later with list_delegations.',
+      'Run a task as a subagent on another harness (e.g. "have Codex review this", "ask Claude to write the tests") and wait for its final reply. Use worktree=true to isolate its file changes on a new git branch, background=true to return at once and check later with get_delegation. The reply starts with the task id, base commit and the model/mode/effort actually applied.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -30,6 +31,7 @@ export const MCP_TOOLS = [
         cwd: { type: 'string', description: 'Project folder. Defaults to the folder this MCP server was started in.' },
         worktree: { type: 'boolean', description: 'Run in a new git worktree (branch uniharn/sub-*) instead of the folder itself.' },
         model: { type: 'string', description: 'Model id from list_harnesses. Omit to use the default subagent model set in uniharn.' },
+        effort: { type: 'string', description: 'Reasoning effort level, e.g. "high" or "max". Must be one the harness offers for the chosen model; an unknown level is an error.' },
         background: { type: 'boolean', description: 'Return as soon as the subagent starts instead of waiting for its reply.' },
       },
       required: ['harnessId', 'task'],
@@ -37,10 +39,34 @@ export const MCP_TOOLS = [
   },
   {
     name: 'list_delegations',
-    description: 'List earlier delegations and handoffs with their status, output, worktree and branch.',
-    inputSchema: { type: 'object', properties: {} },
+    description: 'List delegations and handoffs, newest first, as compact summaries (id, status, title, harness, model, branch, timestamps) without their output. Use get_delegation for one task\'s full result.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parentSessionId: { type: 'string', description: 'Only links touching this session id.' },
+        status: { type: 'string', enum: ['running', 'done', 'error'], description: 'Only links with this status.' },
+        taskId: { type: 'string', description: 'Only the link with this task id.' },
+      },
+    },
+  },
+  {
+    name: 'get_delegation',
+    description: 'Get one delegation by task id: status, task, output, error, worktree, branch, base commit, applied settings and the child session\'s latest activity.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Task id returned by delegate_task or list_delegations.' } },
+      required: ['id'],
+    },
   },
 ];
+
+const str = (v: Json) => (typeof v === 'string' && v ? v : undefined);
+
+function appliedText(a: Json): string | null {
+  if (!a) return null;
+  const config = Object.entries(a.config ?? {}).map(([k, v]) => `${k}=${v}`);
+  return [a.model ? `model=${a.model}` : null, a.mode ? `mode=${a.mode}` : null, ...config].filter(Boolean).join(', ') || null;
+}
 
 const textResult = (value: Json, isError = false) => ({
   content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }],
@@ -55,6 +81,7 @@ async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd:
       return textResult(
         harnesses.map((h: Json) => {
           const sub = subagents.find((x) => x.harnessId === h.id);
+          const effort = effortOptionOf(sub?.options);
           return {
             id: h.id,
             name: h.name,
@@ -64,6 +91,7 @@ async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd:
             login: h.auth?.status ?? h.authStatus,
             defaultModel: sub?.model ?? null,
             models: (sub?.models ?? []).map((m: Json) => m.value),
+            efforts: effort ? optionValueIds(effort) : [],
           };
         }),
       );
@@ -75,14 +103,19 @@ async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd:
         task: args?.task,
         cwd: args?.cwd || defaultCwd,
         worktree: !!args?.worktree,
-        ...(typeof args?.model === 'string' && args.model ? { model: args.model } : {}),
+        ...(str(args?.model) ? { model: args.model } : {}),
+        ...(str(args?.effort) ? { effort: args.effort } : {}),
         ...(sessionRef ? { sessionRef } : {}),
         wait: !background,
       });
+      const applied = appliedText(link.applied);
       const header = [
+        link.id ? `id: ${link.id}` : null,
         `status: ${link.status}`,
         `session: ${link.childSessionId}`,
         link.model ? `model: ${link.model}` : null,
+        link.baseSha ? `baseSha: ${link.baseSha}` : null,
+        applied ? `applied: ${applied}` : null,
         link.branch ? `branch: ${link.branch} (${link.worktree})` : null,
       ]
         .filter(Boolean)
@@ -90,8 +123,20 @@ async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd:
       return textResult(`${header}\n\n${link.output ?? link.error ?? ''}`, link.status === 'error');
     }
     case 'list_delegations': {
-      const { links } = await call('orchestration.list', {});
+      const { links } = await call('orchestration.list', {
+        summary: true,
+        ...(str(args?.parentSessionId) ? { sessionId: args.parentSessionId } : {}),
+        ...(str(args?.status) ? { status: args.status } : {}),
+        ...(str(args?.taskId) ? { taskId: args.taskId } : {}),
+      });
       return textResult(links);
+    }
+    case 'get_delegation': {
+      const id = str(args?.id);
+      if (!id) throw new Error('id is required');
+      // `id` at the top level collides with the gateway request id; send it as `taskId`.
+      const { link } = await call('orchestration.get', { taskId: id });
+      return textResult(link);
     }
     default:
       throw Object.assign(new Error(`Unknown tool: ${name}`), { code: -32602 });

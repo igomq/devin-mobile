@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
 import { HarnessRegistry } from '../src/harnesses/registry.js';
-import { Orchestrator, buildTranscript, lastAgentReply } from '../src/orchestrator.js';
+import { Orchestrator, buildTranscript, lastAgentReply, summarizeLink } from '../src/orchestrator.js';
 import { SubagentSettings } from '../src/subagents.js';
 
 function echoAgent(dir: string, name: string): string {
@@ -17,14 +17,19 @@ function echoAgent(dir: string, name: string): string {
 if (process.argv[2] === '--version') { console.log('${name} 1.0.0'); process.exit(0); }
 let n = 0;
 const cwds = {};
+const hung = {};
 const rl = require('node:readline').createInterface({ input: process.stdin });
 const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
 rl.on('line', (line) => {
   const msg = JSON.parse(line);
   if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } });
   else if (msg.method === 'session/new') { const id = '${name}-' + (++n); cwds[id] = msg.params.cwd; out({ id: msg.id, result: { sessionId: id } }); }
+  else if (msg.method === 'session/cancel') { const id = hung[msg.params.sessionId]; if (id !== undefined) out({ id, result: { stopReason: 'cancelled' } }); }
   else if (msg.method === 'session/prompt') {
     const text = msg.params.prompt[0].text;
+    if (text === 'hang') { hung[msg.params.sessionId] = msg.id; out({ method: 'session/update', params: { sessionId: msg.params.sessionId, update: { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Read big.ts', status: 'in_progress' } } }); return; }
+    if (text === 'cancelme') return out({ id: msg.id, result: { stopReason: 'cancelled' } });
+    if (text === 'explode') return out({ id: msg.id, error: { code: -32603, message: 'model overloaded' } });
     const reply = text.includes('Transcript so far') ? 'context:' + (text.includes('fix the parser') ? 'yes' : 'no') : '${name} did ' + text;
     setTimeout(() => {
       out({ method: 'session/update', params: { sessionId: msg.params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: reply } } } });
@@ -192,6 +197,103 @@ test('registry offers its MCP servers to every adapter and marks subagent suppor
     const late = new AcpHarnessAdapter({ id: 'gamma', name: 'gamma', bin: 'missing-gamma', acpArgs: [] });
     registry.register(late);
     assert.deepEqual(late.manager.mcpServers(), [server]);
+  } finally {
+    cleanup();
+  }
+});
+
+test('summaries drop task, output and error text and filter by session, status and id', async () => {
+  const { dir, registry, orchestrator, cleanup } = setup();
+  try {
+    const repo = join(dir, 'repo');
+    execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+    execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init']);
+    const head = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD']).toString().trim();
+    const parent = await registry.createSession('alpha', repo);
+    const a = await orchestrator.delegate(`alpha:${parent.sessionId}`, 'beta', 'write docs\nwith a long body ' + 'x'.repeat(500), { worktree: true });
+    await a.done;
+    const b = await orchestrator.delegate(null, 'beta', 'explode', { cwd: dir });
+    await b.done;
+
+    assert.equal(a.link.baseSha, head);
+    assert.equal(b.link.baseSha, null);
+    const full = orchestrator.list();
+    assert.equal(full.length, 2);
+    assert.ok(full.every((l) => 'output' in l && 'task' in l));
+
+    const all = orchestrator.summaries();
+    assert.deepEqual(Object.keys(all[0]).sort(), ['branch', 'childSessionId', 'createdAt', 'harnessId', 'id', 'kind', 'model', 'parentSessionId', 'status', 'title', 'updatedAt', 'worktree']);
+    assert.equal(all.find((l) => l.id === a.link.id)?.title, 'write docs');
+    assert.deepEqual(orchestrator.summaries({ sessionId: `alpha:${parent.sessionId}` }).map((l) => l.id), [a.link.id]);
+    assert.deepEqual(orchestrator.summaries({ status: 'error' }).map((l) => l.id), [b.link.id]);
+    assert.deepEqual(orchestrator.summaries({ id: a.link.id, status: 'done' }).map((l) => l.id), [a.link.id]);
+    assert.deepEqual(orchestrator.summaries({ id: a.link.id, status: 'error' }), []);
+    assert.deepEqual(summarizeLink(orchestrator.get(b.link.id)!).title, 'explode');
+    assert.match(orchestrator.get(b.link.id)?.error ?? '', /^Subagent turn failed: model overloaded/);
+    assert.equal(orchestrator.get(b.link.id)?.cancelled, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a wait timeout cancels the child session and records it on the link', async () => {
+  const { dir, registry, orchestrator, cleanup } = setup();
+  try {
+    orchestrator.turnTimeoutMs = 300;
+    const beta = registry.require('beta');
+    const cancelled: string[] = [];
+    const cancel = beta.cancel.bind(beta);
+    beta.cancel = async (id: string) => {
+      cancelled.push(id);
+      await cancel(id);
+    };
+    const { link, done } = await orchestrator.delegate(null, 'beta', 'hang', { cwd: dir });
+    for (let i = 0; i < 50; i++) {
+      if ((await orchestrator.detail(link.id))?.lastActivity?.lastTool) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const peek = await orchestrator.detail(link.id);
+    assert.equal(peek?.status, 'running');
+    assert.equal(peek?.task, 'hang');
+    assert.equal(peek?.lastActivity.running, true);
+    assert.deepEqual(peek?.lastActivity.lastTool, { title: 'Read big.ts', status: 'in_progress' });
+    assert.equal(peek?.lastActivity.lastEvent.sessionUpdate, 'tool_call');
+    assert.equal(peek?.lastActivity.lastEvent.title, 'Read big.ts');
+
+    await done;
+    const finished = orchestrator.get(link.id)!;
+    assert.deepEqual(cancelled, [link.childSessionId.slice('beta:'.length)]);
+    assert.equal(finished.status, 'error');
+    assert.equal(finished.cancelled, true);
+    assert.equal(finished.stopReason, 'timeout');
+    assert.equal(finished.error, 'Timed out after 0 seconds; subagent session was cancelled');
+    const snapshot = (await orchestrator.detail(link.id))?.lastActivity;
+    assert.equal(snapshot?.running, false);
+    assert.equal(snapshot?.lastEvent?.sessionUpdate, '_turn_end');
+    assert.equal(await orchestrator.detail('missing'), undefined);
+
+    beta.cancel = async () => {
+      throw new Error('agent gone');
+    };
+    const dead = await orchestrator.delegate(null, 'beta', 'hang', { cwd: dir });
+    await dead.done;
+    assert.equal(orchestrator.get(dead.link.id)?.cancelled, false);
+    assert.match(orchestrator.get(dead.link.id)?.error ?? '', /^Timed out after .*; cancelling the subagent session failed: agent gone$/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a cancelled turn is an error with stopReason cancelled', async () => {
+  const { dir, orchestrator, cleanup } = setup();
+  try {
+    const { link, done } = await orchestrator.delegate(null, 'beta', 'cancelme', { cwd: dir });
+    await done;
+    const l = orchestrator.get(link.id)!;
+    assert.equal(l.status, 'error');
+    assert.equal(l.stopReason, 'cancelled');
+    assert.equal(l.cancelled, false);
+    assert.equal(l.error, 'Subagent turn was cancelled before it finished');
   } finally {
     cleanup();
   }
