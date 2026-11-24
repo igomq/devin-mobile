@@ -23,7 +23,7 @@ test('uniharn-mcp exposes delegation tools and forwards calls to the gateway', a
         },
       };
     if (type === 'orchestration.list' && params.taskId !== 'fail') return { links: [{ id: 'task-1', status: 'done', title: 'write tests' }] };
-    if (type === 'orchestration.get' && params.id === 'task-1') return { link: { id: 'task-1', status: 'error', output: 'partial', lastActivity: null } };
+    if (type === 'orchestration.get' && params.taskId === 'task-1') return { link: { id: 'task-1', status: 'error', output: 'partial', lastActivity: null } };
     throw new Error('boom');
   };
 
@@ -69,7 +69,7 @@ test('uniharn-mcp exposes delegation tools and forwards calls to the gateway', a
   assert.deepEqual(calls.at(-1), ['orchestration.list', { summary: true, sessionId: 'claude:p', status: 'running', taskId: 'task-1' }]);
 
   const got = await handleMcpMessage({ jsonrpc: '2.0', id: 11, method: 'tools/call', params: { name: 'get_delegation', arguments: { id: 'task-1' } } }, call);
-  assert.deepEqual(calls.at(-1), ['orchestration.get', { id: 'task-1' }]);
+  assert.deepEqual(calls.at(-1), ['orchestration.get', { taskId: 'task-1' }]);
   assert.equal(JSON.parse(got.result.content[0].text).output, 'partial');
   assert.equal(got.result.isError, undefined);
   const noId = await handleMcpMessage({ jsonrpc: '2.0', id: 12, method: 'tools/call', params: { name: 'get_delegation', arguments: {} } }, call);

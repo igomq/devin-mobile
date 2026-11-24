@@ -134,7 +134,8 @@ async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd:
     case 'get_delegation': {
       const id = str(args?.id);
       if (!id) throw new Error('id is required');
-      const { link } = await call('orchestration.get', { id });
+      // `id` at the top level collides with the gateway request id; send it as `taskId`.
+      const { link } = await call('orchestration.get', { taskId: id });
       return textResult(link);
     }
     default:
