@@ -46,6 +46,14 @@ export const BUILTIN_ACP_SPECS: AcpHarnessSpec[] = [
     authCheck: { bin: 'kiro-cli', args: ['whoami', '--format', 'json'], parse: parseKiroWhoami },
   },
   {
+    id: 'mistral-vibe',
+    name: 'Mistral Vibe CLI',
+    bin: 'vibe-acp',
+    acpArgs: [],
+    installHint: 'curl -LsSf https://mistral.ai/vibe/install.sh | bash',
+    authMethod: 'vibe --setup',
+  },
+  {
     id: 'command-code',
     name: 'Command Code',
     bin: 'cmd',

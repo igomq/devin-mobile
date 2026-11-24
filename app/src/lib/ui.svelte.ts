@@ -8,6 +8,7 @@ export interface Route {
   id?: string;
   tab?: string;
   login?: boolean;
+  install?: string;
 }
 
 function parse(): Route {
@@ -18,7 +19,10 @@ function parse(): Route {
   if (name === 'settings') return { name: 'settings' };
   if (name === 'accounts') return { name: 'accounts' };
   if (name === 'subagents') return { name: 'subagents' };
-  if (name === 'terminal') return { name: 'terminal', login: query === 'login' };
+  if (name === 'terminal') {
+    const params = new URLSearchParams(query);
+    return { name: 'terminal', login: params.has('login'), install: params.get('install') ?? undefined };
+  }
   return { name: 'home' };
 }
 
@@ -60,7 +64,7 @@ export const fresh = (at: number) => Date.now() - at < 1000;
 if (typeof window !== 'undefined') {
   window.addEventListener('hashchange', () => {
     const r = parse();
-    Object.assign(route, { id: undefined, tab: undefined, login: undefined }, r);
+    Object.assign(route, { id: undefined, tab: undefined, login: undefined, install: undefined }, r);
   });
 }
 

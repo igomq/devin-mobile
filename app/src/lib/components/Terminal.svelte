@@ -8,10 +8,10 @@
   import { activeTheme } from '#lib/ui.svelte.ts';
   import BackButton from './BackButton.svelte';
 
-  let { sessionId = null, login = false }: { sessionId?: string | null; login?: boolean } = $props();
+  let { sessionId = null, login = false, install = null }: { sessionId?: string | null; login?: boolean; install?: string | null } = $props();
   let cwd = $derived(sessionId ? (views[sessionId]?.cwd ?? app.sessions.find((s) => s.id === sessionId)?.cwd) : null);
   // svelte-ignore state_referenced_locally
-  const termSuffix = login ? 'login' : (sessionId ?? 'home');
+  const termSuffix = login ? 'login' : install ? `install-${install}` : (sessionId ?? 'home');
   const storeKey = 'uniharn.term.' + termSuffix;
   const legacyStoreKey = 'devin-mobile.term.' + termSuffix;
 
@@ -79,6 +79,18 @@
     }
   }
 
+  async function runInstallSetup() {
+    const h = app.harnesses.find((x) => x.id === install);
+    const installCmd = h?.installHint?.trim();
+    if (!installCmd || /^https?:\/\//.test(installCmd)) return;
+    const authCmd = h?.authMethod?.trim();
+    const cmd = authCmd ? `${installCmd} && ${authCmd}` : installCmd;
+    // Let the login shell initialize before typing the command.
+    setTimeout(() => {
+      if (termId && exited === null) rpc('term.input', { id: termId, data: `${cmd}\r` }).catch(() => {});
+    }, 300);
+  }
+
   // Re-attach to the PTY that is still running on the VM, replaying its scrollback.
   async function attachOrStart() {
     const saved = termId ?? sessionStorage.getItem(storeKey) ?? sessionStorage.getItem(legacyStoreKey);
@@ -100,6 +112,7 @@
       }
     }
     await start(login ? ['auth', 'login'] : undefined);
+    if (!login && install) void runInstallSetup();
   }
 
   function resize() {

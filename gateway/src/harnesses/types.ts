@@ -3,7 +3,7 @@ import type { Session, SessionSummary } from '../sessions.js';
 
 export type Json = any;
 
-export type BuiltinHarnessId = 'devin' | 'codex' | 'claude' | 'kiro' | 'opencode' | 'command-code' | 'antigravity';
+export type BuiltinHarnessId = 'devin' | 'codex' | 'claude' | 'kiro' | 'opencode' | 'mistral-vibe' | 'command-code' | 'antigravity';
 export type HarnessId = BuiltinHarnessId | string;
 
 /**

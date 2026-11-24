@@ -31,8 +31,8 @@ The repository has two packages:
 
 ### Harnesses
 
-- One app for several coding agents: Devin CLI, OpenAI Codex CLI, Claude Code, OpenCode and Kiro CLI over the Agent Client Protocol, plus any ACP agent you add with its own command, arguments, working directory and environment allowlist. Command Code and Google Antigravity are listed but stay off until they ship an ACP entry point.
-- Pick the harness when you start a session. Modes, models and options come from what each agent reports, so every harness shows its own pickers. Missing CLIs show an install hint, and sign-in errors say how to log in.
+- One app for several coding agents: Devin CLI, OpenAI Codex CLI, Claude Code, OpenCode, Kiro CLI and Mistral Vibe CLI over the Agent Client Protocol, plus any ACP agent you add with its own command, arguments, working directory and environment allowlist. Command Code and Google Antigravity are listed but stay off until they ship an ACP entry point.
+- Pick the harness when you start a session. Modes, models and options come from what each agent reports, so every harness shows its own pickers. Missing CLIs show an Install & setup action that runs the installer and sign-in command in the terminal, and sign-in errors say how to log in.
 - See [docs/HARNESSES.md](docs/HARNESSES.md) for tested versions and limits.
 
 ### Handoff and subagents
@@ -104,7 +104,7 @@ The repository has two packages:
 
 On the VM:
 
-- Linux with at least one harness installed and signed in: [Devin CLI](https://docs.devin.ai/cli), Codex CLI with [`codex-acp`](https://www.npmjs.com/package/@agentclientprotocol/codex-acp), Claude Code with [`claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), [OpenCode](https://opencode.ai), Kiro CLI, or another ACP agent.
+- Linux with at least one harness installed and signed in: [Devin CLI](https://docs.devin.ai/cli), Codex CLI with [`codex-acp`](https://www.npmjs.com/package/@agentclientprotocol/codex-acp), Claude Code with [`claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp), [OpenCode](https://opencode.ai), Kiro CLI, [Mistral Vibe CLI](https://docs.mistral.ai/vibe), or another ACP agent.
 - Node.js 22.17 or later and npm (the web UI build needs it; the gateway alone runs on Node.js 20). The gateway depends on `node-pty`, a native module. If npm cannot use a prebuilt binary for your platform, it compiles one, which needs Python 3, `make` and a C++ compiler.
 - Git, for the Changes screen and worktrees, and the GitHub CLI `gh` (signed in) for the PRs tab.
 - [Tailscale](https://tailscale.com/download), signed in to the same tailnet as your phone or tablet.
