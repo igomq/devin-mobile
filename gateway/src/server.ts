@@ -578,7 +578,8 @@ export function createGatewayServer(input: Config) {
         return { links: p.summary === true ? orchestrator.summaries(filter) : orchestrator.list(filter.sessionId, filter) };
       }
       case 'orchestration.get': {
-        const link = await orchestrator.detail(requireString(p.id ?? p.taskId, 'id'));
+        const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+        const link = await orchestrator.detail(requireString(p.id ?? p.taskId, 'id'), { sinceSeq: num(p.sinceSeq), limit: num(p.limit) });
         if (!link) throw new Error('Delegation not found');
         return { link };
       }

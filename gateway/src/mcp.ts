@@ -54,13 +54,18 @@ export const MCP_TOOLS = [
     description: 'Get one delegation by task id: status, task, output, error, worktree, branch, base commit, applied settings and the child session\'s latest activity.',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'Task id returned by delegate_task or list_delegations.' } },
+      properties: {
+        id: { type: 'string', description: 'Task id returned by delegate_task or list_delegations.' },
+        sinceSeq: { type: 'number', description: 'Return compact child-session events after this sequence number.' },
+        limit: { type: 'number', description: 'Maximum events to return (default 100, max 500).' },
+      },
       required: ['id'],
     },
   },
 ];
 
 const str = (v: Json) => (typeof v === 'string' && v ? v : undefined);
+const num = (v: Json) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
 function appliedText(a: Json): string | null {
   if (!a) return null;
@@ -135,7 +140,10 @@ async function callTool(name: string, args: Json, call: GatewayCall, defaultCwd:
       const id = str(args?.id);
       if (!id) throw new Error('id is required');
       // `id` at the top level collides with the gateway request id; send it as `taskId`.
-      const { link } = await call('orchestration.get', { taskId: id });
+      const params: Json = { taskId: id };
+      if (num(args?.sinceSeq) !== undefined) params.sinceSeq = num(args?.sinceSeq);
+      if (num(args?.limit) !== undefined) params.limit = num(args?.limit);
+      const { link } = await call('orchestration.get', params);
       return textResult(link);
     }
     default:

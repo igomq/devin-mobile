@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
 import { HarnessRegistry } from '../src/harnesses/registry.js';
-import { Orchestrator, buildTranscript, lastAgentReply, summarizeLink } from '../src/orchestrator.js';
+import { Orchestrator, buildHandoffPrompt, buildTranscript, delegationContract, lastAgentReply, summarizeLink } from '../src/orchestrator.js';
 import { SubagentSettings } from '../src/subagents.js';
 
 function echoAgent(dir: string, name: string): string {
@@ -18,6 +18,7 @@ if (process.argv[2] === '--version') { console.log('${name} 1.0.0'); process.exi
 let n = 0;
 const cwds = {};
 const hung = {};
+const NL = String.fromCharCode(10);
 const rl = require('node:readline').createInterface({ input: process.stdin });
 const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\\n');
 rl.on('line', (line) => {
@@ -27,10 +28,11 @@ rl.on('line', (line) => {
   else if (msg.method === 'session/cancel') { const id = hung[msg.params.sessionId]; if (id !== undefined) out({ id, result: { stopReason: 'cancelled' } }); }
   else if (msg.method === 'session/prompt') {
     const text = msg.params.prompt[0].text;
-    if (text === 'hang') { hung[msg.params.sessionId] = msg.id; out({ method: 'session/update', params: { sessionId: msg.params.sessionId, update: { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Read big.ts', status: 'in_progress' } } }); return; }
-    if (text === 'cancelme') return out({ id: msg.id, result: { stopReason: 'cancelled' } });
-    if (text === 'explode') return out({ id: msg.id, error: { code: -32603, message: 'model overloaded' } });
-    const reply = text.includes('Transcript so far') ? 'context:' + (text.includes('fix the parser') ? 'yes' : 'no') : '${name} did ' + text;
+    const task = text.startsWith('[uniharn delegation contract]') ? text.split(NL + NL).slice(1).join(NL + NL) : text;
+    if (task === 'hang') { hung[msg.params.sessionId] = msg.id; out({ method: 'session/update', params: { sessionId: msg.params.sessionId, update: { sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Read big.ts', status: 'in_progress' } } }); return; }
+    if (task === 'cancelme') return out({ id: msg.id, result: { stopReason: 'cancelled' } });
+    if (task === 'explode') return out({ id: msg.id, error: { code: -32603, message: 'model overloaded' } });
+    const reply = task.includes('Transcript so far') ? 'context:' + (task.includes('fix the parser') ? 'yes' : 'no') : '${name} did ' + task;
     setTimeout(() => {
       out({ method: 'session/update', params: { sessionId: msg.params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: reply } } } });
       out({ method: 'session/update', params: { sessionId: msg.params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' cwd=' + cwds[msg.params.sessionId] } } } });
@@ -70,6 +72,9 @@ test('handoff carries the source transcript to a session on another harness', as
     const src = await registry.createSession('alpha', dir);
     await registry.require('alpha').prompt(src.sessionId, 'fix the parser');
     await waitIdle(registry, 'alpha', src.sessionId);
+    const handoffPrompt = buildHandoffPrompt('alpha', src, 'add tests');
+    assert.match(handoffPrompt, /Opening request/);
+    assert.match(handoffPrompt, /fix the parser/);
     assert.match(buildTranscript(src), /\*\*User:\*\* fix the parser/);
     assert.match(lastAgentReply(src), /^alpha did fix the parser/);
 
@@ -103,6 +108,10 @@ test('delegate runs a subagent in an isolated git worktree and persists the link
     assert.match(link.branch ?? '', /^uniharn\/sub-/);
     await done;
     const finished = orchestrator.get(link.id)!;
+    const contract = delegationContract(link, link.applied);
+    assert.match(contract, /\[uniharn delegation contract\]/);
+    assert.match(contract, new RegExp(`Base SHA: ${link.baseSha}`));
+    assert.match(contract, /Work path: .*\.uniharn\/worktrees\//);
     assert.equal(finished.status, 'done');
     assert.equal(finished.stopReason, 'end_turn');
     assert.match(finished.output ?? '', /^beta did write docs cwd=.*\.uniharn\/worktrees\//);
@@ -259,6 +268,12 @@ test('a wait timeout cancels the child session and records it on the link', asyn
     assert.deepEqual(peek?.lastActivity.lastTool, { title: 'Read big.ts', status: 'in_progress' });
     assert.equal(peek?.lastActivity.lastEvent.sessionUpdate, 'tool_call');
     assert.equal(peek?.lastActivity.lastEvent.title, 'Read big.ts');
+    const progress = await orchestrator.detail(link.id, { sinceSeq: 0, limit: 3 });
+    assert.ok((progress?.events?.length ?? 0) > 0);
+    assert.ok((progress?.events?.length ?? 0) <= 3);
+    assert.ok(progress?.events?.some((e: any) => e.sessionUpdate === 'tool_call'));
+    const lastSeq = progress?.events?.[progress.events.length - 1]?.seq ?? 0;
+    assert.deepEqual((await orchestrator.detail(link.id, { sinceSeq: lastSeq, limit: 3 }))?.events, []);
 
     await done;
     const finished = orchestrator.get(link.id)!;

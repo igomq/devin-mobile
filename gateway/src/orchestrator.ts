@@ -89,11 +89,44 @@ export function summarizeLink(l: SessionLink): LinkSummary {
   };
 }
 
+/** Short contract prepended to every subagent prompt so workers keep the baseline and verification rules. */
+export function delegationContract(link: SessionLink, applied: AppliedSettings | undefined): string {
+  const settings = [applied?.model ? `model=${applied.model}` : null, applied?.mode ? `mode=${applied.mode}` : null, ...Object.entries(applied?.config ?? {}).map(([k, v]) => `${k}=${v}`)]
+    .filter(Boolean)
+    .join(', ');
+  return [
+    '[uniharn delegation contract]',
+    `Task id: ${link.id}`,
+    `Kind: ${link.kind}`,
+    `Harness: ${link.harnessId}${settings ? ` (${settings})` : ''}`,
+    `Work path: ${link.cwd}`,
+    `Base SHA: ${link.baseSha ?? 'unknown'}`,
+    `Branch: ${link.branch ?? 'none'}`,
+    'Scope: stay inside the work path and branch above; if the task or transcript names owned files, interfaces, or verification commands, treat them as fixed. Before finishing, run the narrowest relevant verification and report the exact commands and results.',
+  ].join('\n') + '\n';
+}
+
 function text(content: Json): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.map(text).join('');
   return content.type === 'text' && typeof content.text === 'string' ? content.text : '';
+}
+
+/** The first user message, kept separately because the transcript window can drop it. */
+function firstUserText(s: Session, maxChars = 2000): string {
+  let out = '';
+  let seen = false;
+  for (const { update: u } of s.events) {
+    if (u?.sessionUpdate === 'user_message_chunk') {
+      seen = true;
+      out += text(u.content);
+      if (out.length >= maxChars) break;
+      continue;
+    }
+    if (seen) break;
+  }
+  return out.trim().slice(0, maxChars);
 }
 
 /** Renders a session's event log as a compact markdown transcript, keeping the newest part within `maxChars`. */
@@ -133,6 +166,31 @@ export function lastAgentReply(s: Session): string {
   return reply.trim();
 }
 
+/** Compact child-session events after `sinceSeq`, for incremental delegation polling. */
+function compactEvents(s: Session | undefined, sinceSeq: number, limit = 100): Json[] {
+  if (!s) return [];
+  const after = Math.max(0, sinceSeq);
+  const n = Math.min(Math.max(0, limit), 500);
+  return s.events
+    .filter((e) => e.seq > after)
+    .slice(0, n)
+    .map((e) => {
+      const u = e.update ?? {};
+      const kind = u.sessionUpdate ?? null;
+      const out: Json = { seq: e.seq, at: e.at, sessionUpdate: kind };
+      if (u.title) out.title = u.title;
+      if (u.status) out.status = u.status;
+      if (u.toolCallId) out.toolCallId = u.toolCallId;
+      if (kind === 'agent_message_chunk' || kind === 'user_message_chunk') {
+        const t = text(u.content).trim();
+        if (t) out.text = t.length > 1000 ? `${t.slice(0, 1000)}…` : t;
+      }
+      if (kind === '_turn_end' && u.stopReason) out.stopReason = u.stopReason;
+      if (kind === '_turn_error' && u.message) out.message = String(u.message).slice(0, 500);
+      return out;
+    });
+}
+
 /** Resolves when the turn started after event `afterSeq` ends; rejects on a turn error or timeout. */
 export function waitForTurn(s: Session, afterSeq: number, timeoutMs = 60 * 60 * 1000, pollMs = 100): Promise<string | null> {
   const started = Date.now();
@@ -151,14 +209,18 @@ export function waitForTurn(s: Session, afterSeq: number, timeoutMs = 60 * 60 * 
 }
 
 export function buildHandoffPrompt(fromHarness: string, s: Session, instruction?: string): string {
+  const opening = firstUserText(s);
   return [
     `You are continuing a coding session handed off from the ${fromHarness} harness in ${s.cwd}.`,
+    opening ? `Opening request (constraints agreed earlier):\n${opening}` : null,
     'Transcript so far (newest last):',
     '',
     buildTranscript(s) || '(empty)',
     '',
     instruction?.trim() ? `Next instruction: ${instruction.trim()}` : 'Continue the work from where it stopped.',
-  ].join('\n');
+  ]
+    .filter((x): x is string => !!x)
+    .join('\n');
 }
 
 /** HEAD commit of the repo containing `cwd`, or null when it is not a git repo. */
@@ -279,11 +341,12 @@ export class Orchestrator extends EventEmitter {
   }
 
   /** One link with its child's latest activity — live for running tasks, the snapshot taken at finish otherwise. */
-  async detail(id: string): Promise<(SessionLink & { lastActivity: Json }) | undefined> {
+  async detail(id: string, opts: { sinceSeq?: number; limit?: number } = {}): Promise<(SessionLink & { lastActivity: Json; events?: Json[] }) | undefined> {
     const link = this.links.get(id);
     if (!link) return undefined;
     const lastActivity = link.lastActivity ?? activityOf(this.children.get(id));
-    return { ...link, lastActivity };
+    const events = typeof opts.sinceSeq === 'number' ? compactEvents(this.children.get(id), opts.sinceSeq, opts.limit ?? 100) : undefined;
+    return { ...link, lastActivity, ...(events ? { events } : {}) };
   }
 
   /**
@@ -415,10 +478,11 @@ export class Orchestrator extends EventEmitter {
     this.children.set(link.id, child);
     this.save();
     this.emit('link', { ...link });
+    const promptText = `${delegationContract(link, applied)}\n${prompt}`;
     const before = child.seq;
     const timeoutMs = this.turnTimeoutMs;
     const done = adapter
-      .prompt(child.sessionId, prompt)
+      .prompt(child.sessionId, promptText)
       .then(() => waitForTurn(child, before, timeoutMs))
       .then((stopReason) =>
         this.update(
