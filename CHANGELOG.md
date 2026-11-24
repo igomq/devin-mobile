@@ -6,9 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-11-25
+
 ### Added
 
 - Grok CLI (`grok agent stdio`) is now a built-in ACP harness, so it appears in the harness list and can be delegated to once installed; sign in with `grok login --device-auth` or `XAI_API_KEY`.
+- Delegation is easier to inspect and steer: `list_delegations` returns compact filtered summaries, `get_delegation` returns one task with its last activity and can page child events with `sinceSeq`/`limit`, and `delegate_task` reports the task id, base commit and applied model/mode/effort while accepting a validated `effort`.
+- Delegated and handed-off prompts now start with a short uniharn contract naming the task id, harness, applied settings, work path, base SHA and branch, and handoffs preserve the session's opening request.
+
+### Changed
+
+- The chat composer is more compact and Codex-like: Subagents moved to the header, reasoning effort and Fast mode live behind a gauge button, the permission shield opens session settings, and sheets render above glass surfaces instead of being squashed.
+
+### Fixed
+
+- Delegation progress no longer loses events that arrive while a child finishes, does not include later unrelated chat turns, and stops serving events after the child session is deleted.
+- Model-specific reasoning/speed options are applied in the right order, fixing Devin `Invalid params` failures and Mistral Vibe `max` effort selection.
 
 ## [0.4.5] - 2026-11-24
 
