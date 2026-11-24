@@ -23,7 +23,7 @@ const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m })
 const opts = ${withModels} ? [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'small', options: [{ value: 'small', name: 'Small' }, { value: 'big', name: 'Big' }] }] : [];
 rl.on('line', (line) => {
   const msg = JSON.parse(line);
-  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: true, delete: true } } } });
   else if (msg.method === 'session/new') {
     fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ mcp: msg.params.mcpServers }) + '\\n');
     out({ id: msg.id, result: { sessionId: '${name}-' + (++n), configOptions: opts } });
@@ -125,9 +125,11 @@ test('setDefault reports a failed write and keeps the old default', () => {
 });
 
 test('delegate rejects a model for a harness that offers no model choice', async () => {
-  const { orchestrator, cleanup, dir } = setup();
+  const { orchestrator, registry, cleanup, dir } = setup();
   try {
     await assert.rejects(orchestrator.delegate(null, 'plain', 'x', { cwd: dir, model: 'big' }), /does not offer a model choice/);
+    const plain = registry.require('plain') as AcpHarnessAdapter;
+    assert.equal(plain.manager.sessions.size, 0);
   } finally {
     cleanup();
   }

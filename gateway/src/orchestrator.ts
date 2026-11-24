@@ -231,6 +231,12 @@ export class Orchestrator extends EventEmitter {
     }
   }
 
+  /** Best-effort removal of a child session whose setup failed before its link existed. */
+  private async discardChildSession(harnessId: string, sessionId: string) {
+    const adapter = this.registry.require(harnessId);
+    await adapter.deleteSession(sessionId).catch(() => adapter.closeSession(sessionId).catch(() => undefined));
+  }
+
   private async start(
     kind: LinkKind,
     parentSessionId: string,
@@ -242,11 +248,16 @@ export class Orchestrator extends EventEmitter {
     model: string | null = null,
   ) {
     const child = await this.registry.createSession(harnessId, worktree?.path ?? cwd);
-    if (kind === 'delegate') await this.applyDelegationPolicy(child, harnessId);
-    if (model) {
-      const opt = modelOptionOf(child.configOptions);
-      if (!opt) throw new Error(`${harnessId} does not offer a model choice`);
-      await this.registry.require(harnessId).setConfigOption(child.sessionId, opt.id, model);
+    try {
+      if (kind === 'delegate') await this.applyDelegationPolicy(child, harnessId);
+      if (model) {
+        const opt = modelOptionOf(child.configOptions);
+        if (!opt) throw new Error(`${harnessId} does not offer a model choice`);
+        await this.registry.require(harnessId).setConfigOption(child.sessionId, opt.id, model);
+      }
+    } catch (e) {
+      await this.discardChildSession(harnessId, child.sessionId);
+      throw e;
     }
     const now = Date.now();
     const link: SessionLink = {
@@ -299,6 +310,9 @@ export class Orchestrator extends EventEmitter {
     opts: { cwd?: string; worktree?: boolean; includeContext?: boolean; model?: string | null } = {},
   ) {
     if (!task.trim()) throw new Error('task is required');
+    if (this.settings && !this.settings.policy(harnessId).enabled) {
+      throw new Error(`Delegation to ${harnessId} is disabled in Settings > Subagents`);
+    }
     const parent = parentSessionId ? await this.source(parentSessionId) : null;
     const cwd = opts.cwd ?? parent?.session.cwd;
     if (!cwd) throw new Error('sessionId or cwd is required');
