@@ -11,6 +11,13 @@ export const flatValues = (o: ConfigOption): ConfigOptionValue[] => (o.options ?
 
 export const isModelOption = (o: ConfigOption) => o.id === 'model' || o.category === 'model';
 
+export const isModeOption = (o: ConfigOption) => {
+	if (o.id === 'model' || o.category === 'model' || flatValues(o).length === 0) return false;
+	const text = `${o.id} ${o.name ?? ''} ${o.category ?? ''}`;
+	if (/fast|speed|turbo|priority|tier|thought|thinking|effort|reason|collaboration|model_config/i.test(text)) return false;
+	return o.category === 'mode' || o.id === 'mode' || /mode|permission|approval/i.test(text);
+};
+
 function fusionPair(x: ConfigOptionValue): FusionPair | null {
   const m = /^Fusion \((.+) \+ (.+)\)$/.exec(x.name);
   return m ? { value: x.value, main: m[1], side: m[2] } : null;

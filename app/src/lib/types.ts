@@ -35,6 +35,7 @@ export interface SessionSummary {
 	tokens?: TokenTotals;
 	turnStats?: TurnStat[] | null;
 	folderMissing?: boolean;
+	subagent?: NativeSubagentInfo | null;
 }
 
 export interface TokenTotals {
@@ -542,11 +543,48 @@ export interface Workspace {
 	updatedAt: number;
 }
 
-/** Default subagent model for one harness, and the models its sessions offered. */
+export interface NativeSubagentInfo {
+	parentSessionId: string;
+	title: string | null;
+	description: string | null;
+	cwd: string | null;
+	additionalDirectories: string[] | null;
+	capabilities: Json | null;
+	state: Json | null;
+}
+
+/** Default subagent model and delegation policy for one harness, with the choices its sessions offered. */
 export interface SubagentDefault {
 	harnessId: string;
 	model: string | null;
 	models: { value: string; name: string }[];
+	options: ConfigOption[];
+	modes: { id?: string; name?: string; description?: string | null }[] | null;
+	policy: { mode: string | null; config: Record<string, string | boolean>; enabled: boolean };
+}
+
+/** Unified row for a native harness child or a uniharn delegation child. */
+export interface SubagentEntry {
+	kind: 'native' | 'delegate';
+	id: string;
+	parentSessionId: string;
+	childSessionId: string;
+	harnessId: string;
+	title: string;
+	description: string | null;
+	task: string | null;
+	cwd: string | null;
+	worktree: string | null;
+	branch: string | null;
+	model: string | null;
+	status: string;
+	state: Json | null;
+	capabilities: Json | null;
+	configOptions: ConfigOption[];
+	createdAt: number;
+	updatedAt: number;
+	canMessage: boolean;
+	canCancel: boolean;
 }
 
 export interface SessionLink {

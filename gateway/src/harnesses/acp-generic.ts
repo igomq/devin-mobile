@@ -248,8 +248,14 @@ export class AcpHarnessAdapter extends EventEmitter implements HarnessAdapter {
       throw e;
     }
   }
+  listNativeSubagents() {
+    return this.manager.nativeSubagentSessions();
+  }
   prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = [], files: PromptFile[] = []): Promise<void> {
     return this.manager.prompt(sessionId, text, images, files);
+  }
+  steer(sessionId: string, text: string) {
+    return this.manager.steer(sessionId, text);
   }
   cancel(sessionId: string): Promise<void> {
     return this.manager.cancel(sessionId);

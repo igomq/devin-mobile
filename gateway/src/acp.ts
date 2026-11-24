@@ -95,7 +95,7 @@ export class AcpConnection extends EventEmitter {
     await spawned;
     this.initResult = await this.request('initialize', {
       protocolVersion: this.protocolVersion,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false, subagents: {} },
       clientInfo: this.clientInfo,
     });
     return this.initResult;

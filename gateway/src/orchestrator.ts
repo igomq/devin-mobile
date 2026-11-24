@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import type { HarnessRegistry } from './harnesses/registry.js';
 import { formatScopedSessionId } from './harnesses/registry.js';
 import type { Session } from './sessions.js';
-import { modelOptionOf, type SubagentSettings } from './subagents.js';
+import { delegationApprovalProblem, findModeChoice, modelOptionOf, recommendedDelegationMode, type SubagentSettings } from './subagents.js';
 
 const execFileAsync = promisify(execFile);
 type Json = any;
@@ -204,6 +204,39 @@ export class Orchestrator extends EventEmitter {
     return { harnessId, session: s };
   }
 
+  /** Applies the persisted per-harness delegation policy before the first prompt. */
+  private async applyDelegationPolicy(child: Session, harnessId: string) {
+    const policy = this.settings?.policy(harnessId) ?? { mode: null, config: {}, enabled: true };
+    if (!policy.enabled) throw new Error(`Delegation to ${harnessId} is disabled in Settings > Subagents`);
+    const adapter = this.registry.require(harnessId);
+    const applyMode = async (choice: Json) => {
+      if (choice?.source === 'config') await adapter.setConfigOption(child.sessionId, choice.configId, String(choice.value ?? choice.id));
+      else await adapter.setMode(child.sessionId, String(choice?.id ?? choice?.value));
+    };
+    if (policy.mode) {
+      const choice = findModeChoice(child.configOptions, child.modes, policy.mode);
+      if (!choice) throw new Error(`${harnessId} does not offer delegation mode ${policy.mode}`);
+      await applyMode(choice);
+    } else {
+      const recommended = recommendedDelegationMode(child.configOptions, child.modes);
+      if (recommended) await applyMode(recommended);
+    }
+    const problem = delegationApprovalProblem(child.configOptions, child.modes);
+    if (problem) throw new Error(`Delegation to ${harnessId} is unavailable: it ${problem}`);
+    for (const [configId, value] of Object.entries(policy.config)) {
+      const opt = (child.configOptions ?? []).find((o: Json) => o?.id === configId || o?.configId === configId);
+      if (!opt) throw new Error(`${harnessId} does not offer delegation config option ${configId}`);
+      const v = typeof opt.currentValue === 'boolean' || opt.type === 'boolean' ? value === true || value === 'true' : String(value);
+      await adapter.setConfigOption(child.sessionId, opt.id ?? configId, v);
+    }
+  }
+
+  /** Best-effort removal of a child session whose setup failed before its link existed. */
+  private async discardChildSession(harnessId: string, sessionId: string) {
+    const adapter = this.registry.require(harnessId);
+    await adapter.deleteSession(sessionId).catch(() => adapter.closeSession(sessionId).catch(() => undefined));
+  }
+
   private async start(
     kind: LinkKind,
     parentSessionId: string,
@@ -215,10 +248,16 @@ export class Orchestrator extends EventEmitter {
     model: string | null = null,
   ) {
     const child = await this.registry.createSession(harnessId, worktree?.path ?? cwd);
-    if (model) {
-      const opt = modelOptionOf(child.configOptions);
-      if (!opt) throw new Error(`${harnessId} does not offer a model choice`);
-      await this.registry.require(harnessId).setConfigOption(child.sessionId, opt.id, model);
+    try {
+      if (kind === 'delegate') await this.applyDelegationPolicy(child, harnessId);
+      if (model) {
+        const opt = modelOptionOf(child.configOptions);
+        if (!opt) throw new Error(`${harnessId} does not offer a model choice`);
+        await this.registry.require(harnessId).setConfigOption(child.sessionId, opt.id, model);
+      }
+    } catch (e) {
+      await this.discardChildSession(harnessId, child.sessionId);
+      throw e;
     }
     const now = Date.now();
     const link: SessionLink = {
@@ -271,6 +310,9 @@ export class Orchestrator extends EventEmitter {
     opts: { cwd?: string; worktree?: boolean; includeContext?: boolean; model?: string | null } = {},
   ) {
     if (!task.trim()) throw new Error('task is required');
+    if (this.settings && !this.settings.policy(harnessId).enabled) {
+      throw new Error(`Delegation to ${harnessId} is disabled in Settings > Subagents`);
+    }
     const parent = parentSessionId ? await this.source(parentSessionId) : null;
     const cwd = opts.cwd ?? parent?.session.cwd;
     if (!cwd) throw new Error('sessionId or cwd is required');

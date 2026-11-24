@@ -387,7 +387,6 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="log scroller" bind:this={scroller} onscroll={onScroll} onclick={copyCode} style:padding-bottom={dockHeight + 20 + 'px'}>
     <div class="column">
-      <SubagentsPanel sessionId={id} />
       {#if view?.ready && st.folderMissing}
         <div class="notice warn">This session's folder had been deleted. Its conversation is shown, and the folder was recreated empty, so the agent no longer has the old files.</div>
       {/if}
@@ -536,6 +535,7 @@
           aria-label="Message"
           disabled={!view?.ready}
         ></textarea>
+        <div class="subagent-dock"><SubagentsPanel sessionId={id} compact /></div>
         <div class="bar">
           <button class="round attach" onclick={() => fileInput?.click()} disabled={!view?.ready} aria-label="Attach image or text file"><Icon name="plus" size={18} /></button>
           <input bind:this={fileInput} type="file" accept="image/*,text/*,.md,.markdown,.txt,.log,.csv,.json,.yaml,.yml,.toml" multiple hidden onchange={onfiles} />
@@ -852,6 +852,11 @@
   }
   .dock-inner > * {
     pointer-events: auto;
+  }
+  .subagent-dock {
+    display: flex;
+    justify-content: flex-start;
+    margin-bottom: 8px;
   }
   .perms {
     display: flex;

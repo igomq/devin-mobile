@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
 import { HarnessRegistry } from '../src/harnesses/registry.js';
 import { Orchestrator } from '../src/orchestrator.js';
-import { SubagentSettings, noteModels, sessionRefs } from '../src/subagents.js';
+import { SubagentSettings, delegationApprovalProblem, modeChoices, noteModels, recommendedDelegationMode, sessionRefs } from '../src/subagents.js';
 
 /** Agent with a model option that records every set_config_option and the MCP env it got. */
 function modelAgent(dir: string, name: string, withModels = true): string {
@@ -23,7 +23,7 @@ const out = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m })
 const opts = ${withModels} ? [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'small', options: [{ value: 'small', name: 'Small' }, { value: 'big', name: 'Big' }] }] : [];
 rl.on('line', (line) => {
   const msg = JSON.parse(line);
-  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+  if (msg.method === 'initialize') out({ id: msg.id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { close: true, delete: true } } } });
   else if (msg.method === 'session/new') {
     fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ mcp: msg.params.mcpServers }) + '\\n');
     out({ id: msg.id, result: { sessionId: '${name}-' + (++n), configOptions: opts } });
@@ -125,9 +125,11 @@ test('setDefault reports a failed write and keeps the old default', () => {
 });
 
 test('delegate rejects a model for a harness that offers no model choice', async () => {
-  const { orchestrator, cleanup, dir } = setup();
+  const { orchestrator, registry, cleanup, dir } = setup();
   try {
     await assert.rejects(orchestrator.delegate(null, 'plain', 'x', { cwd: dir, model: 'big' }), /does not offer a model choice/);
+    const plain = registry.require('plain') as AcpHarnessAdapter;
+    assert.equal(plain.manager.sessions.size, 0);
   } finally {
     cleanup();
   }
@@ -153,4 +155,116 @@ test('noteModels flattens grouped options and ignores sessions without a model o
   const grouped = settings.list().find((s) => s.harnessId === 'grouped');
   assert.deepEqual(grouped?.models, [{ value: 'a', name: 'A' }, { value: 'b', name: 'b' }]);
   assert.equal(settings.list().some((s) => s.harnessId === 'none'), false);
+});
+
+test('value-less fast mode toggles do not hide real mode choices', () => {
+  const fast = { id: 'fast', name: 'Fast mode', category: 'speed', type: 'boolean', currentValue: false };
+  const legacyModes = { currentModeId: 'manual', availableModes: [{ id: 'manual', name: 'Manual' }, { id: 'agent', name: 'Agent' }] };
+  assert.deepEqual(modeChoices([fast], legacyModes).map((c) => c.id), ['manual', 'agent']);
+
+  const permissions = {
+    id: 'permissions',
+    name: 'Permissions',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'ask',
+    options: [
+      { value: 'ask', name: 'Ask' },
+      { value: 'auto', name: 'Auto' },
+    ],
+  };
+  assert.equal(modeChoices([fast, permissions], legacyModes)[0]?.configId, 'permissions');
+  assert.equal(recommendedDelegationMode([fast, permissions], legacyModes)?.value, 'auto');
+  assert.equal(delegationApprovalProblem([fast], legacyModes), null);
+});
+
+test('select-valued fast, collaboration, and effort options are not mistaken for the permission mode', () => {
+  const fastSelect = {
+    id: 'fast-mode',
+    name: 'Fast mode',
+    category: 'speed',
+    type: 'select',
+    currentValue: 'off',
+    options: [
+      { value: 'off', name: 'Off' },
+      { value: 'on', name: 'On' },
+    ],
+  };
+  const collaboration = {
+    id: 'collaboration_mode',
+    name: 'Collaboration mode',
+    category: 'collaboration_mode',
+    type: 'select',
+    currentValue: 'default',
+    options: [
+      { value: 'default', name: 'Default' },
+      { value: 'plan', name: 'Plan' },
+    ],
+  };
+  const effort = {
+    id: 'effort',
+    name: 'Reasoning effort',
+    category: 'thought_level',
+    type: 'select',
+    currentValue: 'medium',
+    options: [{ value: 'medium', name: 'Medium' }],
+  };
+  const legacyModes = { currentModeId: 'manual', availableModes: [{ id: 'manual', name: 'Manual' }, { id: 'agent', name: 'Agent' }] };
+  assert.deepEqual(modeChoices([fastSelect, collaboration, effort], legacyModes).map((c) => c.id), ['manual', 'agent']);
+
+  const mode = {
+    id: 'mode',
+    name: 'Agent mode',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'agent',
+    options: [
+      { value: 'agent', name: 'Agent' },
+      { value: 'read-only', name: 'Read only' },
+    ],
+  };
+  assert.equal(modeChoices([fastSelect, collaboration, effort, mode], legacyModes)[0]?.configId, 'mode');
+});
+
+test('recommendedDelegationMode prefers autonomous permission handling over edit-only modes', () => {
+  const codexMode = {
+    id: 'mode',
+    name: 'Agent mode',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'read-only',
+    options: [
+      { value: 'read-only', name: 'Read only', description: 'Requires approval to edit files' },
+      { value: 'workspace-write', name: 'Workspace write', description: 'Edit workspace files; ask before writing outside' },
+      { value: 'agent', name: 'Agent', description: 'Auto review' },
+      { value: 'agent-full-access', name: 'Full access', description: 'Unrestricted' },
+    ],
+  };
+  assert.equal(recommendedDelegationMode([codexMode], null)?.value, 'agent');
+
+  const claudeModes = {
+    currentModeId: 'default',
+    availableModes: [
+      { id: 'default', name: 'Manual', description: 'Always ask before making changes' },
+      { id: 'acceptEdits', name: 'Accept edits', description: 'Automatically accept all file edits' },
+      { id: 'plan', name: 'Plan' },
+      { id: 'auto', name: 'Auto', description: 'Claude handles permission decisions' },
+    ],
+  };
+  assert.equal(recommendedDelegationMode(undefined, claudeModes)?.id, 'auto');
+});
+
+test('recommendedDelegationMode ignores autonomy keywords in mode descriptions', () => {
+  const mode = {
+    id: 'mode',
+    name: 'Mode',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'read-only',
+    options: [
+      { value: 'read-only', name: 'Read only', description: 'The agent can read files but cannot edit them' },
+      { value: 'agent', name: 'Agent', description: 'Asks before each edit' },
+    ],
+  };
+  assert.equal(recommendedDelegationMode([mode], null)?.value, 'agent');
 });
