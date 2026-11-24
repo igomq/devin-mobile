@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
 import { HarnessRegistry } from '../src/harnesses/registry.js';
 import { Orchestrator } from '../src/orchestrator.js';
-import { SubagentSettings, noteModels, sessionRefs } from '../src/subagents.js';
+import { SubagentSettings, delegationApprovalProblem, modeChoices, noteModels, recommendedDelegationMode, sessionRefs } from '../src/subagents.js';
 
 /** Agent with a model option that records every set_config_option and the MCP env it got. */
 function modelAgent(dir: string, name: string, withModels = true): string {
@@ -156,3 +156,73 @@ test('noteModels flattens grouped options and ignores sessions without a model o
   assert.deepEqual(grouped?.models, [{ value: 'a', name: 'A' }, { value: 'b', name: 'b' }]);
   assert.equal(settings.list().some((s) => s.harnessId === 'none'), false);
 });
+
+test('value-less fast mode toggles do not hide real mode choices', () => {
+  const fast = { id: 'fast', name: 'Fast mode', category: 'speed', type: 'boolean', currentValue: false };
+  const legacyModes = { currentModeId: 'manual', availableModes: [{ id: 'manual', name: 'Manual' }, { id: 'agent', name: 'Agent' }] };
+  assert.deepEqual(modeChoices([fast], legacyModes).map((c) => c.id), ['manual', 'agent']);
+
+  const permissions = {
+    id: 'permissions',
+    name: 'Permissions',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'ask',
+    options: [
+      { value: 'ask', name: 'Ask' },
+      { value: 'auto', name: 'Auto' },
+    ],
+  };
+  assert.equal(modeChoices([fast, permissions], legacyModes)[0]?.configId, 'permissions');
+  assert.equal(recommendedDelegationMode([fast, permissions], legacyModes)?.value, 'auto');
+  assert.equal(delegationApprovalProblem([fast], legacyModes), null);
+});
+
+test('select-valued fast, collaboration, and effort options are not mistaken for the permission mode', () => {
+  const fastSelect = {
+    id: 'fast-mode',
+    name: 'Fast mode',
+    category: 'speed',
+    type: 'select',
+    currentValue: 'off',
+    options: [
+      { value: 'off', name: 'Off' },
+      { value: 'on', name: 'On' },
+    ],
+  };
+  const collaboration = {
+    id: 'collaboration_mode',
+    name: 'Collaboration mode',
+    category: 'collaboration_mode',
+    type: 'select',
+    currentValue: 'default',
+    options: [
+      { value: 'default', name: 'Default' },
+      { value: 'plan', name: 'Plan' },
+    ],
+  };
+  const effort = {
+    id: 'effort',
+    name: 'Reasoning effort',
+    category: 'thought_level',
+    type: 'select',
+    currentValue: 'medium',
+    options: [{ value: 'medium', name: 'Medium' }],
+  };
+  const legacyModes = { currentModeId: 'manual', availableModes: [{ id: 'manual', name: 'Manual' }, { id: 'agent', name: 'Agent' }] };
+  assert.deepEqual(modeChoices([fastSelect, collaboration, effort], legacyModes).map((c) => c.id), ['manual', 'agent']);
+
+  const mode = {
+    id: 'mode',
+    name: 'Agent mode',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'agent',
+    options: [
+      { value: 'agent', name: 'Agent' },
+      { value: 'read-only', name: 'Read only' },
+    ],
+  };
+  assert.equal(modeChoices([fastSelect, collaboration, effort, mode], legacyModes)[0]?.configId, 'mode');
+});
+

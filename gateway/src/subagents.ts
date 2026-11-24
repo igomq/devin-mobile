@@ -99,7 +99,12 @@ export function isInteractiveModeChoice(c: Json): boolean {
 
 function modeConfigOption(configOptions: Json[] | undefined): Json | null {
   return (
-    (configOptions ?? []).find((o) => o && o.category !== 'model' && o.id !== 'model' && (o.category === 'mode' || o.id === 'mode' || /mode|permission|approval/i.test(`${o.id} ${o.name} ${o.category ?? ''}`))) ?? null
+    (configOptions ?? []).find((o) => {
+      if (!o || o.category === 'model' || o.id === 'model' || optionValues(o).length === 0) return false;
+      const text = `${o.id ?? ''} ${o.name ?? ''} ${o.category ?? ''}`;
+      if (/fast|speed|turbo|priority|tier|thought|thinking|effort|reason|collaboration|model_config/i.test(text)) return false;
+      return o.category === 'mode' || o.id === 'mode' || /mode|permission|approval/i.test(text);
+    }) ?? null
   );
 }
 

@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { app, conn, errorText, rpc } from '#lib/api.svelte.ts';
   import { toast } from '#lib/ui.svelte.ts';
-  import { flatValues, isModelOption } from '#lib/models.ts';
+  import { flatValues, isModeOption, isModelOption } from '#lib/models.ts';
   import type { ConfigOption, ConfigOptionValue, SubagentDefault } from '#lib/types.ts';
   import BackButton from './BackButton.svelte';
 
@@ -24,8 +24,6 @@
   let errorLine = $derived(/unknown request/i.test(loadError ?? '') ? 'Update the gateway on the VM to set subagent settings.' : loadError);
   let harnesses = $derived(app.harnesses.filter((h) => h.enabled && (h.installed || h.id === 'devin')));
   const of = (id: string) => defaults.find((d) => d.harnessId === id);
-  const isModeOption = (o: ConfigOption) =>
-    o.id !== 'model' && o.category !== 'model' && (o.category === 'mode' || o.id === 'mode' || /mode|permission|approval/i.test(`${o.id} ${o.name ?? ''} ${o.category ?? ''}`));
 
   function modeChoices(d: SubagentDefault | undefined): { value: string; name: string }[] {
     const modeOpt = (d?.options ?? []).find(isModeOption);
