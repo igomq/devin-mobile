@@ -242,7 +242,7 @@ export class Orchestrator extends EventEmitter {
     model: string | null = null,
   ) {
     const child = await this.registry.createSession(harnessId, worktree?.path ?? cwd);
-    await this.applyDelegationPolicy(child, harnessId);
+    if (kind === 'delegate') await this.applyDelegationPolicy(child, harnessId);
     if (model) {
       const opt = modelOptionOf(child.configOptions);
       if (!opt) throw new Error(`${harnessId} does not offer a model choice`);

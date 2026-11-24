@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { AcpHarnessAdapter } from '../src/harnesses/acp-generic.js';
 import { HarnessRegistry } from '../src/harnesses/registry.js';
 import { Orchestrator, buildTranscript, lastAgentReply } from '../src/orchestrator.js';
+import { SubagentSettings } from '../src/subagents.js';
 
 function echoAgent(dir: string, name: string): string {
   const p = join(dir, name);
@@ -153,6 +154,27 @@ test('delegatedSessionIds lists only delegate children in their scoped form', as
     const handoff = await orchestrator.handoff(`alpha:${parent.sessionId}`, 'beta', 'continue');
     await handoff.done;
     assert.equal(orchestrator.delegatedSessionIds().size, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('delegation policy gates delegate sessions but not handoffs', async () => {
+  const { dir, registry, cleanup } = setup();
+  const data = join(dir, 'data');
+  const settings = new SubagentSettings(data);
+  settings.setPolicy('beta', { enabled: false });
+  const orchestrator = new Orchestrator(registry, data, settings);
+  try {
+    const src = await registry.createSession('alpha', dir);
+    await registry.require('alpha').prompt(src.sessionId, 'fix the parser');
+    await waitIdle(registry, 'alpha', src.sessionId);
+
+    const handoff = await orchestrator.handoff(`alpha:${src.sessionId}`, 'beta', 'add tests');
+    await handoff.done;
+    assert.equal(orchestrator.get(handoff.link.id)?.status, 'done');
+
+    await assert.rejects(orchestrator.delegate(`alpha:${src.sessionId}`, 'beta', 'review', { cwd: dir }), /disabled in Settings/);
   } finally {
     cleanup();
   }
