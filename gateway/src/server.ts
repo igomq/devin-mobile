@@ -206,7 +206,7 @@ export function createGatewayServer(input: Config) {
   }
 
   function termCwd(v: unknown): string {
-    const requested = typeof v === 'string' && v.trim() ? v.trim() : '~';
+    const requested = typeof v === 'string' && v ? v : '~';
     if (requested === '~' && config.strictRoots && config.roots.length && !isPathWithinRoots(homedir(), sessionRoots)) return scratchRoot;
     return absCwd(requested);
   }

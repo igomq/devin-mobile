@@ -38,6 +38,7 @@ export function formatScopedSessionId(harnessId: HarnessId, nativeId: string): s
  */
 export class HarnessRegistry extends EventEmitter {
   private adapters = new Map<HarnessId, HarnessAdapter>();
+  private fallbackAdapters = new Map<HarnessId, HarnessAdapter>();
   private configs = new Map<HarnessId, HarnessConfig>();
   private customSpecs = new Map<string, CustomAcpHarnessSpec>();
   private configFile: string;
@@ -86,6 +87,7 @@ export class HarnessRegistry extends EventEmitter {
   register(adapter: HarnessAdapter) {
     if (this.mcpServers) adapter.setMcpServers?.(this.mcpServers);
     this.adapters.set(adapter.id, adapter);
+    if (!adapter.custom) this.fallbackAdapters.set(adapter.id, adapter);
     const saved = this.configs.get(adapter.id);
     if (saved) adapter.configure(saved);
     adapter.on('event', (s: Session, ev: Json) => this.emit('event', s, ev));
@@ -109,7 +111,7 @@ export class HarnessRegistry extends EventEmitter {
     if (!this.customFactory) return;
     // A persisted custom definition keeps its ID even if a built-in later claims the same one.
     const existing = this.adapters.get(spec.id);
-    existing?.stop();
+    if (existing?.custom) existing.stop();
     this.adapters.delete(spec.id);
     this.register(this.customFactory(spec));
   }
@@ -178,14 +180,23 @@ export class HarnessRegistry extends EventEmitter {
     const adapter = this.adapters.get(id);
     if (adapter && !adapter.custom) return false;
     const existed = this.customSpecs.delete(id);
-    if (existed || adapter?.custom) {
+    const hadCustomAdapter = !!adapter?.custom;
+    if (existed || hadCustomAdapter) {
       this.configs.delete(id);
     }
-    if (adapter?.custom) {
+    if (hadCustomAdapter && adapter) {
       adapter.stop();
       this.adapters.delete(id);
     }
     if (existed) this.savePersisted();
+    if ((existed || hadCustomAdapter) && !this.adapters.has(id)) {
+      const fallback = this.fallbackAdapters.get(id);
+      if (fallback) {
+        if (this.mcpServers) fallback.setMcpServers?.(this.mcpServers);
+        this.adapters.set(id, fallback);
+        this.emit('harness_status', fallback.info());
+      }
+    }
     return existed;
   }
 

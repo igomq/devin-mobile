@@ -343,6 +343,11 @@ test('strict roots gate all cwd entry points and discovery mode still allows bro
   const term = await ok(ws, 'term.open', { cwd: '~', cols: 80, rows: 24 });
   assert.equal(term.term.cwd, join(strict.dataDir, 'scratch'));
   await ok(ws, 'term.close', { termId: term.term.termId });
+  const spaced = join(strict.root, 'proj ');
+  mkdirSync(spaced);
+  const spacedTerm = await ok(ws, 'term.open', { cwd: spaced, cols: 80, rows: 24 });
+  assert.equal(spacedTerm.term.cwd, spaced);
+  await ok(ws, 'term.close', { termId: spacedTerm.term.termId });
   const discovery = await startGateway(t, false);
   const other = await discovery.open();
   await ok(other, 'hello', { token: master });

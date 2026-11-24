@@ -98,12 +98,16 @@ test('persisted custom ACP definitions keep their id when a built-in claims it l
     r1.saveCustomSpec({ id: 'mistral-vibe', name: 'My Vibe', command: '/usr/bin/my-acp' });
 
     const r2 = new HarnessRegistry(dir);
-    r2.register(new AcpHarnessAdapter({ id: 'mistral-vibe', name: 'Mistral Vibe CLI', bin: '/nonexistent/vibe-acp', acpArgs: [] }));
+    const builtin = new AcpHarnessAdapter({ id: 'mistral-vibe', name: 'Mistral Vibe CLI', bin: '/nonexistent/vibe-acp', acpArgs: [] });
+    r2.register(builtin);
     r2.setCustomFactory(createCustomAcpAdapter);
 
     const adapter = r2.get('mistral-vibe');
     assert.equal(adapter?.custom, true);
     assert.equal(adapter?.info().name, 'My Vibe');
+    assert.equal(r2.removeCustomSpec('mistral-vibe'), true);
+    assert.equal(r2.get('mistral-vibe'), builtin);
+    assert.equal(r2.get('mistral-vibe')?.custom, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
