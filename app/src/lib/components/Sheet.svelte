@@ -41,11 +41,20 @@
   $effect(() => {
     if (!open) drag = 0;
   });
+
+  // Render at the document root. A sheet opened from inside a glass surface (backdrop-filter), a transformed
+  // or an isolated element would otherwise be sized and stacked against that element instead of the viewport:
+  // e.g. a "tall" sheet inside the composer resolved 92% against the composer's height and was squashed at the bottom.
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
 </script>
 
 <svelte:window onkeydown={(e) => open && e.key === 'Escape' && close()} />
 
 {#if open}
+<div class="portal" use:portal>
   <div class="scrim" onclick={close} role="presentation" style:opacity={drag > 0 ? Math.max(0.2, 1 - drag / 500) : null}></div>
   <div
     bind:this={sheet}
@@ -69,9 +78,13 @@
     </div>
     <div class="body">{@render children?.()}</div>
   </div>
+</div>
 {/if}
 
 <style>
+  .portal {
+    display: contents;
+  }
   .scrim {
     position: fixed;
     inset: 0;
