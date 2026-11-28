@@ -171,7 +171,7 @@
   // Composer toolbar destinations. The router opens the Tasks screen when it sees this window event.
   let changesHash = $derived('#/s/' + encodeURIComponent(id) + '/changes');
   function openTasks() {
-    window.dispatchEvent(new CustomEvent('uniharn:operations', { detail: 'tasks' }));
+    window.dispatchEvent(new CustomEvent('uniharn:operations', { detail: { open: 'tasks', sessionId: id } }));
   }
 
   // Spoken turn status for screen readers; the header shows the same thing visually.

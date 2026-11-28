@@ -70,6 +70,15 @@ export function operationScreen(detail: unknown): OperationScreen | null {
   return OPERATION_SCREENS.find((screen) => screen === name) ?? null;
 }
 
+/**
+ * Where opening a notification goes. Scheduled task notifications (dedup key `scheduler:<task>:…`) open the
+ * Tasks screen for their session; the gateway's own route points at the session itself.
+ */
+export function notificationRoute(n: { route: string | null; dedupKey: string; sessionId: string | null }) {
+  if (!n.dedupKey.startsWith('scheduler:')) return n.route;
+  return '#/tasks' + (n.sessionId ? '?session=' + encodeURIComponent(n.sessionId) : '');
+}
+
 /** What the new-session button starts with: a bare harness or a saved profile. */
 export type SessionChoice = { kind: 'harness'; harnessId: string } | { kind: 'profile'; profileId: string };
 

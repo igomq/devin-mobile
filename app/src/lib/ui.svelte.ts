@@ -21,7 +21,8 @@ function parse(): Route {
   if (name === 'accounts') return { name: 'accounts' };
   if (name === 'subagents') return { name: 'subagents' };
   const screen = OPERATION_SCREENS.find((s) => s === name);
-  if (screen) return { name: screen };
+  // `?session=<id>` narrows an operations screen to one session.
+  if (screen) return { name: screen, id: new URLSearchParams(query).get('session') ?? undefined };
   if (name === 'terminal') {
     const params = new URLSearchParams(query);
     return { name: 'terminal', login: params.has('login'), install: params.get('install') ?? undefined };
@@ -73,11 +74,13 @@ if (typeof window !== 'undefined') {
     const r = parse();
     Object.assign(route, { id: undefined, tab: undefined, login: undefined, install: undefined }, r);
   });
-  // `uniharn:operations` with a screen name (`'tasks'` or `{ open: 'tasks' }`) opens that screen;
+  // `uniharn:operations` with a screen name (`'tasks'` or `{ open: 'tasks', sessionId? }`) opens that screen;
   // the data pushes sent under the same name carry collections instead and are ignored here.
   window.addEventListener('uniharn:operations', (e) => {
-    const screen = operationScreen((e as CustomEvent).detail);
-    if (screen) go('#/' + screen);
+    const detail = (e as CustomEvent).detail;
+    const screen = operationScreen(detail);
+    const sessionId = typeof detail?.sessionId === 'string' ? detail.sessionId : null;
+    if (screen) go('#/' + screen + (sessionId ? '?session=' + encodeURIComponent(sessionId) : ''));
   });
 }
 
