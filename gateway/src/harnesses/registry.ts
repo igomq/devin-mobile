@@ -34,6 +34,20 @@ export function formatScopedSessionId(harnessId: HarnessId, nativeId: string): s
   return nativeId.startsWith(`${harnessId}:`) ? nativeId : `${harnessId}:${nativeId}`;
 }
 
+/** Resolve and check the known directory before session/load can start the harness in it. */
+export async function loadSessionInPath(registry: HarnessRegistry, sessionId: string, checkPath: (cwd: string) => string, expectedCwd?: string) {
+  const { adapter, harnessId, nativeId } = registry.resolveSession(sessionId);
+  if (!nativeId) throw new Error('Invalid session target');
+  const expected = expectedCwd === undefined ? undefined : checkPath(expectedCwd);
+  const known = adapter.sessionCwd(nativeId) ?? expected ?? (await adapter.listSessions()).find(s => s.sessionId === nativeId)?.cwd;
+  if (!known) throw new Error('Cannot determine the session folder');
+  const cwd = checkPath(known);
+  if (expected !== undefined && cwd !== expected) throw new Error('Session folder does not match the target');
+  const session = await adapter.ensureLoaded(nativeId, cwd);
+  if (checkPath(session.cwd) !== cwd) throw new Error('Session folder does not match the target');
+  return { adapter, harnessId, nativeId, session, cwd };
+}
+
 /**
  * Central registry for all coding-agent harnesses and their persisted configurations.
  * Routes session operations to the owning adapter without session ID collisions.
@@ -102,7 +116,7 @@ export class HarnessRegistry extends EventEmitter {
     const saved = this.configs.get(adapter.id);
     if (saved) adapter.configure(saved);
     adapter.on('event', (s: Session, ev: Json) => this.emit('event', s, ev));
-    adapter.on('state', (summary: SessionSummary) => this.emit('state', summary));
+    adapter.on('state', (summary: SessionSummary, scheduled?: boolean) => this.emit('state', summary, scheduled));
     adapter.on('permission', (s: Session, p: Json) => this.emit('permission', s, p));
     adapter.on('permission_resolved', (s: Session, reqId: string, optionId: string | null) =>
       this.emit('permission_resolved', s, reqId, optionId),

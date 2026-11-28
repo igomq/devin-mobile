@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HarnessRegistry } from './harnesses/registry.js';
-import type { Orchestrator } from './orchestrator.js';
+import type { DelegationGroup, Orchestrator } from './orchestrator.js';
 
 export interface ProjectProfile {
   id: string;
@@ -97,21 +97,30 @@ export class ProfileStore extends Store<ProjectProfile> {
 export class TeamStore extends Store<Team> {
   constructor(dataDir: string, checkPath: (cwd: string) => string = (cwd) => cwd) { super(dataDir, 'teams.json', (x) => team(x, checkPath)); }
 }
-export async function launchProfile(registry: HarnessRegistry, profile: ProjectProfile, checkPath: (cwd: string) => string, mode?: string) {
-  const cwd = checkPath(profile.cwd);
-  const prelude = [profile.prelude, profile.gitWorkflowNotes && `Git workflow: ${profile.gitWorkflowNotes}`, profile.defaultBranch && `Default branch: ${profile.defaultBranch}`, profile.commonCommands?.length && `Common commands:\n${profile.commonCommands.join('\n')}`].filter(Boolean).join('\n\n');
-  return registry.createSession(profile.harnessId, cwd, { model: profile.model ?? undefined, subagentModel: profile.subagentModel, prelude, mode, envAllowlist: profile.envAllowlist });
+export function profilePrelude(profile: ProjectProfile): string {
+  return [profile.prelude, profile.gitWorkflowNotes && `Git workflow: ${profile.gitWorkflowNotes}`, profile.defaultBranch && `Default branch: ${profile.defaultBranch}`, profile.commonCommands?.length && `Common commands:\n${profile.commonCommands.join('\n')}`].filter(Boolean).join('\n\n');
 }
-export async function launchTeam(orchestrator: Orchestrator, team: Team, task: string, cwd: string, checkPath: (cwd: string) => string, parentSessionId: string | null = null, profile?: ProjectProfile) {
+export async function launchProfile(registry: HarnessRegistry, profile: ProjectProfile, checkPath: (cwd: string) => string, mode?: string) {
+  return registry.createSession(profile.harnessId, checkPath(profile.cwd), { model: profile.model ?? undefined, subagentModel: profile.subagentModel, prelude: profilePrelude(profile), mode, envAllowlist: profile.envAllowlist });
+}
+type StartedRole = Awaited<ReturnType<Orchestrator['delegate']>>;
+
+export async function launchTeam(orchestrator: Orchestrator, team: Team, task: string, cwd: string, checkPath: (cwd: string) => string, parentSessionId: string | null = null, profile?: ProjectProfile, options?: {
+  group: DelegationGroup;
+  model?: string;
+  onLaunch: (role: TeamRole, started: StartedRole) => void;
+}) {
   const workPath = checkPath(cwd);
-  const prelude = profile ? [profile.prelude, profile.gitWorkflowNotes && `Git workflow: ${profile.gitWorkflowNotes}`, profile.defaultBranch && `Default branch: ${profile.defaultBranch}`, profile.commonCommands?.length && `Common commands:\n${profile.commonCommands.join('\n')}`].filter(Boolean).join('\n\n') : undefined;
+  const prelude = profile ? profilePrelude(profile) : undefined;
   const launched = [];
   for (const role of team.roles) {
     try {
-      const started = await orchestrator.delegate(parentSessionId, role.harnessId, task, { cwd: workPath, model: role.model, mode: role.mode, effort: role.effort, instruction: role.instruction, prelude, subagentModel: profile?.subagentModel, envAllowlist: profile?.envAllowlist });
+      const started = await orchestrator.delegate(parentSessionId, role.harnessId, task, { cwd: workPath, model: options?.model ?? role.model, mode: role.mode, effort: role.effort, instruction: role.instruction, prelude, subagentModel: profile?.subagentModel, envAllowlist: profile?.envAllowlist, group: options?.group });
       launched.push(started);
+      options?.onLaunch(role, started);
     } catch (error) {
-      throw new Error(`Team launch failed at role ${role.name}; started task IDs: ${launched.map(({ link }) => link.id).join(', ') || 'none'}`, { cause: error });
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Team launch failed at role ${role.name}: ${message}; started task IDs: ${launched.map(({ link }) => link.id).join(', ') || 'none'}`, { cause: error });
     }
   }
   return launched;

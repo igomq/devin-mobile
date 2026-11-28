@@ -4,7 +4,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AcpConnection } from './acp.js';
 import { noteConfigOptions, noteModes, noteModels, sessionRefs } from './subagents.js';
-import type { CreateSessionOptions } from './harnesses/types.js';
+import { SessionBusy, type CreateSessionOptions } from './harnesses/types.js';
 
 type Json = any;
 
@@ -69,6 +69,10 @@ export const folderPolicy = { mayRecreate: (_cwd: string) => true };
 
 /** Folders recreated empty for a load; Git there would reach an enclosing repository, so it is refused. */
 export const recreatedFolders = new Set<string>();
+
+export function incompleteTurn(stopReason: string | null): Error | undefined {
+  if (stopReason && stopReason !== 'end_turn' && stopReason !== 'stop_sequence') return new Error(`Turn stopped: ${stopReason}`);
+}
 
 export interface TokenTotals {
   turns: number;
@@ -286,6 +290,10 @@ export class SessionManager extends EventEmitter {
     return [...this.sessions.values()].filter((s) => !this.nativeSubagents.has(s.sessionId));
   }
 
+  sessionCwd(sessionId: string): string | undefined {
+    return this.sessions.get(sessionId)?.cwd;
+  }
+
   nativeSubagentSessions(): { parentSessionId: string; child: Session }[] {
     return [...this.nativeSubagents.values()].map((child) => ({ parentSessionId: child.subagent?.parentSessionId ?? '', child }));
   }
@@ -401,11 +409,47 @@ export class SessionManager extends EventEmitter {
   }
 
   async prompt(sessionId: string, text: string, images: { mimeType: string; data: string }[] = [], files: PromptFile[] = []) {
+    await this.submitPrompt(sessionId, text, images, files);
+  }
+
+  async promptAndWait(sessionId: string, text: string, signal: AbortSignal, prelude?: string): Promise<void> {
+    const turn = await this.submitPrompt(sessionId, text, [], [], { signal, prelude });
+    if (!turn) return;
+    let cancelTimer: NodeJS.Timeout | undefined;
+    let cancel: () => void;
+    const canceled = new Promise<void>((_, reject) => {
+      cancel = () => {
+        cancelTimer = setTimeout(() => reject(new Error('Target session did not acknowledge cancellation')), 15_000).unref();
+        void this.cancel(sessionId).catch(() => undefined);
+      };
+      if (signal.aborted) cancel();
+      else signal.addEventListener('abort', cancel, { once: true });
+    });
+    try {
+      const result = await Promise.race([turn.completion, canceled]);
+      const error = result && ('error' in result ? result.error : incompleteTurn(result.stopReason));
+      if (error) throw error;
+    } finally {
+      signal.removeEventListener('abort', cancel!);
+      clearTimeout(cancelTimer);
+    }
+  }
+
+  private async submitPrompt(
+    sessionId: string,
+    text: string,
+    images: { mimeType: string; data: string }[],
+    files: PromptFile[],
+    scheduled?: { signal: AbortSignal; prelude?: string },
+  ) {
     this.assertNotNativeSubagent(sessionId);
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
-    if (s.preludePending && s.options.prelude) {
-      text = `${s.options.prelude}\n\n${text}`;
+    if (scheduled?.signal.aborted) return;
+    if (scheduled && (s.running || s.permissions.size)) throw new SessionBusy('Target session is busy');
+    const prelude = scheduled?.prelude ?? (s.preludePending ? s.options.prelude : undefined);
+    if (prelude) text = `${prelude}\n\n${text}`;
+    if (s.preludePending) {
       this.saveSessionOptions(s.sessionId, s.options, false);
       s.preludePending = false;
     }
@@ -422,9 +466,10 @@ export class SessionManager extends EventEmitter {
     const ev = s.push({ sessionUpdate: 'user_message_chunk', content: content[0] ?? { type: 'text', text: '' }, _local: true, _content: content });
     this.emit('event', s, ev);
     s.running++;
+    s.lastStopReason = null;
     s.lastError = null;
     this.emit('state', s.summary());
-    acp
+    const completion = acp
       .request('session/prompt', { sessionId, prompt: content.map(({ _file: _f, ...c }) => c) })
       .then((r) => {
         s.lastStopReason = r?.stopReason ?? null;
@@ -439,17 +484,20 @@ export class SessionManager extends EventEmitter {
         }
         const done = s.push({ sessionUpdate: '_turn_end', stopReason: s.lastStopReason });
         this.emit('event', s, done);
+        return { stopReason: s.lastStopReason };
       })
       .catch((e: any) => {
         s.lastError = String(e?.message ?? e);
         const err = s.push({ sessionUpdate: '_turn_error', message: s.lastError });
         this.emit('event', s, err);
+        return { error: new Error(s.lastError) };
       })
       .finally(() => {
         s.running = Math.max(0, s.running - 1);
         if (s.running === 0) this.cancelPermissions(s);
-        this.emit('state', s.summary());
+        this.emit('state', s.summary(), !!scheduled);
       });
+    return { completion };
   }
 
   /**

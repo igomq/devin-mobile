@@ -16,9 +16,9 @@ import { createSchedulerRpc, gatewaySchedulerOptions } from './scheduler-rpc.js'
 import { createBuiltinAcpAdapters, createCustomAcpAdapter } from './harnesses/builtins.js';
 import { DevinHarnessAdapter } from './harnesses/devin.js';
 import { type DevinUsage, fetchDevinUsage } from './harnesses/devin-usage.js';
-import { formatScopedSessionId, HarnessRegistry } from './harnesses/registry.js';
+import { formatScopedSessionId, HarnessRegistry, loadSessionInPath } from './harnesses/registry.js';
 import { checkRateLimit, clientIp, exchangePairingCode, handlePairRequest, RequestError, sendJson } from './pairing.js';
-import { NotificationService } from './notifications.js';
+import { NotificationService, redactSecrets as redactNotificationSecrets } from './notifications.js';
 import { Orchestrator } from './orchestrator.js';
 import { SubagentSettings, sessionRefs } from './subagents.js';
 import { listDirectory, listProjects } from './projects.js';
@@ -60,7 +60,7 @@ export function createGatewayServer(input: Config) {
   const { registry, manager } = createGatewayRegistry(config);
   const workspaces = new WorkspaceStore(config.dataDir);
   const subagents = new SubagentSettings(config.dataDir);
-  const orchestrator = new Orchestrator(registry, config.dataDir, subagents);
+  const orchestrator = new Orchestrator(registry, config.dataDir, subagents, config.strictRoots ? { loadSource: loadProjectSession, check: absCwd } : undefined);
 
   const modelValue = (configOptions: Json[] | undefined) => {
     const opt = (configOptions ?? []).find((o) => o?.category === 'model' || o?.id === 'model');
@@ -179,7 +179,7 @@ export function createGatewayServer(input: Config) {
     broadcast({ type: 'event', sessionId: sid, harnessId: s.harnessId, epoch: s.epoch, ...ev }, (c) => c.subs.has(sid));
     notifications.onSessionActivity(sid, s.harnessId, s.title);
   });
-  registry.on('state', (summary) => {
+  registry.on('state', (summary, scheduled?: boolean) => {
     const sid = formatScopedSessionId(summary.harnessId, summary.sessionId);
     if (summary.subagent) {
       const native = registry.listNativeSubagents().find((x) => x.harnessId === summary.harnessId && x.child.sessionId === summary.sessionId);
@@ -188,7 +188,7 @@ export function createGatewayServer(input: Config) {
       return;
     }
     broadcast({ type: 'session_state', session: { ...summary, sessionId: sid } });
-    notifications.onSessionState({ ...summary, sessionId: sid });
+    notifications.onSessionState({ ...summary, sessionId: sid }, !scheduled);
   });
   registry.on('reset', (s: Session) => {
     const sid = formatScopedSessionId(s.harnessId, s.sessionId);
@@ -281,6 +281,14 @@ export function createGatewayServer(input: Config) {
     return assertAllowedPath(resolve(p.startsWith('~') ? homedir() + p.slice(1) : p), sessionRoots, config.strictRoots);
   }
 
+  async function loadProjectSession(sessionId: string) {
+    const { adapter, harnessId, nativeId } = registry.resolveSession(sessionId);
+    if (!config.strictRoots) return { adapter, harnessId, nativeId, session: await adapter.ensureLoaded(nativeId) };
+    const scopedId = formatScopedSessionId(harnessId, nativeId);
+    const workspace = workspaces.list().find(ws => ws.sessions.some(s => s.sessionId === scopedId && s.harnessId === harnessId));
+    return loadSessionInPath(registry, sessionId, absCwd, workspace?.cwd);
+  }
+
   const profiles = new ProfileStore(config.dataDir, absCwd);
   const teams = new TeamStore(config.dataDir, absCwd);
   function validateProfileWorkspace(value: Json) {
@@ -309,12 +317,20 @@ export function createGatewayServer(input: Config) {
     isRecreated: (path) => recreatedFolders.has(path),
   });
 
-  const schedulerRpc = createSchedulerRpc(config.dataDir, gatewaySchedulerOptions(registry, workspaces, absCwd, (task, event) => {
+  const schedulerOptions = gatewaySchedulerOptions(registry, workspaces, absCwd, (task, event) => {
     broadcast({ type: 'scheduler_state', task, event });
     if (!['completed', 'failed', 'awaiting_confirmation', 'interrupted', 'dependency_failed'].includes(event)) return;
     const type = event === 'completed' ? 'task_completed' : event === 'failed' ? 'execution_failed' : 'attention_needed';
-    notifications.notify({ type, title: `Scheduled task ${event.replaceAll('_', ' ')}`, body: task.title, safeBody: 'A scheduled task needs your attention.', sessionId: task.sessionId, route: `#/s/${encodeURIComponent(task.sessionId)}`, dedupKey: `scheduler:${task.id}:${event}:${task.updatedAt}` });
-  }, { profiles, teams, orchestrator }));
+    const detail = task.logs.at(-1)?.message;
+    notifications.notify({
+      type, title: `Scheduled task ${event.replaceAll('_', ' ')}`,
+      body: safeMessage(detail ? `${task.title}\n${detail}` : task.title),
+      safeBody: event === 'completed' ? 'A scheduled task finished.' : event === 'failed' ? 'A scheduled task failed.' : 'A scheduled task needs your attention.',
+      sessionId: task.sessionId,
+      dedupKey: `scheduler:${task.id}:${event}:${task.currentStep}:${task.updatedAt}`,
+    });
+  }, { profiles, teams, orchestrator });
+  const schedulerRpc = createSchedulerRpc(config.dataDir, { ...schedulerOptions, sanitizeLog: message => redactNotificationSecrets(safeMessage(message)) });
 
   let accountCache: { at: number; value: Json } | null = null;
 
@@ -540,14 +556,18 @@ export function createGatewayServer(input: Config) {
         const scratch = !profile && (p.noProject === true || typeof p.cwd !== 'string' || !p.cwd);
         const cwd = scratch ? newScratchDir() : absCwd(p.cwd || profile?.cwd);
         const harnessId = typeof p.harnessId === 'string' && p.harnessId ? p.harnessId : profile?.harnessId ?? 'devin';
+        const requestedWorkspaceId = p.workspaceId ?? profile?.workspaceId;
+        if (!scratch && requestedWorkspaceId) {
+          const workspace = workspaces.get(requestedWorkspaceId);
+          if (!workspace) throw new Error('Workspace not found');
+          if (absCwd(workspace.cwd) !== cwd) throw new Error('Session folder does not match workspace');
+        }
         const effective = profile ? { ...profile, cwd, harnessId, model: p.model === undefined ? profile.model : p.model } : null;
-        if (effective) validateProfileWorkspace({ ...effective, workspaceId: p.workspaceId ?? effective.workspaceId });
         const s = effective ? await launchProfile(registry, effective, absCwd, p.mode) : await registry.createSession(harnessId, cwd, { model: p.model, mode: p.mode });
         const scopedId = formatScopedSessionId(harnessId, s.sessionId);
         c.subs.add(scopedId);
         let workspaceId: string | null = null;
         try {
-          const requestedWorkspaceId = p.workspaceId ?? profile?.workspaceId;
           const ws = scratch ? null : requestedWorkspaceId ? workspaces.get(requestedWorkspaceId) : workspaces.createOrGet(cwd, { harnessId });
           if (ws) {
             workspaces.attachSession(ws.workspaceId, { harnessId, sessionId: scopedId, title: s.title, updatedAt: s.updatedAt });
@@ -584,11 +604,7 @@ export function createGatewayServer(input: Config) {
         if (team.cwd) absCwd(team.cwd);
         if (profile) { absCwd(profile.cwd); validateProfileWorkspace(profile); }
         const cwd = absCwd(p.cwd ?? team.cwd ?? profile?.cwd);
-        if (p.sessionId) {
-          const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
-          const parent = await adapter.ensureLoaded(nativeId);
-          absCwd(parent.cwd);
-        }
+        if (p.sessionId) absCwd((await loadProjectSession(requireString(p.sessionId, 'sessionId'))).session.cwd);
         const launches = await launchTeam(orchestrator, team, requireString(p.task, 'task'), cwd, absCwd, p.sessionId ?? null, profile);
         for (const { link } of launches) c.subs.add(link.childSessionId);
         return { links: launches.map(({ link }) => link) };

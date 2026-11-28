@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import type { HarnessRegistry } from './harnesses/registry.js';
 import { formatScopedSessionId } from './harnesses/registry.js';
 import type { Session } from './sessions.js';
+import { incompleteTurn } from './sessions.js';
 import {
   currentModeChoice,
   delegationApprovalProblem,
@@ -67,6 +68,26 @@ export interface LinkFilter {
   sessionId?: string;
   status?: string;
   id?: string;
+}
+
+export interface DelegationGroup {
+  signal: AbortSignal;
+  pending: Set<Promise<void>>;
+  children: Set<string>;
+}
+
+interface DelegationOptions {
+  cwd?: string;
+  worktree?: boolean;
+  includeContext?: boolean;
+  model?: string | null;
+  effort?: string | null;
+  mode?: string | null;
+  instruction?: string;
+  prelude?: string;
+  subagentModel?: string | null;
+  envAllowlist?: string[];
+  group?: DelegationGroup;
 }
 
 export const linkTitle = (task: string) => task.split('\n')[0].slice(0, 120);
@@ -264,11 +285,13 @@ function activityOf(s: Session | undefined | null): Json | null {
   };
 }
 
-export async function createWorktree(repoCwd: string, id: string): Promise<{ path: string; branch: string; baseSha: string | null }> {
+export async function createWorktree(repoCwd: string, id: string, checkPath?: (path: string) => string): Promise<{ path: string; branch: string; baseSha: string | null }> {
   const { stdout } = await execFileAsync('git', ['-C', repoCwd, 'rev-parse', '--show-toplevel'], { timeout: 10000 });
   const top = stdout.trim();
   const branch = `uniharn/sub-${id}`;
   const path = join(top, '.uniharn', 'worktrees', id);
+  checkPath?.(top);
+  checkPath?.(path);
   const { stdout: gitDir } = await execFileAsync('git', ['-C', top, 'rev-parse', '--git-common-dir'], { timeout: 10000 });
   const exclude = join(resolve(top, gitDir.trim()), 'info', 'exclude');
   mkdirSync(dirname(exclude), { recursive: true });
@@ -295,11 +318,15 @@ export class Orchestrator extends EventEmitter {
   private children = new Map<string, Session>();
   /** Last event seq belonging to the delegation turn, so later chat turns on the same session are not reported as progress. */
   private eventEnd = new Map<string, number>();
+  private delegationGroups = new Map<string, DelegationGroup>();
   private file: string;
   /** How long a delegation waits for the child's turn before cancelling it. */
   turnTimeoutMs = 60 * 60 * 1000;
 
-  constructor(private registry: HarnessRegistry, dataDir: string, private settings: SubagentSettings | null = null) {
+  constructor(private registry: HarnessRegistry, dataDir: string, private settings: SubagentSettings | null = null, private paths?: {
+    loadSource: (sessionId: string) => Promise<{ harnessId: string; session: Session }>;
+    check: (cwd: string) => string;
+  }) {
     super();
     this.registry.on('deleted', (sessionId: string) => this.forgetSession(sessionId));
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -330,7 +357,7 @@ export class Orchestrator extends EventEmitter {
     Object.assign(link, patch, { updatedAt: Date.now() });
     this.save();
     this.emit('link', { ...link });
-    if (link.kind === 'delegate' && (patch.status === 'done' || patch.status === 'error')) {
+    if (link.kind === 'delegate' && !this.delegationGroups.has(link.childSessionId) && (patch.status === 'done' || patch.status === 'error')) {
       this.registry.emit('subagent_completed', {
         taskId: link.id,
         harnessId: link.harnessId,
@@ -392,6 +419,7 @@ export class Orchestrator extends EventEmitter {
   }
 
   private async source(sessionId: string) {
+    if (this.paths) return this.paths.loadSource(sessionId);
     const { adapter, harnessId, nativeId } = this.registry.resolveSession(sessionId);
     const s = await adapter.ensureLoaded(nativeId);
     return { harnessId, session: s };
@@ -455,7 +483,9 @@ export class Orchestrator extends EventEmitter {
     prelude?: string,
     envAllowlist?: string[],
     subagentModel?: string | null,
+    group?: DelegationGroup,
   ) {
+    group?.signal.throwIfAborted();
     const adapter = this.registry.require(harnessId);
     const child = await this.registry.createSession(harnessId, worktree?.path ?? cwd, { prelude, envAllowlist, subagentModel });
     let applied: AppliedSettings;
@@ -484,6 +514,13 @@ export class Orchestrator extends EventEmitter {
       await this.discardChildSession(harnessId, child.sessionId);
       throw e;
     }
+    const [branch, baseSha] = worktree
+      ? [worktree.branch, worktree.baseSha ?? null]
+      : await Promise.all([gitBranch(cwd), gitHead(cwd)]);
+    if (group?.signal.aborted) {
+      await this.discardChildSession(harnessId, child.sessionId);
+      group.signal.throwIfAborted();
+    }
     const now = Date.now();
     const link: SessionLink = {
       id: randomUUID(),
@@ -494,9 +531,9 @@ export class Orchestrator extends EventEmitter {
       task,
       cwd: worktree?.path ?? cwd,
       worktree: worktree?.path ?? null,
-      branch: worktree?.branch ?? (await gitBranch(cwd)),
+      branch,
       model,
-      baseSha: worktree ? (worktree.baseSha ?? null) : await gitHead(cwd),
+      baseSha,
       applied,
       status: 'running',
       output: null,
@@ -508,22 +545,44 @@ export class Orchestrator extends EventEmitter {
     };
     this.links.set(link.id, link);
     this.children.set(link.id, child);
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.links.delete(link.id);
+      this.children.delete(link.id);
+      await this.discardChildSession(harnessId, child.sessionId);
+      throw error;
+    }
+    if (group) {
+      group.children.add(link.childSessionId);
+      this.delegationGroups.set(link.childSessionId, group);
+    }
     this.emit('link', { ...link });
     const promptText = `${delegationContract(link, applied)}\n${prompt}`;
     const before = child.seq;
     const timeoutMs = this.turnTimeoutMs;
+    if (group) {
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const signal = AbortSignal.any([group.signal, timeout]);
+      const done = adapter.promptAndWait(child.sessionId, promptText, signal).then(() => {
+        if (signal.aborted) throw signal.reason;
+        this.update(link, { status: 'done', output: lastAgentReply(child), stopReason: child.lastStopReason, lastActivity: activityOf(child) });
+      }).catch(error => {
+        const message = timeout.aborted ? `Timed out after ${duration(timeoutMs)}` : group.signal.aborted ? 'Scheduled team execution was canceled' : String(error?.message ?? error);
+        const cancelled = signal.aborted && child.lastStopReason === 'cancelled';
+        this.update(link, { status: 'error', error: message, stopReason: child.lastStopReason, cancelled, output: lastAgentReply(child) || null, lastActivity: activityOf(child) });
+      });
+      return { link, done };
+    }
     const done = adapter
       .prompt(child.sessionId, promptText)
       .then(() => waitForTurn(child, before, timeoutMs))
-      .then((stopReason) =>
-        this.update(
-          link,
-          stopReason === 'cancelled'
-            ? { status: 'error', stopReason, error: 'Subagent turn was cancelled before it finished', output: lastAgentReply(child) || null, lastActivity: activityOf(child) }
-            : { status: 'done', output: lastAgentReply(child), stopReason, lastActivity: activityOf(child) },
-        ),
-      )
+      .then((stopReason) => {
+        const error = stopReason === 'cancelled' ? 'Subagent turn was cancelled before it finished' : incompleteTurn(stopReason)?.message;
+        const output = lastAgentReply(child);
+        const lastActivity = activityOf(child);
+        this.update(link, error ? { status: 'error', error, output: output || null, stopReason, lastActivity } : { status: 'done', output, stopReason, lastActivity });
+      })
       .catch(async (e) => {
         if (!e?._timeout) return this.update(link, { status: 'error', error: `Subagent turn failed: ${String(e?.message ?? e)}`, output: lastAgentReply(child) || null, lastActivity: activityOf(child) });
         const cancelError = await adapter.cancel(child.sessionId).then(
@@ -557,20 +616,38 @@ export class Orchestrator extends EventEmitter {
    * or in an isolated worktree of it. `model: null` runs on the harness default model;
    * omitting it uses the default subagent model.
    */
-  async delegate(
+  delegate(
     parentSessionId: string | null,
     harnessId: string,
     task: string,
-    opts: { cwd?: string; worktree?: boolean; includeContext?: boolean; model?: string | null; effort?: string | null; mode?: string | null; instruction?: string; prelude?: string; subagentModel?: string | null; envAllowlist?: string[] } = {},
+    opts: DelegationOptions = {},
   ) {
+    const group = opts.group ?? (parentSessionId ? this.delegationGroups.get(parentSessionId) : undefined);
+    const launch = this.launchDelegation(parentSessionId, harnessId, task, opts, group);
+    if (group) {
+      const pending = launch.then(({ done }) => done).then(() => undefined, () => undefined);
+      group.pending.add(pending);
+      void pending.then(() => group.pending.delete(pending));
+    }
+    return launch;
+  }
+
+  async drainDelegations(group: DelegationGroup) {
+    while (group.pending.size) await Promise.all(group.pending);
+    for (const child of group.children) this.delegationGroups.delete(child);
+  }
+
+  private async launchDelegation(parentSessionId: string | null, harnessId: string, task: string, opts: DelegationOptions, group?: DelegationGroup) {
+    group?.signal.throwIfAborted();
     if (!task.trim()) throw new Error('task is required');
     if (this.settings && !this.settings.policy(harnessId).enabled) {
       throw new Error(`Delegation to ${harnessId} is disabled in Settings > Subagents`);
     }
     const parent = parentSessionId ? await this.source(parentSessionId) : null;
-    const cwd = opts.cwd ?? parent?.session.cwd;
-    if (!cwd) throw new Error('sessionId or cwd is required');
-    const wt = opts.worktree ? await createWorktree(cwd, randomUUID().slice(0, 8)) : null;
+    const requestedCwd = opts.cwd ?? parent?.session.cwd;
+    if (!requestedCwd) throw new Error('sessionId or cwd is required');
+    const cwd = this.paths?.check(requestedCwd) ?? requestedCwd;
+    const wt = opts.worktree ? await createWorktree(cwd, randomUUID().slice(0, 8), this.paths?.check) : null;
     const roleTask = opts.instruction ? `Role instruction: ${opts.instruction}\n\n${task}` : task;
     const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, roleTask) : roleTask;
     try {
@@ -578,7 +655,7 @@ export class Orchestrator extends EventEmitter {
       const model = opts.model === undefined ? (inheritedModel ?? this.settings?.defaultModel(harnessId) ?? null) : opts.model || null;
       const prelude = opts.prelude ?? parent?.session.options?.prelude;
       const envAllowlist = opts.envAllowlist ?? parent?.session.options?.envAllowlist;
-      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt, model, opts.effort || null, opts.mode, prelude, envAllowlist, inheritedModel);
+      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt, model, opts.effort || null, opts.mode, prelude, envAllowlist, inheritedModel, group);
     } catch (e) {
       if (wt) await removeWorktree(cwd, wt);
       throw e;
