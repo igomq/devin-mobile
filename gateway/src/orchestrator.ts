@@ -402,7 +402,7 @@ export class Orchestrator extends EventEmitter {
    * Config values the current model does not offer are skipped: harnesses like Devin and Vibe change their
    * effort/speed options per model, and sending a stale value fails with `Invalid params`.
    */
-  private async applyDelegationPolicy(child: Session, harnessId: string): Promise<Record<string, string | boolean>> {
+  private async applyDelegationPolicy(child: Session, harnessId: string, modeOverride?: string | null): Promise<Record<string, string | boolean>> {
     const policy = this.settings?.policy(harnessId) ?? { mode: null, config: {}, enabled: true };
     if (!policy.enabled) throw new Error(`Delegation to ${harnessId} is disabled in Settings > Subagents`);
     const adapter = this.registry.require(harnessId);
@@ -410,9 +410,10 @@ export class Orchestrator extends EventEmitter {
       if (choice?.source === 'config') await adapter.setConfigOption(child.sessionId, choice.configId, String(choice.value ?? choice.id));
       else await adapter.setMode(child.sessionId, String(choice?.id ?? choice?.value));
     };
-    if (policy.mode) {
-      const choice = findModeChoice(child.configOptions, child.modes, policy.mode);
-      if (!choice) throw new Error(`${harnessId} does not offer delegation mode ${policy.mode}`);
+    const selectedMode = modeOverride ?? policy.mode;
+    if (selectedMode) {
+      const choice = findModeChoice(child.configOptions, child.modes, selectedMode);
+      if (!choice) throw new Error(`${harnessId} does not offer delegation mode ${selectedMode}`);
       await applyMode(choice);
     } else {
       const recommended = recommendedDelegationMode(child.configOptions, child.modes);
@@ -450,9 +451,13 @@ export class Orchestrator extends EventEmitter {
     worktree: { path: string; branch: string; baseSha?: string | null } | null,
     model: string | null = null,
     effort: string | null = null,
+    mode?: string | null,
+    prelude?: string,
+    envAllowlist?: string[],
+    subagentModel?: string | null,
   ) {
     const adapter = this.registry.require(harnessId);
-    const child = await this.registry.createSession(harnessId, worktree?.path ?? cwd);
+    const child = await this.registry.createSession(harnessId, worktree?.path ?? cwd, { prelude, envAllowlist, subagentModel });
     let applied: AppliedSettings;
     try {
       // The model goes first: the effort and speed options a harness offers can depend on it.
@@ -463,7 +468,7 @@ export class Orchestrator extends EventEmitter {
         if (offered.length && !offered.includes(model)) throw new Error(`${harnessId} does not offer model ${model} (offered: ${offeredText(offered)})`);
         await adapter.setConfigOption(child.sessionId, opt.id, model);
       }
-      const config = kind === 'delegate' ? await this.applyDelegationPolicy(child, harnessId) : {};
+      const config = kind === 'delegate' ? await this.applyDelegationPolicy(child, harnessId, mode) : {};
       if (effort) {
         const opt = effortOptionOf(child.configOptions);
         if (!opt) throw new Error(`${harnessId} does not offer a reasoning effort choice${model ? ` for model ${model}` : ''}`);
@@ -472,9 +477,9 @@ export class Orchestrator extends EventEmitter {
         await adapter.setConfigOption(child.sessionId, opt.id, effort);
         config[opt.id] = effort;
       }
-      const mode = currentModeChoice(child.configOptions, child.modes);
+      const currentMode = currentModeChoice(child.configOptions, child.modes);
       const current = modelOptionOf(child.configOptions)?.currentValue;
-      applied = { model: typeof current === 'string' ? current : model, mode: mode ? String(mode.value ?? mode.id ?? '') || null : null, config };
+      applied = { model: typeof current === 'string' ? current : model, mode: currentMode ? String(currentMode.value ?? currentMode.id ?? '') || null : null, config };
     } catch (e) {
       await this.discardChildSession(harnessId, child.sessionId);
       throw e;
@@ -556,7 +561,7 @@ export class Orchestrator extends EventEmitter {
     parentSessionId: string | null,
     harnessId: string,
     task: string,
-    opts: { cwd?: string; worktree?: boolean; includeContext?: boolean; model?: string | null; effort?: string | null } = {},
+    opts: { cwd?: string; worktree?: boolean; includeContext?: boolean; model?: string | null; effort?: string | null; mode?: string | null; instruction?: string; prelude?: string; subagentModel?: string | null; envAllowlist?: string[] } = {},
   ) {
     if (!task.trim()) throw new Error('task is required');
     if (this.settings && !this.settings.policy(harnessId).enabled) {
@@ -566,10 +571,14 @@ export class Orchestrator extends EventEmitter {
     const cwd = opts.cwd ?? parent?.session.cwd;
     if (!cwd) throw new Error('sessionId or cwd is required');
     const wt = opts.worktree ? await createWorktree(cwd, randomUUID().slice(0, 8)) : null;
-    const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, task) : task;
+    const roleTask = opts.instruction ? `Role instruction: ${opts.instruction}\n\n${task}` : task;
+    const prompt = parent && opts.includeContext ? buildHandoffPrompt(parent.harnessId, parent.session, roleTask) : roleTask;
     try {
-      const model = opts.model === undefined ? (this.settings?.defaultModel(harnessId) ?? null) : opts.model || null;
-      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt, model, opts.effort || null);
+      const inheritedModel = opts.subagentModel !== undefined ? opts.subagentModel : parent?.session.options?.subagentModel;
+      const model = opts.model === undefined ? (inheritedModel ?? this.settings?.defaultModel(harnessId) ?? null) : opts.model || null;
+      const prelude = opts.prelude ?? parent?.session.options?.prelude;
+      const envAllowlist = opts.envAllowlist ?? parent?.session.options?.envAllowlist;
+      return await this.start('delegate', parentSessionId ?? '', harnessId, cwd, task, prompt, wt, model, opts.effort || null, opts.mode, prelude, envAllowlist, inheritedModel);
     } catch (e) {
       if (wt) await removeWorktree(cwd, wt);
       throw e;

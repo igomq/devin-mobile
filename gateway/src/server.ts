@@ -12,6 +12,7 @@ import { AuthStore, MIN_APP_VERSION, PROTOCOL_VERSION } from './auth.js';
 import type { Config } from './config.js';
 import { BUILD, collectDiagnostics, gatewaySecurity, installedBuild, suggestedUrls, VERSION } from './diagnostics.js';
 import { createGitRpc } from './git-rpc.js';
+import { createSchedulerRpc, gatewaySchedulerOptions } from './scheduler-rpc.js';
 import { createBuiltinAcpAdapters, createCustomAcpAdapter } from './harnesses/builtins.js';
 import { DevinHarnessAdapter } from './harnesses/devin.js';
 import { type DevinUsage, fetchDevinUsage } from './harnesses/devin-usage.js';
@@ -21,6 +22,7 @@ import { NotificationService } from './notifications.js';
 import { Orchestrator } from './orchestrator.js';
 import { SubagentSettings, sessionRefs } from './subagents.js';
 import { listDirectory, listProjects } from './projects.js';
+import { ProfileStore, TeamStore, launchProfile, launchTeam } from './presets.js';
 import { assertAllowedPath, isPathWithinRoots, RateLimiter, redactSecrets } from './security.js';
 import { folderPolicy, recreatedFolders, type PromptFile, type Session } from './sessions.js';
 import { serveStatic } from './static.js';
@@ -278,6 +280,22 @@ export function createGatewayServer(input: Config) {
     return assertAllowedPath(resolve(p.startsWith('~') ? homedir() + p.slice(1) : p), sessionRoots, config.strictRoots);
   }
 
+  const profiles = new ProfileStore(config.dataDir, absCwd);
+  const teams = new TeamStore(config.dataDir, absCwd);
+  function validateProfileWorkspace(value: Json) {
+    if (!value.workspaceId) return;
+    const ws = workspaces.get(value.workspaceId);
+    if (!ws) throw new Error('Workspace not found');
+    if (absCwd(ws.cwd) !== absCwd(value.cwd)) throw new Error('Profile cwd must match its workspace');
+  }
+  function validateTeamProfile(value: Json) {
+    if (!value.profileId) return;
+    const profile = profiles.get(value.profileId);
+    if (!profile) throw new Error('Profile not found');
+    absCwd(profile.cwd);
+    validateProfileWorkspace(profile);
+  }
+
   function termCwd(v: unknown): string {
     const requested = typeof v === 'string' && v ? v : '~';
     if (requested === '~' && config.strictRoots && config.roots.length && !isPathWithinRoots(homedir(), sessionRoots)) return scratchRoot;
@@ -289,6 +307,13 @@ export function createGatewayServer(input: Config) {
     checkPath: config.strictRoots ? (path) => assertAllowedPath(path, sessionRoots, true) : undefined,
     isRecreated: (path) => recreatedFolders.has(path),
   });
+
+  const schedulerRpc = createSchedulerRpc(config.dataDir, gatewaySchedulerOptions(registry, workspaces, absCwd, (task, event) => {
+    broadcast({ type: 'scheduler_state', task, event });
+    if (!['completed', 'failed', 'awaiting_confirmation', 'interrupted', 'dependency_failed'].includes(event)) return;
+    const type = event === 'completed' ? 'task_completed' : event === 'failed' ? 'execution_failed' : 'attention_needed';
+    notifications.notify({ type, title: `Scheduled task ${event.replaceAll('_', ' ')}`, body: task.title, safeBody: 'A scheduled task needs your attention.', sessionId: task.sessionId, route: `#/s/${encodeURIComponent(task.sessionId)}`, dedupKey: `scheduler:${task.id}:${event}:${task.updatedAt}` });
+  }, { profiles, teams, orchestrator }));
 
   let accountCache: { at: number; value: Json } | null = null;
 
@@ -314,6 +339,8 @@ export function createGatewayServer(input: Config) {
   }
 
   async function handle(c: Client, type: string, p: Json): Promise<Json> {
+    const schedulerResult = schedulerRpc.handle(type, p);
+    if (schedulerResult) return schedulerResult;
     const gitResult = gitRpc.handle(type, p);
     if (gitResult) return gitResult;
     switch (type) {
@@ -491,16 +518,22 @@ export function createGatewayServer(input: Config) {
         return { sessions: delegated.size ? filtered.filter((s: Json) => !delegated.has(s.sessionId)) : filtered };
       }
       case 'session.create': {
+        const profile = p.profileId ? profiles.get(requireString(p.profileId, 'profileId')) : undefined;
+        if (p.profileId && !profile) throw new Error('Profile not found');
+        if (profile) { absCwd(profile.cwd); validateProfileWorkspace(profile); }
         // No project: a fresh gateway-owned scratch folder, which needs no root check and gets no workspace.
-        const scratch = p.noProject === true || typeof p.cwd !== 'string' || !p.cwd;
-        const cwd = scratch ? newScratchDir() : absCwd(p.cwd);
-        const harnessId = typeof p.harnessId === 'string' && p.harnessId ? p.harnessId : 'devin';
-        const s = await registry.createSession(harnessId, cwd, { model: p.model, mode: p.mode });
+        const scratch = !profile && (p.noProject === true || typeof p.cwd !== 'string' || !p.cwd);
+        const cwd = scratch ? newScratchDir() : absCwd(p.cwd || profile?.cwd);
+        const harnessId = typeof p.harnessId === 'string' && p.harnessId ? p.harnessId : profile?.harnessId ?? 'devin';
+        const effective = profile ? { ...profile, cwd, harnessId, model: p.model === undefined ? profile.model : p.model } : null;
+        if (effective) validateProfileWorkspace({ ...effective, workspaceId: p.workspaceId ?? effective.workspaceId });
+        const s = effective ? await launchProfile(registry, effective, absCwd, p.mode) : await registry.createSession(harnessId, cwd, { model: p.model, mode: p.mode });
         const scopedId = formatScopedSessionId(harnessId, s.sessionId);
         c.subs.add(scopedId);
         let workspaceId: string | null = null;
         try {
-          const ws = scratch ? null : p.workspaceId ? workspaces.get(p.workspaceId) : workspaces.createOrGet(cwd, { harnessId });
+          const requestedWorkspaceId = p.workspaceId ?? profile?.workspaceId;
+          const ws = scratch ? null : requestedWorkspaceId ? workspaces.get(requestedWorkspaceId) : workspaces.createOrGet(cwd, { harnessId });
           if (ws) {
             workspaces.attachSession(ws.workspaceId, { harnessId, sessionId: scopedId, title: s.title, updatedAt: s.updatedAt });
             workspaceId = ws.workspaceId;
@@ -509,6 +542,41 @@ export function createGatewayServer(input: Config) {
           console.warn(safeMessage(`[uniharn] failed to persist workspace for session ${scopedId}: ${err}`));
         }
         return { session: { ...s.summary(), sessionId: scopedId, harnessId }, epoch: s.epoch, workspaceId };
+      }
+      case 'profiles.list': return { profiles: profiles.list() };
+      case 'profiles.create': { const value = p.profile ?? p; validateProfileWorkspace(value); return { profile: profiles.create(value) }; }
+      case 'profiles.update': {
+        const id = requireString(p.profileId, 'profileId');
+        const previous = profiles.get(id); if (!previous) throw new Error('Profile not found');
+        const patch = p.patch ?? p.profile ?? {}; validateProfileWorkspace({ ...previous, ...patch });
+        return { profile: profiles.update(id, patch) };
+      }
+      case 'profiles.delete': return { deleted: profiles.delete(requireString(p.profileId, 'profileId')) };
+      case 'teams.list': return { teams: teams.list() };
+      case 'teams.create': { const value = p.team ?? p; validateTeamProfile(value); return { team: teams.create(value) }; }
+      case 'teams.update': {
+        const id = requireString(p.teamId, 'teamId'); const previous = teams.get(id); if (!previous) throw new Error('Team not found');
+        const patch = p.patch ?? p.team ?? {}; validateTeamProfile({ ...previous, ...patch });
+        return { team: teams.update(id, patch) };
+      }
+      case 'teams.delete': return { deleted: teams.delete(requireString(p.teamId, 'teamId')) };
+      case 'teams.start': {
+        const team = teams.get(requireString(p.teamId, 'teamId'));
+        if (!team) throw new Error('Team not found');
+        const profileId = p.profileId ?? team.profileId;
+        const profile = profileId ? profiles.get(requireString(profileId, 'profileId')) : undefined;
+        if (profileId && !profile) throw new Error('Profile not found');
+        if (team.cwd) absCwd(team.cwd);
+        if (profile) { absCwd(profile.cwd); validateProfileWorkspace(profile); }
+        const cwd = absCwd(p.cwd ?? team.cwd ?? profile?.cwd);
+        if (p.sessionId) {
+          const { adapter, nativeId } = registry.resolveSession(requireString(p.sessionId, 'sessionId'));
+          const parent = await adapter.ensureLoaded(nativeId);
+          absCwd(parent.cwd);
+        }
+        const launches = await launchTeam(orchestrator, team, requireString(p.task, 'task'), cwd, absCwd, p.sessionId ?? null, profile);
+        for (const { link } of launches) c.subs.add(link.childSessionId);
+        return { links: launches.map(({ link }) => link) };
       }
       case 'session.handoff': {
         const id = requireString(p.sessionId, 'sessionId');
@@ -823,6 +891,7 @@ export function createGatewayServer(input: Config) {
       for (const client of clients) client.ws.terminate();
       for (const term of terminals.list()) terminals.close(term.termId);
       tasks.stopAll();
+      schedulerRpc.close();
       notifications.dispose();
       manager.stop();
       await Promise.all([
@@ -900,6 +969,7 @@ export function createGatewayServer(input: Config) {
         lastPollError = message;
       }
     }, 250).unref();
+    schedulerRpc.start();
     registry.probeAll().catch(() => undefined);
     manager.ensureAgent().catch((error) => {
       if (!closing) console.error(`[uniharn] could not start devin acp: ${safeMessage(error)}`);

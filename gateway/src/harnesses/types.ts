@@ -98,6 +98,9 @@ export interface CreateSessionOptions {
   model?: string;
   mode?: string;
   mcpServers?: Json[];
+  subagentModel?: string | null;
+  prelude?: string;
+  envAllowlist?: string[];
 }
 
 export interface HarnessAdapter extends EventEmitter {
@@ -128,5 +131,7 @@ export interface HarnessAdapter extends EventEmitter {
   authenticate?(methodId: string): Promise<Json>;
   /** Offer these MCP servers (e.g. uniharn's delegation server) to the harness's sessions. */
   setMcpServers?(servers: (cwd?: string, ref?: string) => Json[]): void;
+  /** Verify that the running process (or the next launch) has exactly this environment preset. */
+  assertSessionEnvAllowlist?(allowlist: string[]): void;
   stop(): void;
 }

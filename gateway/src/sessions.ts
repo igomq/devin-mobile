@@ -4,6 +4,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AcpConnection } from './acp.js';
 import { noteConfigOptions, noteModes, noteModels, sessionRefs } from './subagents.js';
+import type { CreateSessionOptions } from './harnesses/types.js';
 
 type Json = any;
 
@@ -79,6 +80,8 @@ export interface TokenTotals {
 const MAX_EVENTS = 20000;
 
 export class Session {
+  options: CreateSessionOptions = {};
+  preludePending = false;
   events: SessionEvent[] = [];
   seq = 0;
   /** Bumped whenever history is rebuilt (e.g. after an agent restart); clients must resync fully. */
@@ -190,6 +193,9 @@ export interface SessionManagerLaunchOptions {
 }
 
 export class SessionManager extends EventEmitter {
+  sessionOptions: (id: string) => { options: CreateSessionOptions; preludePending: boolean } | undefined = () => undefined;
+  saveSessionOptions: (id: string, options: CreateSessionOptions, preludePending: boolean) => void = () => {};
+  validateSessionOptions: (options: CreateSessionOptions) => void = () => {};
   private acp: AcpConnection | null = null;
   private starting: Promise<AcpConnection> | null = null;
   private startingConnection: AcpConnection | null = null;
@@ -228,6 +234,8 @@ export class SessionManager extends EventEmitter {
       authMethods: this.acp?.initResult?.authMethods ?? [],
     };
   }
+
+  get agentStartingOrRunning(): boolean { return !!this.starting || !!this.acp?.alive; }
 
   async ensureAgent(): Promise<AcpConnection> {
     if (this.acp?.alive) return this.acp;
@@ -290,6 +298,8 @@ export class SessionManager extends EventEmitter {
     let s = this.sessions.get(sessionId);
     if (!s) {
       s = new Session(sessionId, cwd, this.launch.harnessId ?? 'devin');
+      const saved = this.sessionOptions(sessionId);
+      if (saved) { s.options = saved.options; s.preludePending = saved.preludePending; }
       this.sessions.set(sessionId, s);
     }
     return s;
@@ -359,6 +369,7 @@ export class SessionManager extends EventEmitter {
     if (pending) return pending;
     const known = this.sessions.get(sessionId);
     const s = this.getOrCreate(sessionId, cwd ?? known?.cwd ?? process.cwd());
+    this.validateSessionOptions(s.options);
     if (s.loaded && this.acp?.alive) return s;
     const load = this.load(s).finally(() => this.loading.delete(sessionId));
     this.loading.set(sessionId, load);
@@ -393,6 +404,11 @@ export class SessionManager extends EventEmitter {
     this.assertNotNativeSubagent(sessionId);
     const s = await this.ensureLoaded(sessionId);
     const acp = await this.ensureAgent();
+    if (s.preludePending && s.options.prelude) {
+      text = `${s.options.prelude}\n\n${text}`;
+      this.saveSessionOptions(s.sessionId, s.options, false);
+      s.preludePending = false;
+    }
     const content: Json[] = [];
     if (text) content.push({ type: 'text', text });
     for (const img of images) content.push({ type: 'image', mimeType: img.mimeType, data: img.data });
