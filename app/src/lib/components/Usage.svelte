@@ -115,7 +115,7 @@
 
 <div class="screen">
   <header class="topbar">
-    <BackButton to="#/settings" />
+    <BackButton to="#/" />
     <div class="title">
       <b>Usage</b>
       {#if report}{@const since = ago(Date.parse(report.generatedAt))}<small>Updated {since === 'now' ? 'just now' : since + ' ago'}</small>{/if}

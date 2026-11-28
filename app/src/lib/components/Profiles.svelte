@@ -144,7 +144,7 @@
 
 <div class="screen">
   <header class="topbar">
-    <BackButton to="#/settings" />
+    <BackButton to="#/" />
     <div class="title"><b>Profiles</b></div>
     <button class="iconbtn glass" onclick={openNew} disabled={!online || !!loadError} aria-label="New profile" title="New profile"><Icon name="plus" /></button>
   </header>

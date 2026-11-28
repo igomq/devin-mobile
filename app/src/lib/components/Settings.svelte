@@ -128,14 +128,22 @@
 
       <Devices />
 
-      <div class="label">Projects</div>
+      <div class="label">Projects and automation</div>
       <div class="card links">
+        <button class="linkrow press" onclick={() => go('#/tasks')}>
+          <span><b>Tasks</b><small>Scheduled prompts, dependencies and confirmations</small></span>
+          <Icon name="chevron" size={16} />
+        </button>
         <button class="linkrow press" onclick={() => go('#/profiles')}>
           <span><b>Profiles</b><small>Folder, harness, models and instructions for new sessions</small></span>
           <Icon name="chevron" size={16} />
         </button>
         <button class="linkrow press" onclick={() => go('#/teams')}>
           <span><b>Teams</b><small>Roles that work on one task together</small></span>
+          <Icon name="chevron" size={16} />
+        </button>
+        <button class="linkrow press" onclick={() => go('#/usage')}>
+          <span><b>Usage</b><small>Quota, resets, tokens and delegations per harness</small></span>
           <Icon name="chevron" size={16} />
         </button>
       </div>

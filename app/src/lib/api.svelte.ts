@@ -701,9 +701,12 @@ function saveUsage(usage: UsageReport) {
   return usage;
 }
 
-/** Loads profiles and teams after each connect. Gateways without them reject the calls, which leaves `ops.loaded` false. */
+/**
+ * Loads profiles, teams and scheduled tasks after each connect. Gateways without them reject the calls,
+ * which leaves `ops.loaded` false.
+ */
 export async function refreshOperations() {
-  const [profiles] = await Promise.allSettled([rpc('profiles.list'), rpc('teams.list')]);
+  const [profiles] = await Promise.allSettled([rpc('profiles.list'), rpc('teams.list'), rpc('scheduler.list')]);
   ops.loaded = profiles.status === 'fulfilled';
 }
 

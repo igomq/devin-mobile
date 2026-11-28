@@ -174,7 +174,7 @@
 
 <div class="screen">
   <header class="topbar">
-    <BackButton to="#/settings" />
+    <BackButton to="#/" />
     <div class="title"><b>Teams</b></div>
     <button class="iconbtn glass" onclick={openNew} disabled={!online || !!loadError} aria-label="New team" title="New team"><Icon name="plus" /></button>
   </header>
