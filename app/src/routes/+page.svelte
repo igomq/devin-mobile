@@ -12,6 +12,7 @@
   import Profiles from '#lib/components/Profiles.svelte';
   import Teams from '#lib/components/Teams.svelte';
   import Tasks from '#lib/components/Tasks.svelte';
+  import Usage from '#lib/components/Usage.svelte';
 
   // Stay in the app while reconnecting; only fall back to pairing when there is nothing to connect to.
   let paired = $derived(configured() && conn.status !== 'unauthorized' && (conn.info !== null || conn.status !== 'offline'));
@@ -46,6 +47,8 @@
         <Teams />
       {:else if route.name === 'tasks'}
         <Tasks />
+      {:else if route.name === 'usage'}
+        <Usage />
       {:else if split}
         <div class="screen placeholder">
           <div class="empty">
