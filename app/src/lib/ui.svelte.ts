@@ -1,10 +1,11 @@
 import { getStorageItem, setStorageItem } from './storage.ts';
+import { OPERATION_SCREENS, operationScreen, type OperationScreen } from './operations.ts';
 import { readThemePrefs, writeThemePrefs, normalizeAccent } from './theme-prefs.ts';
 import { DEFAULT_THEME_PREFS, getTheme, resolveThemeId, themeVars } from './themes.ts';
 
 // Tiny hash router and UI preferences.
 export interface Route {
-  name: 'home' | 'session' | 'settings' | 'accounts' | 'subagents' | 'terminal';
+  name: 'home' | 'session' | 'settings' | 'accounts' | 'subagents' | 'terminal' | OperationScreen;
   id?: string;
   tab?: string;
   login?: boolean;
@@ -19,6 +20,8 @@ function parse(): Route {
   if (name === 'settings') return { name: 'settings' };
   if (name === 'accounts') return { name: 'accounts' };
   if (name === 'subagents') return { name: 'subagents' };
+  const screen = OPERATION_SCREENS.find((s) => s === name);
+  if (screen) return { name: screen };
   if (name === 'terminal') {
     const params = new URLSearchParams(query);
     return { name: 'terminal', login: params.has('login'), install: params.get('install') ?? undefined };
@@ -69,6 +72,12 @@ if (typeof window !== 'undefined') {
   window.addEventListener('hashchange', () => {
     const r = parse();
     Object.assign(route, { id: undefined, tab: undefined, login: undefined, install: undefined }, r);
+  });
+  // `uniharn:operations` with a screen name (`'tasks'` or `{ open: 'tasks' }`) opens that screen;
+  // the data pushes sent under the same name carry collections instead and are ignored here.
+  window.addEventListener('uniharn:operations', (e) => {
+    const screen = operationScreen((e as CustomEvent).detail);
+    if (screen) go('#/' + screen);
   });
 }
 
