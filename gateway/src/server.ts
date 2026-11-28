@@ -29,6 +29,7 @@ import { serveStatic } from './static.js';
 import { detectTestCommand, TaskRunner } from './tasks.js';
 import { TerminalManager } from './terminal.js';
 import { WorkspaceStore } from './workspaces.js';
+import { UsageCenter } from './usage.js';
 
 type Json = any;
 
@@ -338,6 +339,11 @@ export function createGatewayServer(input: Config) {
     return value;
   }
 
+  const usageCenter = new UsageCenter(config.dataDir, registry, orchestrator, async (refresh) => {
+    try { return await accountInfo(refresh, false); }
+    catch (error) { throw new Error(safeMessage(error)); }
+  });
+
   async function handle(c: Client, type: string, p: Json): Promise<Json> {
     const schedulerResult = schedulerRpc.handle(type, p);
     if (schedulerResult) return schedulerResult;
@@ -419,6 +425,15 @@ export function createGatewayServer(input: Config) {
         return { now: Date.now() };
       case 'harnesses.list':
         return { harnesses: registry.list(), custom: registry.listCustomSpecs() };
+      case 'usage.list':
+        if (p.refresh !== undefined && typeof p.refresh !== 'boolean') throw new Error('refresh must be a boolean');
+        return { usage: await usageCenter.report(p.refresh === true) };
+      case 'usage.update': {
+        usageCenter.update(requireString(p.harnessId, 'harnessId'), p.manual, p.reset);
+        const usage = await usageCenter.report();
+        broadcast({ type: 'operations', usage });
+        return { usage };
+      }
       case 'harnesses.probe': {
         if (typeof p.harnessId === 'string' && p.harnessId) {
           const adapter = registry.get(p.harnessId);
