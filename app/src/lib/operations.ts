@@ -2,6 +2,7 @@
 // plus the pure helpers the reactive store in api.svelte.ts uses. Profile and team fields follow
 // gateway/src/presets.ts; scheduled tasks follow gateway/src/scheduler.ts.
 import type { Json } from './types.ts';
+import type { UsageReport } from './usage.ts';
 
 /** A project folder with the harness, models and context every session started from it gets. */
 export interface Profile {
@@ -50,7 +51,7 @@ export interface OperationsState {
   profiles: Profile[];
   teams: Team[];
   tasks: ScheduledTask[];
-  usage: Json | null;
+  usage: UsageReport | null;
   /** Whether this gateway answered `profiles.list` (older gateways have no profiles or teams). */
   loaded: boolean;
 }

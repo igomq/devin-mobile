@@ -4,6 +4,7 @@ import { getStorageItem, removeStorageItem, setStorageItem } from './storage.ts'
 import { defaultDeviceName, detectPlatform, httpBase, pageOrigin, pairDevice } from './pairing.ts';
 import { applyUpdate, emptyState, permissionView, stateFromSummary } from './timeline.ts';
 import { emptyOperations, removeById, upsertById, type Profile, type ScheduledTask, type Team } from './operations.ts';
+import type { UsageReport } from './usage.ts';
 import type { AppNotification, ChangedFileView, ConnInfo, DeviceInfo, GitStatus, GitStatusView, HarnessInfo, Json, PendingPermission, SessionLink, SessionRow, SessionSummary, SessionView, SubagentDefault, SubagentEntry, TaskRun, Workspace } from './types.ts';
 
 const STORE_SUFFIX = 'connection';
@@ -567,10 +568,10 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
     return r.profiles;
   },
   'profiles.create': async (p) => saveProfile((await request('profiles.create', { profile: p.profile })).profile),
-  'profiles.update': async (p) => saveProfile((await request('profiles.update', { id: p.id, patch: p.patch })).profile),
+  'profiles.update': async (p) => saveProfile((await request('profiles.update', { profileId: p.profileId, patch: p.patch })).profile),
   'profiles.delete': async (p) => {
-    const r = await request('profiles.delete', { id: p.id });
-    ops.profiles = removeById(ops.profiles, p.id);
+    const r = await request('profiles.delete', { profileId: p.profileId });
+    ops.profiles = removeById(ops.profiles, p.profileId);
     publishOperations({ profiles: ops.profiles });
     return r;
   },
@@ -581,17 +582,17 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
     return r.teams;
   },
   'teams.create': async (p) => saveTeam((await request('teams.create', { team: p.team })).team),
-  'teams.update': async (p) => saveTeam((await request('teams.update', { id: p.id, patch: p.patch })).team),
+  'teams.update': async (p) => saveTeam((await request('teams.update', { teamId: p.teamId, patch: p.patch })).team),
   'teams.delete': async (p) => {
-    const r = await request('teams.delete', { id: p.id });
-    ops.teams = removeById(ops.teams, p.id);
+    const r = await request('teams.delete', { teamId: p.teamId });
+    ops.teams = removeById(ops.teams, p.teamId);
     publishOperations({ teams: ops.teams });
     return r;
   },
   // Each role becomes a delegated session; without a parent session they are listed like any other session.
   'teams.start': async (p) => {
     const r = await request('teams.start', {
-      id: p.id,
+      teamId: p.teamId,
       task: p.task,
       ...(p.cwd ? { cwd: p.cwd } : {}),
       ...(p.profileId ? { profileId: p.profileId } : {}),
@@ -602,7 +603,7 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
     await refreshSessions();
     return links;
   },
-  // Scheduler params pass through unchanged; the scheduled tasks screen and the gateway share their shape.
+  // Scheduler params pass through unchanged: `{ task }` to create, `{ taskId, patch }` to update, `{ taskId }` otherwise.
   'scheduler.list': async (p) => {
     const r = await request('scheduler.list', p);
     ops.tasks = r.tasks;
@@ -620,9 +621,10 @@ const calls: Record<string, (p: Json) => Promise<Json>> = {
     publishOperations({ tasks: ops.tasks });
     return r.task;
   },
-  // The gateway's usage requests are not settled yet; screens get the raw result.
-  'usage.list': async (p) => saveUsage(await request('usage.list', p)),
-  'usage.update': async (p) => saveUsage(await request('usage.update', p)),
+  // Both answer `{ usage: UsageReport }`; an update is also broadcast to every client as an `operations` message.
+  'usage.list': async (p) => saveUsage((await request('usage.list', p.refresh ? { refresh: true } : {})).usage),
+  'usage.update': async (p) =>
+    saveUsage((await request('usage.update', { harnessId: p.harnessId, ...(p.manual !== undefined ? { manual: p.manual } : {}), ...(p.reset ? { reset: true } : {}) })).usage),
   'notifications.list': (p) => request('notifications.list', p),
   'notifications.read': (p) => request('notifications.read', p),
   'notifications.clear': () => request('notifications.clear'),
@@ -693,7 +695,7 @@ function saveTask(task: ScheduledTask) {
   return task;
 }
 
-function saveUsage(usage: Json) {
+function saveUsage(usage: UsageReport) {
   ops.usage = usage;
   publishOperations({ usage });
   return usage;
@@ -813,8 +815,11 @@ function onMessage(msg: Json) {
     case 'orchestration_link':
       return upsertLink(msg.link);
     case 'scheduler_state':
-      ops.tasks = upsertById(ops.tasks, msg.task);
+      ops.tasks = msg.event === 'deleted' ? removeById(ops.tasks, msg.task.id) : upsertById(ops.tasks, msg.task);
       return publishOperations({ tasks: ops.tasks, task: msg.task, event: msg.event });
+    case 'operations':
+      if (msg.usage) saveUsage(msg.usage);
+      return;
     case 'task_output':
     case 'task_done':
       for (const fn of taskListeners) fn(msg);
