@@ -134,6 +134,10 @@
           <span><b>Profiles</b><small>Folder, harness, models and instructions for new sessions</small></span>
           <Icon name="chevron" size={16} />
         </button>
+        <button class="linkrow press" onclick={() => go('#/teams')}>
+          <span><b>Teams</b><small>Roles that work on one task together</small></span>
+          <Icon name="chevron" size={16} />
+        </button>
       </div>
 
       <div class="label">Harness accounts</div>

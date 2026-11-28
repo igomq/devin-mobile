@@ -10,6 +10,7 @@
   import Accounts from '#lib/components/Accounts.svelte';
   import Subagents from '#lib/components/Subagents.svelte';
   import Profiles from '#lib/components/Profiles.svelte';
+  import Teams from '#lib/components/Teams.svelte';
 
   // Stay in the app while reconnecting; only fall back to pairing when there is nothing to connect to.
   let paired = $derived(configured() && conn.status !== 'unauthorized' && (conn.info !== null || conn.status !== 'offline'));
@@ -40,6 +41,8 @@
         <Subagents />
       {:else if route.name === 'profiles'}
         <Profiles />
+      {:else if route.name === 'teams'}
+        <Teams />
       {:else if split}
         <div class="screen placeholder">
           <div class="empty">
