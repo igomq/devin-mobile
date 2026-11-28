@@ -164,7 +164,7 @@ export class UsageCenter {
         harnessId: h.id, name: h.name, custom: h.custom, enabled: h.enabled, installed: h.installed, version: h.version,
         auth: { status: h.auth.status, method: h.auth.method, checkedAt: h.auth.checkedAt, expiresAt: h.auth.expiresAt, detail: h.auth.detail },
         accountLabel: label ?? manual?.accountLabel ?? null, plan: plan ?? manual?.plan ?? null, usage, windows, reset,
-        credit: official?.overageBalance != null ? String(official.overageBalance) : manual?.credit ?? null, note: manual?.note ?? null, preferredUseCase: manual?.preferredUseCase ?? null,
+        credit: manual?.credit ?? null, note: manual?.note ?? null, preferredUseCase: manual?.preferredUseCase ?? null,
         manual: manual ? { accountLabel: manual.accountLabel ?? null, plan: manual.plan ?? null, credit: manual.credit ?? null, note: manual.note ?? null, preferredUseCase: manual.preferredUseCase ?? null, usagePercent: manual.usagePercent ?? null, tokens: manual.tokens ? tokenValues(manual.tokens) : null, resetAt: manual.resetAt ?? null } : null,
         sources: { accountLabel: label ? 'official' : manual?.accountLabel ? 'manual' : 'none', plan: plan ? 'official' : manual?.plan ? 'manual' : 'none', usage: source, reset: reset?.source ?? 'none' },
         sessions: { count: ownSessions.length, running: ownSessions.filter((s) => s.status === 'running' || s.status === 'awaiting_permission').length, tokens: totals, lastUsedAt: ownSessions[0]?.updatedAt ?? null },

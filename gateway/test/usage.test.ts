@@ -78,10 +78,11 @@ test('official quota wins over manual values, chooses nearest upcoming reset, an
       { id: 'expired', label: 'Old', remainingPercent: 60, resetsAt: '2000-01-01T00:00:00.000Z' },
     ] };
     const center = s.center();
+    assert.equal((await center.report()).harnesses[0].credit, null);
     center.update('devin', { plan: 'Manual', credit: 'manual', usagePercent: 90, resetAt: '2098-01-01T00:00:00Z' }, false);
     const first = (await center.report()).harnesses[0];
     assert.equal(first.plan, 'Official');
-    assert.equal(first.credit, '3.5');
+    assert.equal(first.credit, 'manual');
     assert.deepEqual(first.usage, { kind: 'percent', percent: 25, remaining: true, tokens: null, source: 'official' });
     assert.deepEqual(first.reset, { at: '2099-01-01T00:00:00.000Z', source: 'official', windowId: 'daily', label: 'Daily' });
     s.account.usage = null;
