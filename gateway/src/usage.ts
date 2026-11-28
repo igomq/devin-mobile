@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { formatScopedSessionId, type HarnessRegistry } from './harnesses/registry.js';
 import type { DevinUsage } from './harnesses/devin-usage.js';
 import type { SessionSummary } from './sessions.js';
@@ -111,10 +112,13 @@ export class UsageCenter {
     if (!this.registry.get(id)) throw new Error(`Unknown harness: ${id}`);
     if (reset !== undefined && typeof reset !== 'boolean') throw new Error('reset must be a boolean');
     // Validate even if reset is set; a reset takes precedence over a valid patch.
-    const merged = manual === undefined ? { ...(this.records.get(id)?.manual ?? {}) } : mergeManual(this.records.get(id)?.manual ?? {}, manual);
+    const previous = this.records.get(id)?.manual ?? {};
+    const merged = manual === undefined ? previous : mergeManual(previous, manual);
+    const result = reset === true ? {} : merged;
+    if (isDeepStrictEqual(previous, result)) return;
     const next = new Map(this.records);
-    if (reset === true || !Object.keys(merged).length) next.delete(id);
-    else next.set(id, { manual: merged, updatedAt: new Date().toISOString() });
+    if (Object.keys(result).length) next.set(id, { manual: result, updatedAt: new Date().toISOString() });
+    else next.delete(id);
     const tmp = `${this.file}.${randomUUID()}.tmp`;
     try {
       writeFileSync(tmp, JSON.stringify({ version: 1, harnesses: Object.fromEntries(next) }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
@@ -159,7 +163,6 @@ export class UsageCenter {
         : { kind: 'none', percent: null, remaining: false, tokens: null, source };
       const reset = window ? { at: window.resetsAt!, source: 'official', windowId: window.id, label: window.label } : manual?.resetAt ? { at: manual.resetAt, source: 'manual', windowId: null, label: null } : null;
       const lastDelegationAt = ownLinks.reduce((latest, link) => Math.max(latest, link.updatedAt), 0);
-      const timestamps = [record?.updatedAt ? Date.parse(record.updatedAt) : 0, h.auth.checkedAt ? Date.parse(h.auth.checkedAt) : 0, ownSessions[0]?.updatedAt ?? 0, lastDelegationAt].filter(Number.isFinite);
       return {
         harnessId: h.id, name: h.name, custom: h.custom, enabled: h.enabled, installed: h.installed, version: h.version,
         auth: { status: h.auth.status, method: h.auth.method, checkedAt: h.auth.checkedAt, expiresAt: h.auth.expiresAt, detail: h.auth.detail },
@@ -169,7 +172,7 @@ export class UsageCenter {
         sources: { accountLabel: label ? 'official' : manual?.accountLabel ? 'manual' : 'none', plan: plan ? 'official' : manual?.plan ? 'manual' : 'none', usage: source, reset: reset?.source ?? 'none' },
         sessions: { count: ownSessions.length, running: ownSessions.filter((s) => s.status === 'running' || s.status === 'awaiting_permission').length, tokens: totals, lastUsedAt: ownSessions[0]?.updatedAt ?? null },
         delegations: { count: ownLinks.length, running: ownLinks.filter((l) => l.status === 'running').length, done: ownLinks.filter((l) => l.status === 'done').length, error: ownLinks.filter((l) => l.status === 'error').length, lastAt: ownLinks.length ? lastDelegationAt : null },
-        updatedAt: Math.max(0, ...timestamps) ? new Date(Math.max(...timestamps)).toISOString() : null,
+        updatedAt: record?.updatedAt ?? null,
       };
     });
     return { generatedAt: new Date().toISOString(), harnesses, sessions: sessions.slice(0, 100), delegations: links.slice(0, 100).map(summarizeLink), officialError };

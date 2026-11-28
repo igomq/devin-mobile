@@ -147,3 +147,89 @@ test('state events accumulate session counters and delegation summaries are orde
     assert.equal((await center.report()).harnesses[1].sessions.count, 104);
   } finally { s.cleanup(); }
 });
+
+test('updatedAt tracks persisted manual edits through activity, no-op updates and clears', async () => {
+  const s = setup();
+  try {
+    const old = '2001-01-01T00:00:00.000Z';
+    writeFileSync(join(s.dir, 'usage.json'), JSON.stringify({
+      harnesses: { alpha: { updatedAt: old, manual: { note: 'prior' } } },
+    }));
+    const center = s.center();
+    const entry = async () => (await center.report()).harnesses[1];
+    const session = new Session('busy', '/tmp', 'alpha');
+    session.updatedAt = Date.parse('2099-01-01T00:00:00Z');
+    s.registry.emit('state', session.summary());
+    assert.equal((await entry()).updatedAt, old);
+    for (const noChange of [undefined, {}, { tokens: {} }, { note: 'prior' }, { plan: null }]) {
+      center.update('alpha', noChange, false);
+      assert.equal((await entry()).updatedAt, old);
+    }
+    center.update('alpha', { note: 'edited' }, false);
+    const edited = (await entry()).updatedAt;
+    assert.ok(edited && Date.parse(edited) > Date.parse(old));
+    assert.equal(edited, JSON.parse(readFileSync(join(s.dir, 'usage.json'), 'utf8')).harnesses.alpha.updatedAt);
+    assert.equal((await s.center().report()).harnesses[1].updatedAt, edited);
+    for (const clear of [{ note: '' }, null, undefined]) {
+      center.update('alpha', { note: 'edited' }, false);
+      center.update('alpha', clear, clear === undefined);
+      assert.equal((await entry()).updatedAt, null);
+    }
+  } finally { s.cleanup(); }
+});
+
+test('nested manual token edits persist independently for each harness', async () => {
+  const s = setup();
+  try {
+    let center = s.center();
+    center.update('devin', { tokens: { input: 8, output: 9, cachedRead: 4 } }, false);
+    const check = async (tokens: { input: number; output: number; cachedRead: number; total: number } | null, cleared = false) => {
+      center = s.center();
+      const [devin, alpha] = (await center.report()).harnesses;
+      assert.deepEqual(devin.manual?.tokens, { input: 8, output: 9, cachedRead: 4, total: 17 });
+      assert.deepEqual(alpha.usage.tokens, tokens);
+      if (cleared) assert.equal(alpha.manual, null);
+      else {
+        assert.equal(alpha.manual?.note, 'keep');
+        assert.deepEqual(alpha.manual.tokens, tokens);
+      }
+    };
+    center.update('alpha', { note: 'keep', tokens: { input: 12, output: 5, cachedRead: 7 } }, false);
+    await check({ input: 12, output: 5, cachedRead: 7, total: 17 });
+    center.update('alpha', { tokens: { output: 11 } }, false);
+    await check({ input: 12, output: 11, cachedRead: 7, total: 23 });
+    center.update('alpha', { tokens: { input: null, cachedRead: '' } }, false);
+    await check({ input: 0, output: 11, cachedRead: 0, total: 11 });
+    center.update('alpha', { tokens: { output: '' } }, false);
+    await check(null);
+    for (const clear of [null, '']) {
+      center.update('alpha', { tokens: { cachedRead: 7 } }, false);
+      center.update('alpha', { tokens: clear }, false);
+      await check(null);
+    }
+    for (const reset of [false, true]) {
+      center.update('alpha', { tokens: { input: 1 } }, false);
+      center.update('alpha', reset ? undefined : null, reset);
+      await check(null, true);
+    }
+  } finally { s.cleanup(); }
+});
+
+test('usage auth mirrors all five registry auth fields, including expiry and missing values', async () => {
+  const s = setup();
+  try {
+    const adapter = s.registry.require('devin');
+    const info = adapter.info();
+    const center = s.center();
+    for (const auth of [
+      { status: 'expired', method: 'OAuth', checkedAt: '2031-01-02T00:00:00Z', expiresAt: '2031-01-01T00:00:00Z', detail: 'Login expired' },
+      { status: 'unknown', method: null, checkedAt: null, expiresAt: null, detail: null },
+    ] as const) {
+      adapter.info = () => ({ ...info, auth: { ...auth, account: [] } });
+      const { account, ...expected } = s.registry.list()[0].auth;
+      const entry = (await center.report()).harnesses[0];
+      assert.deepEqual(entry.auth, expected);
+      assert.equal(entry.updatedAt, null);
+    }
+  } finally { s.cleanup(); }
+});
